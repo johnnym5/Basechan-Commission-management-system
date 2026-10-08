@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useCommissionRates } from '../hooks/useCommissionRates';
@@ -16,6 +16,7 @@ import { EditRateModal } from './EditRateModal';
 import { ExcelUploadModal } from './ExcelUploadModal';
 import { DeleteAllModal } from './DeleteAllModal';
 import { MigrateIntakeModal } from './MigrateIntakeModal';
+import { LegalModal } from './LegalModal';
 import { CommandPaletteModal } from './CommandPaletteModal';
 import { PageSkeleton } from './PageSkeleton';
 import {
@@ -37,6 +38,63 @@ import {
   CheckCircle2,
   WifiOff,
 } from 'lucide-react';
+
+// Interactive Icon Button with Floating Hover/Long-Press Tooltip
+const IconButtonWithTooltip: React.FC<{
+  title: string;
+  onClick: () => void;
+  icon: React.ReactNode;
+  active?: boolean;
+  activeClass?: string;
+  inactiveClass?: string;
+  className?: string;
+}> = ({ title, onClick, icon, active, activeClass, inactiveClass, className }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Mobile long-press handler
+  const handleTouchStart = () => {
+    touchTimerRef.current = setTimeout(() => {
+      setShowTooltip(true);
+    }, 350); // 350ms touch-and-hold
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+    }
+    setTimeout(() => setShowTooltip(false), 1200);
+  };
+
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        onClick={onClick}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        title={title}
+        className={`p-2 rounded-xl transition cursor-pointer flex items-center justify-center relative ${
+          active
+            ? activeClass || 'bg-[#F7F4EF] dark:bg-[#0E1526] text-amber-600 dark:text-amber-400 shadow-2xs font-bold'
+            : inactiveClass || 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
+        } ${className || ''}`}
+      >
+        {icon}
+      </button>
+
+      {/* Floating Animated Tooltip Popover on Hover or Long Press */}
+      {showTooltip && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-950 font-extrabold text-[10px] rounded-lg shadow-xl whitespace-nowrap z-[100] animate-in fade-in zoom-in-95 duration-150 pointer-events-none">
+          {title}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-900 dark:border-t-slate-100" />
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const AppLayout: React.FC = () => {
   const { user, role, signOut } = useAuth();
@@ -61,7 +119,9 @@ export const AppLayout: React.FC = () => {
 
   // Admin "View As" role preview state
   const [viewAsRole, setViewAsRole] = useState<UserRole>('ADMIN');
-  const [isViewAsMenuOpen, setIsViewAsMenuOpen] = useState<boolean>(false);
+
+  // Header User Profile Menu Dropdown state
+  const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState<boolean>(false);
 
   // Effective role used across views and sidebar
   const effectiveRole = role === 'ADMIN' ? viewAsRole : role;
@@ -82,6 +142,7 @@ export const AppLayout: React.FC = () => {
   const [isAddRateModalOpen, setIsAddRateModalOpen] = useState<boolean>(false);
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState<boolean>(false);
   const [isMigrateModalOpen, setIsMigrateModalOpen] = useState<boolean>(false);
+  const [isLegalModalOpen, setIsLegalModalOpen] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
   const [bannerNotice, setBannerNotice] = useState<string | null>(null);
 
@@ -126,7 +187,7 @@ export const AppLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/60 dark:bg-slate-950 flex font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full">
+    <div className="min-h-screen bg-[#FDFBF7] dark:bg-[#18181B] flex font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full overflow-x-hidden">
       <Sidebar 
         currentPage={currentPage} 
         setCurrentPage={setCurrentPage} 
@@ -134,10 +195,8 @@ export const AppLayout: React.FC = () => {
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
         effectiveRole={effectiveRole}
+        onOpenLegal={() => setIsLegalModalOpen(true)}
       />
-
-      {/* Desktop Fixed Sidebar Spacer */}
-      <div className="hidden lg:block shrink-0 transition-all duration-200 w-18 hover:w-64" />
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Offline Connection Drop Banner */}
@@ -148,7 +207,8 @@ export const AppLayout: React.FC = () => {
           </div>
         )}
 
-        <header className="bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 transition-colors">
+        {/* Header - 2nd Color (Secondary Dark Blue #0E1526) in Dark Mode */}
+        <header className="bg-[#F7F4EF]/95 dark:bg-[#0E1526]/90 backdrop-blur-md border-b border-slate-200 dark:border-[#222F43] sticky top-0 z-30 transition-colors">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button 
@@ -161,7 +221,7 @@ export const AppLayout: React.FC = () => {
               <img
                 src="/logo.png"
                 alt="Basechan Logo"
-                className="w-9 h-9 rounded-full object-cover hidden sm:block shadow-xs border border-amber-400/30"
+                className="w-9 h-9 rounded-full object-cover hidden sm:block shadow-xs border border-amber-400/40"
               />
               <div className="hidden sm:block">
                 <h1 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight">
@@ -180,206 +240,203 @@ export const AppLayout: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 sm:gap-2.5">
-              {/* Admin-only header actions */}
-              {role === 'ADMIN' && effectiveRole === 'ADMIN' && (
-                <>
-                  <button
-                    onClick={() => setIsMigrateModalOpen(true)}
-                    title="Migrate / Clone Intake Sheet"
-                    className="inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-xs transition cursor-pointer min-h-[38px]"
-                  >
-                    <Copy className="w-4 h-4 shrink-0" />
-                    <span className="hidden sm:inline">Migrate Sheet</span>
-                  </button>
+            {/* HEADER RIGHT: User Profile FAB Button */}
+            <div className="relative">
+              <button
+                onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
+                aria-label="Toggle user profile menu"
+                className="inline-flex items-center gap-1.5 sm:gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-full bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] transition cursor-pointer shadow-2xs group min-h-[40px] select-none"
+              >
+                {/* User Avatar Photo or Circle Initial */}
+                {user?.photoURL ? (
+                  <img
+                    src={user.photoURL}
+                    alt={user.displayName || 'User'}
+                    className="w-7 h-7 sm:w-6 sm:h-6 rounded-full object-cover border border-slate-300 dark:border-slate-600 shrink-0"
+                  />
+                ) : (
+                  <div className="w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-blue-600 dark:bg-amber-400 text-white dark:text-slate-950 font-bold text-xs sm:text-[10px] flex items-center justify-center shrink-0">
+                    {(user?.email || 'U').charAt(0).toUpperCase()}
+                  </div>
+                )}
 
-                  <button
-                    onClick={() => setIsUploadModalOpen(true)}
-                    title="Import Excel Workbook"
-                    className="inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-xs transition cursor-pointer min-h-[38px]"
-                  >
-                    <Upload className="w-4 h-4 shrink-0" />
-                    <span className="hidden sm:inline">Import Excel</span>
-                  </button>
+                {/* Email Address & Role Badge (Hidden on mobile <sm, Visible on sm+) */}
+                <div className="hidden sm:flex items-center gap-1.5 text-left">
+                  <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 max-w-[140px] sm:max-w-[200px] truncate">
+                    {user?.email}
+                  </span>
 
-                  <button
-                    onClick={() => setIsAddRateModalOpen(true)}
-                    title="Add Rate / Intake"
-                    className="inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-2xs transition cursor-pointer min-h-[38px]"
-                  >
-                    <PlusCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span className="hidden sm:inline">Add Rate</span>
-                  </button>
-
-                  <button
-                    onClick={() => setCurrentPage(currentPage === 'Compare Rates' ? 'Dashboard' : 'Compare Rates')}
-                    title="Compare Rates"
-                    className={`inline-flex items-center justify-center gap-1.5 border text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-2xs transition cursor-pointer min-h-[38px] ${
-                      currentPage === 'Compare Rates'
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300'
-                        : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider ${
+                      role === 'ADMIN'
+                        ? 'bg-amber-100 dark:bg-amber-400/15 text-amber-800 dark:text-amber-400 border border-amber-300 dark:border-amber-400/30'
+                        : role === 'STAFF'
+                        ? 'bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-300'
                     }`}
                   >
-                    <ArrowRightLeft className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span className="hidden sm:inline">Compare</span>
-                  </button>
-                </>
-              )}
-
-              {/* Theme Switcher Button */}
-              <div className="flex items-center bg-slate-100 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200 dark:border-slate-700/80">
-                <button
-                  onClick={() => setTheme('light')}
-                  title="Light Theme"
-                  className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
-                    theme === 'light'
-                      ? 'bg-white dark:bg-slate-700 text-amber-500 shadow-2xs font-bold'
-                      : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                  }`}
-                >
-                  <Sun className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setTheme('dark')}
-                  title="Dark Theme"
-                  className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
-                    theme === 'dark'
-                      ? 'bg-slate-900 text-indigo-400 shadow-2xs font-bold'
-                      : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                  }`}
-                >
-                  <Moon className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setTheme('system')}
-                  title="System Theme"
-                  className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
-                    theme === 'system'
-                      ? 'bg-white dark:bg-slate-700 text-emerald-500 shadow-2xs font-bold'
-                      : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                  }`}
-                >
-                  <Monitor className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {/* User Profile & Interactive Role Badge Menu */}
-              <div className="flex items-center gap-3 pl-3 border-l border-slate-200 dark:border-slate-800">
-                <div className="text-right hidden sm:block">
-                  <div className="flex items-center justify-end gap-1.5">
-                    <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 leading-none">
-                      {user?.displayName || user?.email?.split('@')[0]}
-                    </p>
-
-                    {/* Interactive Admin Badge or Standard Badge */}
-                    <div className="relative">
-                      {role === 'ADMIN' ? (
-                        <button
-                          onClick={() => setIsViewAsMenuOpen(!isViewAsMenuOpen)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-100 dark:bg-rose-950/60 hover:bg-rose-200 dark:hover:bg-rose-900/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition cursor-pointer shadow-2xs"
-                          title="Click to change View As role mode"
-                        >
-                          <ShieldCheck className="w-3 h-3 text-rose-700 dark:text-rose-400" />
-                          <span>
-                            {viewAsRole === 'ADMIN'
-                              ? 'ADMIN'
-                              : `ADMIN (${viewAsRole === 'STAFF' ? 'Staff View' : 'Agent View'})`}
-                          </span>
-                          <ChevronDown className="w-3 h-3 text-rose-600 dark:text-rose-400 ml-0.5" />
-                        </button>
-                      ) : (
-                        <span
-                          className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                            role === 'STAFF'
-                              ? 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300'
-                              : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
-                          }`}
-                        >
-                          {role === 'STAFF' && <UserCheck className="w-3 h-3" />}
-                          {role === 'AGENT' && <UserX className="w-3 h-3" />}
-                          {role}
-                        </span>
-                      )}
-
-                      {/* Dropdown Popover for "View As" */}
-                      {isViewAsMenuOpen && role === 'ADMIN' && (
-                        <div
-                          className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-2 space-y-1 animate-in fade-in zoom-in-95"
-                          onMouseLeave={() => setIsViewAsMenuOpen(false)}
-                        >
-                          <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                            View System As:
-                          </div>
-                          <button
-                            onClick={() => {
-                              handleViewAsChange('ADMIN');
-                              setIsViewAsMenuOpen(false);
-                            }}
-                            className={`w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-lg transition cursor-pointer ${
-                              viewAsRole === 'ADMIN'
-                                ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 font-bold'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                            }`}
-                          >
-                            <span className="flex items-center gap-2">
-                              <ShieldCheck className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                              Admin View
-                            </span>
-                            {viewAsRole === 'ADMIN' && <span className="text-rose-600 dark:text-rose-400 font-bold">✓</span>}
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              handleViewAsChange('STAFF');
-                              setIsViewAsMenuOpen(false);
-                            }}
-                            className={`w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-lg transition cursor-pointer ${
-                              viewAsRole === 'STAFF'
-                                ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-800 dark:text-indigo-300 font-bold'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                            }`}
-                          >
-                            <span className="flex items-center gap-2">
-                              <UserCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                              View as Staff
-                            </span>
-                            {viewAsRole === 'STAFF' && <span className="text-indigo-600 dark:text-indigo-400 font-bold">✓</span>}
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              handleViewAsChange('AGENT');
-                              setIsViewAsMenuOpen(false);
-                            }}
-                            className={`w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-lg transition cursor-pointer ${
-                              viewAsRole === 'AGENT'
-                                ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-bold'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                            }`}
-                          >
-                            <span className="flex items-center gap-2">
-                              <UserX className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                              View as Agent
-                            </span>
-                            {viewAsRole === 'AGENT' && <span className="text-amber-600 dark:text-amber-400 font-bold">✓</span>}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-none mt-1">
-                    {user?.email}
-                  </p>
+                    {effectiveRole}
+                  </span>
                 </div>
 
-                <button
-                  onClick={signOut}
-                  title="Sign out"
-                  className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-transform duration-150" />
+              </button>
+
+              {/* FAB Dropdown Menu (Icon-Only Toolbars with Tooltips on Hover/Long-Press) */}
+              {isHeaderMenuOpen && (
+                <div
+                  className="absolute right-0 mt-2 w-64 bg-[#F7F4EF] dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] rounded-2xl shadow-2xl z-50 p-2.5 space-y-2.5 animate-dropdown-enter text-xs select-none"
+                  onMouseLeave={() => setIsHeaderMenuOpen(false)}
                 >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
+                  {/* Section 1: Compact User Profile Card */}
+                  <div className="p-2.5 bg-white dark:bg-[#18181B] rounded-xl flex items-center justify-between border border-slate-200/80 dark:border-[#222F43]">
+                    <div className="min-w-0 pr-2">
+                      <p className="font-extrabold text-slate-900 dark:text-slate-100 truncate text-xs">{user?.displayName || 'User'}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{user?.email}</p>
+                    </div>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-blue-100 dark:bg-amber-400/15 text-blue-800 dark:text-amber-400 shrink-0 border border-transparent dark:border-amber-400/30">
+                      {role}
+                    </span>
+                  </div>
+
+                  {/* Section 2: Management Actions (Icon-Only Horizontal Row) */}
+                  {role === 'ADMIN' && effectiveRole === 'ADMIN' && (
+                    <div className="p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43] flex items-center justify-around">
+                      <IconButtonWithTooltip
+                        title="Migrate / Clone Intake Sheet"
+                        onClick={() => {
+                          setIsMigrateModalOpen(true);
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        icon={<Copy className="w-4 h-4 text-blue-600 dark:text-amber-400" />}
+                      />
+
+                      <IconButtonWithTooltip
+                        title="Import Excel Workbook"
+                        onClick={() => {
+                          setIsUploadModalOpen(true);
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        icon={<Upload className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />}
+                      />
+
+                      <IconButtonWithTooltip
+                        title="Add Rate / Intake"
+                        onClick={() => {
+                          setIsAddRateModalOpen(true);
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        icon={<PlusCircle className="w-4 h-4 text-blue-600 dark:text-amber-400" />}
+                      />
+
+                      <IconButtonWithTooltip
+                        title="Compare Rates"
+                        onClick={() => {
+                          setCurrentPage(currentPage === 'Compare Rates' ? 'Dashboard' : 'Compare Rates');
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        icon={<ArrowRightLeft className="w-4 h-4 text-blue-600 dark:text-amber-400" />}
+                      />
+                    </div>
+                  )}
+
+                  {/* Section 3: Admin View Mode Switcher (Icon-Only Segmented Control) */}
+                  {role === 'ADMIN' && (
+                    <div className="grid grid-cols-3 gap-1 p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43]">
+                      <IconButtonWithTooltip
+                        title="Preview as ADMIN"
+                        onClick={() => {
+                          handleViewAsChange('ADMIN');
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        active={viewAsRole === 'ADMIN'}
+                        icon={<ShieldCheck className="w-4 h-4" />}
+                      />
+
+                      <IconButtonWithTooltip
+                        title="Preview as STAFF"
+                        onClick={() => {
+                          handleViewAsChange('STAFF');
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        active={viewAsRole === 'STAFF'}
+                        activeClass="bg-[#F7F4EF] dark:bg-[#0E1526] text-blue-600 dark:text-blue-400 shadow-2xs font-bold"
+                        icon={<UserCheck className="w-4 h-4" />}
+                      />
+
+                      <IconButtonWithTooltip
+                        title="Preview as AGENT"
+                        onClick={() => {
+                          handleViewAsChange('AGENT');
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        active={viewAsRole === 'AGENT'}
+                        icon={<UserX className="w-4 h-4" />}
+                      />
+                    </div>
+                  )}
+
+                  {/* Section 4: Appearance Theme (Icon-Only Segmented Control) */}
+                  <div className="grid grid-cols-3 gap-1 p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43]">
+                    <IconButtonWithTooltip
+                      title="Light Mode"
+                      onClick={() => {
+                        setTheme('light');
+                        setIsHeaderMenuOpen(false);
+                      }}
+                      active={theme === 'light'}
+                      activeClass="bg-[#F7F4EF] text-amber-500 shadow-2xs"
+                      icon={<Sun className="w-4 h-4" />}
+                    />
+
+                    <IconButtonWithTooltip
+                      title="Dark Mode"
+                      onClick={() => {
+                        setTheme('dark');
+                        setIsHeaderMenuOpen(false);
+                      }}
+                      active={theme === 'dark'}
+                      activeClass="bg-[#0E1526] text-amber-400 shadow-2xs"
+                      icon={<Moon className="w-4 h-4" />}
+                    />
+
+                    <IconButtonWithTooltip
+                      title="System Theme"
+                      onClick={() => {
+                        setTheme('system');
+                        setIsHeaderMenuOpen(false);
+                      }}
+                      active={theme === 'system'}
+                      activeClass="bg-[#F7F4EF] dark:bg-[#0E1526] text-emerald-500 shadow-2xs"
+                      icon={<Monitor className="w-4 h-4" />}
+                    />
+                  </div>
+
+                  <hr className="my-1 border-slate-200 dark:border-[#222F43]" />
+
+                  {/* Section 5: Bottom Utility Actions (Icon-Only Row) */}
+                  <div className="p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43] flex items-center justify-around">
+                    <IconButtonWithTooltip
+                      title="Trust & Privacy Center"
+                      onClick={() => {
+                        setIsLegalModalOpen(true);
+                        setIsHeaderMenuOpen(false);
+                      }}
+                      icon={<ShieldCheck className="w-4 h-4 text-blue-600 dark:text-amber-400" />}
+                    />
+
+                    <IconButtonWithTooltip
+                      title="Sign Out"
+                      onClick={() => {
+                        signOut();
+                        setIsHeaderMenuOpen(false);
+                      }}
+                      icon={<LogOut className="w-4 h-4 text-rose-600 dark:text-rose-400" />}
+                      inactiveClass="text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -387,11 +444,11 @@ export const AppLayout: React.FC = () => {
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
           {/* Active Preview Mode Banner for Admin */}
           {role === 'ADMIN' && viewAsRole !== 'ADMIN' && (
-            <div className="bg-indigo-600 dark:bg-indigo-900 text-white text-xs px-4 py-3 rounded-xl shadow-md flex items-center justify-between animate-in fade-in">
+            <div className="bg-blue-600 dark:bg-[#0E1526] border border-blue-500 dark:border-amber-400/50 text-white text-xs px-4 py-3 rounded-xl shadow-md flex items-center justify-between animate-in fade-in">
               <div className="flex items-center gap-2">
-                <Eye className="w-4 h-4 text-indigo-200" />
+                <Eye className="w-4 h-4 text-blue-200 dark:text-amber-400" />
                 <span className="font-semibold">
-                  PREVIEW MODE: You are currently viewing the system as a <span className="underline font-bold uppercase">{viewAsRole}</span> user.
+                  PREVIEW MODE: Viewing system as <span className="underline font-bold uppercase">{viewAsRole}</span>.
                 </span>
               </div>
               <button
@@ -405,7 +462,7 @@ export const AppLayout: React.FC = () => {
           )}
 
           {bannerNotice && (
-            <div className="bg-emerald-500 text-white text-xs px-4 py-3 rounded-xl shadow-md flex items-center justify-between animate-in fade-in duration-200">
+            <div className="bg-emerald-600 text-white text-xs px-4 py-3 rounded-xl shadow-md flex items-center justify-between animate-in fade-in duration-200">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-100" />
                 <span className="font-medium">{bannerNotice}</span>
@@ -454,6 +511,12 @@ export const AppLayout: React.FC = () => {
           </div>
         </main>
       </div>
+
+      {/* Legal Trust Center Modal */}
+      <LegalModal
+        isOpen={isLegalModalOpen}
+        onClose={() => setIsLegalModalOpen(false)}
+      />
 
       {/* Admin-only modals */}
       {role === 'ADMIN' && (

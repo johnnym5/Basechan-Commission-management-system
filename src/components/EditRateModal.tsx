@@ -133,24 +133,24 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/80 dark:bg-slate-950/80 backdrop-blur-md animate-backdrop-fade">
+      <div className="bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 rounded-3xl shadow-2xl max-w-md sm:max-w-lg w-full border border-slate-200 dark:border-[#222F43] overflow-hidden animate-modal-pop">
+        <div className="px-5 py-4 bg-slate-50 dark:bg-[#18181B] border-b border-slate-200 dark:border-[#222F43] flex items-center justify-between">
           <div>
-            <h3 className="font-semibold text-slate-800 text-lg">Edit Commission Rate</h3>
-            <p className="text-xs text-slate-500">{rate.universityName}</p>
+            <h3 className="font-extrabold text-slate-900 dark:text-slate-100 text-base sm:text-lg">Edit Commission Rate</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{rate.universityName}</p>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-200 transition"
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSave} className="p-6 space-y-4">
+        <form onSubmit={handleSave} className="p-5 sm:p-6 space-y-4 text-xs">
           {error && (
-            <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 flex items-start gap-2 text-rose-700 text-xs">
+            <div className="bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 rounded-xl p-3 flex items-start gap-2 text-rose-700 dark:text-rose-300 text-xs">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
               <span>{error}</span>
             </div>
@@ -158,18 +158,18 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
 
           {/* School Guidance Selector */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               School Guidance / Status (Visible to Staff & Agents)
             </label>
             <select
               value={guidance}
               onChange={(e) => setGuidance(e.target.value as SchoolGuidance)}
-              className={`w-full px-3 py-2 text-xs sm:text-sm font-semibold border rounded-lg focus:outline-hidden focus:ring-2 ${
+              className={`w-full px-3 py-2 text-xs sm:text-sm font-semibold border rounded-xl focus:outline-hidden focus:ring-2 ${
                 guidance === 'FOCUS'
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
                   : guidance === 'DO_NOT_USE'
-                  ? 'bg-rose-50 border-rose-300 text-rose-800'
-                  : 'bg-white border-slate-300 text-slate-800'
+                  ? 'bg-rose-50 dark:bg-rose-950/80 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-300'
+                  : 'bg-white dark:bg-[#18181B] border-slate-300 dark:border-[#222F43] text-slate-800 dark:text-slate-200'
               }`}
             >
               <option value="FOCUS">🟢 Focus / Preferred (In the Green)</option>
@@ -178,43 +178,43 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
                 Aggregator / Route
               </label>
               <input
                 type="text"
                 value={aggregator}
                 onChange={(e) => setAggregator(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 font-semibold"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
                 Intake
               </label>
               <input
                 type="text"
                 value={intake}
                 onChange={(e) => setIntake(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 font-semibold"
                 required
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
                 Study Level
               </label>
               <select
                 value={studyLevel}
                 onChange={(e) => setStudyLevel(e.target.value as StudyLevel)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 font-semibold"
               >
                 <option value="UG">Undergraduate (UG)</option>
                 <option value="PG">Postgraduate (PG)</option>
@@ -223,13 +223,13 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
                 Pricing Type
               </label>
               <select
                 value={isFlatFee ? 'flat' : 'percent'}
                 onChange={(e) => setIsFlatFee(e.target.value === 'flat')}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 font-semibold"
               >
                 <option value="percent">Percentage (%)</option>
                 <option value="flat">Flat Fee (£)</option>
@@ -237,9 +237,9 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 pt-2 border-t border-slate-100 dark:border-[#222F43]">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
                 Master Rate (Incoming {isFlatFee ? '£' : '%'})
               </label>
               <input
@@ -247,13 +247,13 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
                 step="0.01"
                 value={masterRate}
                 onChange={(e) => setMasterRate(parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-mono"
+                className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 font-mono font-bold"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
                 Agent Rate (Outgoing {isFlatFee ? '£' : '%'})
               </label>
               <input
@@ -261,24 +261,24 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
                 step="0.01"
                 value={agentRate}
                 onChange={(e) => setAgentRate(parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-mono"
+                className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 font-mono font-bold"
                 required
               />
             </div>
           </div>
 
           {/* Auto-calculated DIFF preview */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-600">
+          <div className="bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43] rounded-2xl p-3.5 flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
               Profit Margin (DIFF = Master - Agent)
             </span>
             <span
-              className={`text-lg font-bold font-mono ${
+              className={`text-base sm:text-lg font-black font-mono ${
                 diffMargin > 0
-                  ? 'text-emerald-600'
+                  ? 'text-emerald-600 dark:text-amber-400'
                   : diffMargin < 0
-                  ? 'text-rose-600'
-                  : 'text-slate-600'
+                  ? 'text-rose-600 dark:text-rose-400'
+                  : 'text-slate-600 dark:text-slate-400'
               }`}
             >
               {diffMargin > 0 ? '+' : ''}
@@ -286,12 +286,12 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+          <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-[#222F43]">
             <button
               type="button"
               onClick={handleDelete}
               disabled={loading || deleting}
-              className="px-3 py-2 text-sm text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-3 py-2 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-xl transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 font-bold"
             >
               {deleting ? (
                 <div className="w-4 h-4 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
@@ -303,22 +303,22 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
               )}
             </button>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={loading || deleting}
-                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium hover:bg-slate-100 rounded-lg transition"
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={loading || deleting}
-                className="px-5 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg shadow-sm hover:shadow-md transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 text-xs bg-emerald-600 dark:bg-amber-400 hover:bg-emerald-700 dark:hover:bg-amber-500 text-white dark:text-slate-950 font-extrabold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 {loading ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-2 border-white dark:border-slate-950 border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
                     <Save className="w-4 h-4" />
