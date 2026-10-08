@@ -5,7 +5,7 @@ import {
   signOut as firebaseSignOut, 
   onAuthStateChanged 
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { auth, googleProvider, db } from '../lib/firebase';
 import type { UserRole } from '../types';
 
@@ -88,6 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Auth State Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
@@ -111,6 +112,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => unsubscribe();
   }, []);
+
+  // REAL-TIME LOCKOUT & ROLE SYNC LISTENER
+  // Instantly logs out and locks out any user whose account is disabled/revoked in Firestore in real-time!
+  useEffect(() => {
+    if (!user) return;
+
+    const userDocRef = doc(db, 'users', user.uid);
+    const unsubscribeUserDoc = onSnapshot(
+      userDocRef,
+      async (snap) => {
+        if (!snap.exists()) return;
+        const snapData = snap.data();
+
+        // 1. Instant Real-Time Logout if account disabled/revoked
+        if (snapData?.isDisabled === true) {
+          await firebaseSignOut(auth);
+          setUser(null);
+          setRole('AGENT');
+          setError('Access Revoked: Your account has been disabled by an administrator.');
+          return;
+        }
+
+        // 2. Real-Time Role Sync if Admin changes user's role
+        if (snapData?.role && snapData.role !== role) {
+          setRole(snapData.role as UserRole);
+        }
+      },
+      (err) => {
+        console.error('Error in real-time user document listener:', err);
+      }
+    );
+
+    return () => unsubscribeUserDoc();
+  }, [user, role]);
 
   // Update online status to false on tab/window close
   useEffect(() => {
@@ -182,7 +217,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userDocRef = doc(db, 'users', uid);
       await updateDoc(userDocRef, {
         isDisabled,
-        isOnline: isDisabled ? false : false, // Reset online status if disabled
+        isOnline: false,
+        disabledAt: isDisabled ? new Date().toISOString() : null,
       });
     } catch (err) {
       console.error('Error setting user disabled status:', err);
