@@ -134,7 +134,7 @@ export const AppLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/60 dark:bg-slate-950 flex font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full overflow-x-hidden">
+    <div className="min-h-screen bg-slate-50/60 dark:bg-slate-950 flex items-start font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full overflow-x-hidden">
       <Sidebar 
         currentPage={currentPage} 
         setCurrentPage={setCurrentPage} 

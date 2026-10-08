@@ -144,7 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className={`
           fixed inset-y-0 left-0 z-50 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen
           transition-all duration-200 ease-in-out shadow-xl lg:shadow-xs
-          lg:sticky lg:top-0
+          lg:sticky lg:top-0 lg:h-screen lg:shrink-0
           ${isOpen ? 'translate-x-0 w-72 sm:w-64' : '-translate-x-full lg:translate-x-0'}
           ${isExpandedDesktop ? 'lg:w-64' : 'lg:w-18'}
         `}
