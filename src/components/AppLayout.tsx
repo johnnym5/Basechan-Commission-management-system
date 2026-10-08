@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useCommissionRates } from '../hooks/useCommissionRates';
 import type { CommissionRate, UserRole } from '../types';
 import { DashboardView } from './DashboardView';
 import { SheetView } from './SheetView';
@@ -36,14 +35,30 @@ import {
   Moon,
   Monitor,
   CheckCircle2,
+  WifiOff,
 } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
   const { user, role, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
-  const [rates, setRates] = useState<CommissionRate[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+
+  // Custom hook with real-time Firestore sync & pre-computed search indexing
+  const { rates, loading } = useCommissionRates();
   
+  // Offline Network Status Listener
+  const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   // Admin "View As" role preview state
   const [viewAsRole, setViewAsRole] = useState<UserRole>('ADMIN');
   const [isViewAsMenuOpen, setIsViewAsMenuOpen] = useState<boolean>(false);
@@ -94,29 +109,6 @@ export const AppLayout: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    setLoading(true);
-    const q = query(collection(db, 'rates'), orderBy('diffMargin', 'desc'));
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const items: CommissionRate[] = [];
-        snapshot.forEach((doc) => {
-          items.push(doc.data() as CommissionRate);
-        });
-        setRates(items);
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Firestore subscription error:', error);
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
-  }, []);
-
   const handleEditRate = (rate: CommissionRate) => {
     if (role !== 'ADMIN') return;
     setEditingRate(rate);
@@ -134,7 +126,7 @@ export const AppLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/60 dark:bg-slate-950 flex items-start font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full overflow-x-hidden">
+    <div className="min-h-screen bg-slate-50/60 dark:bg-slate-950 flex font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full">
       <Sidebar 
         currentPage={currentPage} 
         setCurrentPage={setCurrentPage} 
@@ -143,14 +135,26 @@ export const AppLayout: React.FC = () => {
         setIsOpen={setIsSidebarOpen}
         effectiveRole={effectiveRole}
       />
-      
+
+      {/* Desktop Fixed Sidebar Spacer */}
+      <div className="hidden lg:block shrink-0 transition-all duration-200 w-18 hover:w-64" />
+
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Offline Connection Drop Banner */}
+        {isOffline && (
+          <div className="bg-amber-600 text-white text-xs px-4 py-2.5 flex items-center justify-center gap-2 font-semibold shadow-md animate-in fade-in sticky top-0 z-40">
+            <WifiOff className="w-4 h-4 text-amber-200 shrink-0" />
+            <span>You are currently working offline. Offline edits will sync when your connection restores.</span>
+          </div>
+        )}
+
         <header className="bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 transition-colors">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button 
                 onClick={() => setIsSidebarOpen(true)}
-                className="lg:hidden p-2 -ml-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                className="lg:hidden p-2 -ml-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
+                aria-label="Open Navigation Sidebar"
               >
                 <Menu className="w-5 h-5" />
               </button>
@@ -183,7 +187,7 @@ export const AppLayout: React.FC = () => {
                   <button
                     onClick={() => setIsMigrateModalOpen(true)}
                     title="Migrate / Clone Intake Sheet"
-                    className="inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-xs transition cursor-pointer"
+                    className="inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-xs transition cursor-pointer min-h-[38px]"
                   >
                     <Copy className="w-4 h-4 shrink-0" />
                     <span className="hidden sm:inline">Migrate Sheet</span>
@@ -192,7 +196,7 @@ export const AppLayout: React.FC = () => {
                   <button
                     onClick={() => setIsUploadModalOpen(true)}
                     title="Import Excel Workbook"
-                    className="inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-xs transition cursor-pointer"
+                    className="inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-xs transition cursor-pointer min-h-[38px]"
                   >
                     <Upload className="w-4 h-4 shrink-0" />
                     <span className="hidden sm:inline">Import Excel</span>
@@ -201,7 +205,7 @@ export const AppLayout: React.FC = () => {
                   <button
                     onClick={() => setIsAddRateModalOpen(true)}
                     title="Add Rate / Intake"
-                    className="inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-2xs transition cursor-pointer"
+                    className="inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-2xs transition cursor-pointer min-h-[38px]"
                   >
                     <PlusCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <span className="hidden sm:inline">Add Rate</span>
@@ -210,7 +214,7 @@ export const AppLayout: React.FC = () => {
                   <button
                     onClick={() => setCurrentPage(currentPage === 'Compare Rates' ? 'Dashboard' : 'Compare Rates')}
                     title="Compare Rates"
-                    className={`inline-flex items-center justify-center gap-1.5 border text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-2xs transition cursor-pointer ${
+                    className={`inline-flex items-center justify-center gap-1.5 border text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-lg shadow-2xs transition cursor-pointer min-h-[38px] ${
                       currentPage === 'Compare Rates'
                         ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300'
                         : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'

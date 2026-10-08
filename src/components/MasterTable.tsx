@@ -193,6 +193,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const [internalSearchQuery, setInternalSearchQuery] = useState<string>('');
   const [selectedIntake, setSelectedIntake] = useState<string>('ALL');
   const [selectedLevel, setSelectedLevel] = useState<StudyLevel | 'ALL'>('ALL');
+  const [selectedCountry, setSelectedCountry] = useState<string>('ALL');
   const [internalGuidanceFilter, setInternalGuidanceFilter] = useState<SchoolGuidance | 'ALL'>('ALL');
   const [internalAggregatorFilter, setInternalAggregatorFilter] = useState<string>('ALL');
   const [batchActionLoading, setBatchActionLoading] = useState(false);
@@ -289,6 +290,10 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         return false;
       }
 
+      if (selectedCountry !== 'ALL' && (row.country || 'UK') !== selectedCountry) {
+        return false;
+      }
+
       if (selectedAggregator !== 'ALL' && row.aggregator !== selectedAggregator) {
         return false;
       }
@@ -300,26 +305,32 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
       return true;
     });
-  }, [data, searchQuery, selectedIntake, selectedLevel, selectedAggregator, selectedGuidance]);
+  }, [data, searchQuery, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, selectedGuidance]);
 
   const columns = useMemo<ColumnDef<CommissionRate, any>[]>(
     () => [
       {
         id: 'select',
-        header: ({ table }) => (
-          <div className="flex items-center justify-center">
-            <input
-              type="checkbox"
-              className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-              checked={table.getIsAllPageRowsSelected()}
-              ref={(el) => {
-                if (el) el.indeterminate = table.getIsSomePageRowsSelected();
-              }}
-              onChange={table.getToggleAllPageRowsSelectedHandler()}
-              aria-label="Select all rows on this page"
-            />
-          </div>
-        ),
+        header: ({ table }) => {
+          // Check selection state across ALL filtered rows (not just the current paginated page)
+          const isAllSelected = table.getIsAllRowsSelected();
+          const isSomeSelected = table.getIsSomeRowsSelected();
+
+          return (
+            <div className="flex items-center justify-center" title="Select all filtered rows">
+              <input
+                type="checkbox"
+                className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                checked={isAllSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = !isAllSelected && isSomeSelected;
+                }}
+                onChange={table.getToggleAllRowsSelectedHandler()}
+                aria-label="Select all filtered rows"
+              />
+            </div>
+          );
+        },
         cell: ({ row }) => (
           <div className="flex items-center justify-center">
             <input
@@ -514,6 +525,17 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     return data.filter((rate) => rowSelection[rate.id]);
   }, [rowSelection, data]);
 
+  // Helper to select ALL filtered rows with one click
+  const handleSelectAllFiltered = () => {
+    const newSelection: RowSelectionState = {};
+    filteredData.forEach((row) => {
+      newSelection[row.id] = true;
+    });
+    setRowSelection(newSelection);
+  };
+
+  const isAllFilteredSelected = selectedRates.length === filteredData.length && filteredData.length > 0;
+
   // Batch delete handler
   const handleDeleteSelected = async () => {
     if (selectedRates.length === 0) return;
@@ -627,19 +649,20 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             <span>UG Routes</span>
           </button>
 
-          {(searchQuery || selectedIntake !== 'ALL' || selectedLevel !== 'ALL' || selectedAggregator !== 'ALL' || selectedGuidance !== 'ALL') && (
+          {(searchQuery || selectedIntake !== 'ALL' || selectedLevel !== 'ALL' || selectedCountry !== 'ALL' || selectedAggregator !== 'ALL' || selectedGuidance !== 'ALL') && (
             <button
               type="button"
               onClick={() => {
                 setSearchQuery('');
                 setSelectedIntake('ALL');
                 setSelectedLevel('ALL');
+                setSelectedCountry('ALL');
                 setSelectedAggregator('ALL');
                 setSelectedGuidance('ALL');
               }}
               className="px-2.5 py-1 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer ml-auto text-[11px]"
             >
-              Reset Presets
+              Reset Filters
             </button>
           )}
         </div>
@@ -676,8 +699,8 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               >
                 <Layers className="w-4 h-4" />
                 <span>
-                  {selectedRates.length === 1
-                    ? 'Actions (1 Selected)'
+                  {selectedRates.length === filteredData.length
+                    ? `All ${selectedRates.length} Filtered Selected`
                     : `Batch Actions (${selectedRates.length} Selected)`}
                 </span>
                 <ChevronDown className="w-4 h-4" />
@@ -689,10 +712,23 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                   onMouseLeave={() => setIsBatchMenuOpen(false)}
                 >
                   <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                    {selectedRates.length === 1
-                      ? 'Quick Actions (1 Selected)'
-                      : `Quick Batch Actions (${selectedRates.length} Selected)`}
+                    {selectedRates.length === filteredData.length
+                      ? `All ${selectedRates.length} Filtered Items Selected`
+                      : `Batch Actions (${selectedRates.length} Selected)`}
                   </div>
+
+                  {!isAllFilteredSelected && (
+                    <button
+                      onClick={() => {
+                        handleSelectAllFiltered();
+                        setIsBatchMenuOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 rounded-xl flex items-center gap-2 transition cursor-pointer border border-emerald-200 dark:border-emerald-800"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>Select All {filteredData.length} Filtered Rates</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => {
@@ -821,7 +857,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           <select
             value={selectedAggregator}
             onChange={(e) => setSelectedAggregator(e.target.value)}
-            className="px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+            className="px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-semibold"
           >
             <option value="ALL">All Aggregators</option>
             {aggregators.map((a) => (
@@ -921,7 +957,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             </span>{' '}
             out of{' '}
             <span className="font-semibold text-slate-800 dark:text-slate-200">{data.length}</span>{' '}
-            {searchQuery || selectedIntake !== 'ALL' || selectedLevel !== 'ALL' || selectedAggregator !== 'ALL' || selectedGuidance !== 'ALL'
+            {searchQuery || selectedIntake !== 'ALL' || selectedLevel !== 'ALL' || selectedCountry !== 'ALL' || selectedAggregator !== 'ALL' || selectedGuidance !== 'ALL'
               ? `(filtered from ${data.length} total rows)`
               : 'total rows'}
           </div>
