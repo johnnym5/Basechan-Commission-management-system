@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Check if user is an authenticated Admin (email ends with @basechaninternational.com)
+    function isAdmin() {
+      return request.auth != null 
+        && request.auth.token.email.matches('.*@basechaninternational[.]com$');
+    }
+
+    // Check if user is authenticated (Admin, Staff, or Agent)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // User management records
+    match /users/{userId} {
+      // Users can manage their own profile record (login timestamp, online status)
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Admins can read and update any user record
+      allow read, write: if isAdmin();
+    }
+
+    // University entities
+    match /universities/{uniId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // Commission rates entities
+    match /rates/{rateId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}
