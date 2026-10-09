@@ -13,7 +13,7 @@ export interface ChatMessage {
   resultIds?: string[];
   status?: 'sent' | 'clarifying' | 'results';
   clarification?: {
-    field: 'school' | 'country' | 'level' | 'intake' | 'scope' | 'intent' | 'ranking';
+    field: 'school' | 'country' | 'level' | 'intake' | 'scope' | 'intent' | 'ranking' | 'payout';
     choices: Array<{ label: string; value: string }>;
   };
   resultRates?: Array<{
@@ -51,7 +51,7 @@ export interface ChatSearchIntent {
 }
 
 export interface PendingChatClarification {
-  field: 'school' | 'country' | 'level' | 'intake' | 'scope' | 'intent' | 'ranking';
+  field: 'school' | 'country' | 'level' | 'intake' | 'scope' | 'intent' | 'ranking' | 'payout';
   prompt: string;
   choices: Array<{ label: string; value: string }>;
 }

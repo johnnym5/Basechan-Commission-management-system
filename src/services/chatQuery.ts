@@ -29,6 +29,7 @@ export interface ChatIntent {
   rateMinimum?: number;
   rateMaximum?: number;
   feeType?: 'FLAT' | 'PERCENTAGE';
+  feeTypeUnclear: boolean;
   sortBy?: 'rate_desc' | 'rate_asc';
   broadSearch: boolean;
   rankingUnclear: boolean;
@@ -254,6 +255,7 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     rateMinimum,
     rateMaximum,
     feeType,
+    feeTypeUnclear: role === 'AGENT' && thresholdMatch !== null && feeType === undefined,
     sortBy,
     broadSearch,
     rankingUnclear,
@@ -337,6 +339,7 @@ export function buildClarifyingQuestions(intent: ChatIntent): string[] {
   if (intent.unsupportedMetric) questions.push(intent.unsupportedMetric === 'payout ranking'
     ? 'Payout rankings aren’t available for your role. I can filter by country, level, intake, or Focus guidance. Which would help?'
     : `I can’t rank schools by ${intent.unsupportedMetric} because that information isn’t in the local database. I can filter by country, level, intake, Focus guidance${intent.unsupportedMetric === 'conversion rate' ? '' : ', or available rates'}. What would you like to use?`);
+  if (intent.feeTypeUnclear) questions.push('Should I compare percentage payouts or flat fees?');
   if (intent.rankingUnclear) questions.push('What should “best” mean for this search? Choose a supported option such as Focus schools, highest available payout, or a specific country, level, or intake.');
   if (intent.quantity === 'schools' && intent.countryTerms.length > 0 && !intent.level && !intent.intakeTerms.length && !intent.scopeSelection) {
     questions.push('Should I count schools across all available intakes and study levels, or narrow the count to a specific intake or level?');

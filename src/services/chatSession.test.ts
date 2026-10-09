@@ -254,6 +254,31 @@ describe('chat dashboard filter handoff', () => {
     const resolved = processChatTurn(initial.state, 'Postgraduate', rates, 2_000, 'STAFF', activeFilters);
     expect(resolved.dashboardFilters).toMatchObject({ schoolIds: ['a'], levels: ['PG'] });
   });
+  it('hands the resolved default intake to the dashboard so both result sets match', () => {
+    const scopedRates = [
+      { ...rates[0], intake: 'Jan 2027' },
+      { ...rates[0], id: 'a-pg-sept', intake: 'Sept 2027' },
+    ];
+    const result = processChatTurn(createInitialChatState('u1'), 'Aberdeen University postgraduate', scopedRates, Date.parse('2026-10-09T00:00:00.000Z'), 'STAFF');
+    expect(result.matchingRates.map(rate => rate.intake)).toEqual(['Jan 2027']);
+    expect(result.dashboardFilters?.intakes).toEqual(['Jan 2027']);
+  });
+  it('asks for payout type before applying an unqualified numeric Agent payout filter', () => {
+    const agentRates = [
+      { ...rates[0], isFlatFee: false, agentRate: 15 },
+      { ...rates[0], id: 'a-flat', isFlatFee: true, agentRate: 500 },
+    ];
+    const unclear = processChatTurn(createInitialChatState('u1'), 'Show routes over 10', agentRates, 1_000, 'AGENT');
+    expect(unclear.matchingRates).toEqual([]);
+    expect(unclear.clarificationQuestions.join(' ')).toMatch(/percentage payouts or flat fees/i);
+    const choices = unclear.state.conversation.messages.at(-1)?.clarification?.choices || [];
+    const percentageChoice = choices.find(choice => /percentage/i.test(choice.label));
+    expect(percentageChoice).toBeDefined();
+    const resolved = processChatTurn(unclear.state, percentageChoice!.value, agentRates, 2_000, 'AGENT');
+    expect(resolved.matchingRates.every(rate => !rate.isFlatFee && rate.agentRate >= 10)).toBe(true);
+    expect(resolved.dashboardFilters?.agentPayoutKind).toBe('PERCENTAGE');
+    expect(resolved.dashboardFilters?.payoutMinimum).toBe(10);
+  });
   it('manual dashboard filters inform recognized Chat follow-ups', () => {
     const result = processChatTurn(createInitialChatState('u1'), 'same Focus', rates.map(rate => ({ ...rate, country: 'UK', guidance: 'FOCUS' as const })), 1_000, 'STAFF', activeFilters);
     expect(result.matchingRates.length).toBeGreaterThan(0);

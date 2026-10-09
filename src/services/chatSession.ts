@@ -76,6 +76,14 @@ function clarificationFor(intent: ReturnType<typeof parseChatIntent>, questionTe
       { label: 'Choose a study level', value: 'choose a specific study level' },
     ] };
   }
+  if (intent.feeTypeUnclear) {
+    const minimum = intent.rateMinimum !== undefined ? ` at least ${intent.rateMinimum}` : '';
+    const maximum = intent.rateMaximum !== undefined ? ` up to ${intent.rateMaximum}` : '';
+    return { field: 'payout', prompt: questionText, choices: [
+      { label: 'Percentage payout', value: `percentage commission rate${minimum}${maximum}` },
+      { label: 'Flat fee payout', value: `flat fee${minimum}${maximum}` },
+    ] };
+  }
   if (intent.quantity === 'schools' && intent.scopeSelection === 'intake' && !intent.intakeTerms.length) {
     const intakes = Array.from(new Set(rates.filter((rate) => intent.countryTerms.some((country) => (rate.country || '').toLowerCase() === country.toLowerCase())).map((rate) => rate.intake)));
     return { field: 'intake', prompt: questionText, choices: intakes.map((intake) => ({ label: intake, value: intake })) };
@@ -377,6 +385,8 @@ export function processChatTurn(
   const finalResults = intent.compare && comparisonTargets.length > 1
     ? comparisonRates.length === comparisonTargets.length && !questions.length ? comparisonRates : []
     : results;
+  const resolvedIntent = toStoredIntent(intent, rates);
+  if (!resolvedIntent.intake && defaultIntake) resolvedIntent.intake = defaultIntake;
   const clarification = questions.length ? clarificationFor(intent, finalAssistantText, rates, role) : undefined;
   const assistantMessage = { ...createMessage('assistant', finalAssistantText, questions.length ? 'clarifying' : 'results', finalResults.map((rate) => rate.id), finalResults, role), ...(clarification ? { clarification: { field: clarification.field, choices: clarification.choices } } : {}) };
   const messages = [...state.conversation.messages, userMessage, assistantMessage];
@@ -390,10 +400,9 @@ export function processChatTurn(
     ...(defaultIntake ? { activeIntake: defaultIntake } : {}),
     ...(intent.schoolTerms.length ? { activeSchoolIds: Array.from(new Set(intent.schoolTerms.flatMap((school) => rates.filter((rate) => rate.universityName.toLowerCase() === school.toLowerCase()).map((rate) => rate.universityId)))) } : {}),
     ...(finalResults.length ? { lastResultSchoolIds: Array.from(new Set(finalResults.map((rate) => rate.universityId))).slice(0, MAX_COMPARISON_SCHOOLS) } : {}),
-    searchIntent: toStoredIntent(intent, rates),
+    searchIntent: resolvedIntent,
     ...(clarification ? { pendingClarification: clarification } : { pendingClarification: undefined }),
   };
-  const resolvedIntent = toStoredIntent(intent, rates);
   const canApplyDashboardFilters = questions.length === 0 && !intent.outOfScope && !intent.unsupportedMetric
     && (resolvedIntent.schoolIds.length > 0 || resolvedIntent.country || resolvedIntent.level || resolvedIntent.intake
       || resolvedIntent.guidances?.length || resolvedIntent.guidance || intent.aggregatorTerms.length
