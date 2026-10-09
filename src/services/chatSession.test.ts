@@ -237,3 +237,28 @@ describe('chat session query policy', () => {
     expect(result.state.conversation.messages[1].text).toMatch(/no matching routes with dated intakes/i);
   });
 });
+
+describe('chat dashboard filter handoff', () => {
+  const activeFilters = { query: '', schoolIds: [], countries: ['UK'], levels: [], intakes: [], guidances: ['FOCUS'], aggregators: [] };
+  it('greeting leaves dashboard filters unchanged', () => {
+    const result = processChatTurn(createInitialChatState('u1'), 'hi', rates, 1_000, 'STAFF', activeFilters);
+    expect(result.dashboardFilters).toBeUndefined();
+  });
+  it('ambiguous school leaves dashboard filters unchanged until level clarification is resolved', () => {
+    const result = processChatTurn(createInitialChatState('u1'), 'Aberdeen University', rates, 1_000, 'STAFF', activeFilters);
+    expect(result.clarificationQuestions.length).toBeGreaterThan(0);
+    expect(result.dashboardFilters).toBeUndefined();
+  });
+  it('resolved school choice updates filters', () => {
+    const initial = processChatTurn(createInitialChatState('u1'), 'Aberdeen University', rates, 1_000, 'STAFF', activeFilters);
+    const resolved = processChatTurn(initial.state, 'Postgraduate', rates, 2_000, 'STAFF', activeFilters);
+    expect(resolved.dashboardFilters).toMatchObject({ schoolIds: ['a'], levels: ['PG'] });
+  });
+  it('manual dashboard filters inform recognized Chat follow-ups', () => {
+    const result = processChatTurn(createInitialChatState('u1'), 'same Focus', rates.map(rate => ({ ...rate, country: 'UK', guidance: 'FOCUS' as const })), 1_000, 'STAFF', activeFilters);
+    expect(result.matchingRates.length).toBeGreaterThan(0);
+    expect(result.matchingRates.every(rate => rate.country === 'UK')).toBe(true);
+  });
+});
+
+

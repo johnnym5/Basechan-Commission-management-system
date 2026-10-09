@@ -31,3 +31,17 @@ describe('applyDashboardFilters', () => {
     expect(missingType).toEqual([]);
   });
 });
+
+import type { ChatSearchIntent } from '../types/chat';
+import { filtersFromChatIntent } from './dashboardFilters';
+
+describe('filtersFromChatIntent', () => {
+  it('clear search returns matching dashboard filters', () => {
+    const intent: ChatSearchIntent = { schoolIds: ['u1'], country: 'UK', level: 'UG', intake: 'Jan 2026', aggregatorTerms: [], compare: false, compareSchoolIds: [] };
+    expect(filtersFromChatIntent('STAFF', intent, createEmptyDashboardFilters())).toMatchObject({ schoolIds: ['u1'], countries: ['UK'], levels: ['UG'], intakes: ['Jan 2026'] });
+  });
+  it('Agent intent drops aggregator filters', () => {
+    const intent: ChatSearchIntent = { schoolIds: [], aggregatorTerms: ['SI-UK'], compare: false, compareSchoolIds: [] };
+    expect(filtersFromChatIntent('AGENT', intent, { ...createEmptyDashboardFilters(), aggregators: ['UAP'] }).aggregators).toEqual([]);
+  });
+});

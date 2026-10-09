@@ -1,4 +1,6 @@
 import type { AgentChatProfile, ChatConversation, ChatMessage, ChatPromptSuggestion, ChatSearchIntent, CommissionRate, FavoriteSchool, PendingChatClarification, UserRole } from '../types';
+import type { DashboardFilters } from '../types/dashboard';
+import { filtersFromChatIntent } from './dashboardFilters';
 import { buildClarifyingQuestions, filterRatesByIntent, getDefaultIntake, getIntakeDateKey, MAX_COMPARISON_SCHOOLS, parseChatIntent, sanitizeChatInput } from './chatQuery';
 import { MAX_QUERIES_PER_MINUTE, MAX_QUERIES_PER_SESSION, PREFERENCE_LEARNING_THRESHOLD } from './chatPersistence';
 
@@ -14,6 +16,7 @@ export interface ChatTurnResult {
   state: ChatSessionState;
   matchingRates: CommissionRate[];
   clarificationQuestions: string[];
+  dashboardFilters?: DashboardFilters;
 }
 
 export function buildContextualSuggestions(state: ChatSessionState, rates: CommissionRate[], role: UserRole): ChatPromptSuggestion[] {
@@ -193,6 +196,7 @@ export function processChatTurn(
   rates: CommissionRate[],
   now = Date.now(),
   role: UserRole = 'AGENT',
+  activeDashboardFilters?: DashboardFilters,
 ): ChatTurnResult {
   const submittedValue = sanitizeChatInput(rawInput);
   const pendingClarification = state.conversation.pendingClarification;
@@ -223,7 +227,18 @@ export function processChatTurn(
   const compareUsesPreviousSchool = /\b(compare|with|versus|vs)\b.{0,32}\b(this|that|these|those|it)\b|\b(this|that|these|those|it)\b.{0,32}\b(compare|with|versus|vs)\b/i.test(input);
   const refersToPreviousSchools = waitingForLevel || compareAllPrevious || (isFilterFollowup && !inputNamesSchool) || compareUsesPreviousSchool;
   const carriesPreviousFilters = compareAllPrevious || isPendingChoice || isFilterFollowup;
+  const inputHasLevel = /\b(post\s*grad|postgraduate|master'?s|msc|phd|doctoral|under\s*grad|undergraduate|bachelor'?s|bsc|foundation|fd)\b/i.test(input);
+  const containsDatedIntake = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/i.test(input);
   const contextParts = [ ...(refersToPreviousSchools ? contextNames : []) ];
+  if (activeDashboardFilters && carriesPreviousFilters) {
+    if (!inputNamesSchool) contextParts.push(...activeDashboardFilters.schoolIds.flatMap(id => rates.filter(rate => rate.universityId === id).map(rate => rate.universityName)));
+    const containsCountry = countryNames.some(country => input.toLowerCase().includes(country.toLowerCase()));
+    if (!containsCountry) contextParts.push(...activeDashboardFilters.countries);
+    if (!inputHasLevel) contextParts.push(...activeDashboardFilters.levels.map(level => level === 'PG' ? 'postgraduate' : level === 'UG' ? 'undergraduate' : 'foundation'));
+    if (!containsDatedIntake) contextParts.push(...activeDashboardFilters.intakes);
+    if (!/\b(focus|allowed|restricted|avoid|do not use)\b/i.test(input)) contextParts.push(...activeDashboardFilters.guidances.map(value => value === 'DO_NOT_USE' ? 'restricted' : value));
+    if (role !== 'AGENT') contextParts.push(...activeDashboardFilters.aggregators);
+  }
   const previousIntent = state.conversation.searchIntent;
   if (carriesPreviousFilters && previousIntent) {
     if ((pendingClarification?.field !== 'school' && !inputNamesSchool) || previousIntent.compare || compareUsesPreviousSchool) contextParts.push(...previousIntent.schoolIds.flatMap((id) => rates.filter((rate) => rate.universityId === id).map((rate) => rate.universityName)));
@@ -238,11 +253,9 @@ export function processChatTurn(
     if (previousIntent.compare) contextParts.push('compare');
   }
   const previousLevel = state.conversation.activeLevel;
-  const inputHasLevel = /\b(post\s*grad|postgraduate|master'?s|msc|phd|doctoral|under\s*grad|undergraduate|bachelor'?s|bsc|foundation|fd)\b/i.test(input);
   if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !inputHasLevel && previousLevel) {
     contextParts.push(previousLevel === 'PG' ? 'postgraduate' : previousLevel === 'UG' ? 'undergraduate' : 'foundation');
   }
-  const containsDatedIntake = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/i.test(input);
   if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !containsDatedIntake && state.conversation.activeIntake) contextParts.push(state.conversation.activeIntake);
   const expandedInput = `${input} ${Array.from(new Set(contextParts)).join(' ')}`.trim();
   const aggregatorNames = Array.from(new Set(rates.map((rate) => rate.aggregator || '').filter(Boolean)));
@@ -380,9 +393,17 @@ export function processChatTurn(
     searchIntent: toStoredIntent(intent, rates),
     ...(clarification ? { pendingClarification: clarification } : { pendingClarification: undefined }),
   };
+  const resolvedIntent = toStoredIntent(intent, rates);
+  const canApplyDashboardFilters = questions.length === 0 && !intent.outOfScope && !intent.unsupportedMetric
+    && (resolvedIntent.schoolIds.length > 0 || resolvedIntent.country || resolvedIntent.level || resolvedIntent.intake
+      || resolvedIntent.guidances?.length || resolvedIntent.guidance || intent.aggregatorTerms.length
+      || intent.rateMinimum !== undefined || intent.rateMaximum !== undefined);
   return {
     state: { ...state, conversation, queryTimestamps: [...recentQueries, now], queryCount: state.queryCount + 1, profile: nextProfile },
     matchingRates: finalResults,
     clarificationQuestions: questions,
+    ...(canApplyDashboardFilters ? { dashboardFilters: filtersFromChatIntent(role, resolvedIntent, activeDashboardFilters || {
+      query: '', schoolIds: [], countries: [], levels: [], intakes: [], guidances: [], aggregators: [],
+    }) } : {}),
   };
 }
