@@ -203,6 +203,22 @@ describe('natural language chat query', () => {
     expect(getIntakeDateKey('Current intake')).toBeNull();
   });
 
+  it('treats common action verbs as request framing instead of unmatched school names', () => {
+    const schools = ['Winchester University'];
+    for (const query of [
+      'give the rate for Winchester University',
+      'take me to routes for Winchester University',
+      'change the filter for Winchester University',
+      'add Winchester University to my results',
+      'remove Winchester University from these results',
+      'update results for Winchester University',
+    ]) {
+      const intent = parseChatIntent(query, schools);
+      expect(intent.schoolTerms, query).toEqual(schools);
+      expect(intent.unmatchedSchoolLikeTerms, query).toEqual([]);
+    }
+  });
+
   it('recognizes exact local intake labels that do not contain a date', () => {
     const intent = parseChatIntent('Legacy', [], [], [], 'STAFF', ['Current intake', 'Legacy']);
     expect(intent.intakeTerms).toEqual(['Legacy']);
