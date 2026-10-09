@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CommissionRate } from '../types';
 import type { CurrencyCode } from '../utils/currencyUtils';
 import { formatCurrencyValue } from '../utils/currencyUtils';
 import { useAuth } from '../context/AuthContext';
+import { getOrganization } from '../services/accessRequestService';
 import {
   X,
   Share2,
@@ -27,7 +28,7 @@ export const ShareRateCardModal: React.FC<ShareRateCardModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { role } = useAuth();
+  const { user, role, access, accessRequest } = useAuth();
   const isAdmin = role === 'ADMIN';
   const canViewCommission = role !== 'STAFF';
   const canViewRoute = role !== 'AGENT';
@@ -36,8 +37,35 @@ export const ShareRateCardModal: React.FC<ShareRateCardModalProps> = ({
   const [feedback, setFeedback] = useState('');
   const [exporting, setExporting] = useState(false);
   const [includeMaster, setIncludeMaster] = useState(false);
+  const [orgName, setOrgName] = useState<string>('');
+
+  useEffect(() => {
+    let active = true;
+    if (access.organizationId) {
+      getOrganization(access.organizationId)
+        .then((org) => {
+          if (active && org?.name) {
+            setOrgName(org.name);
+          }
+        })
+        .catch(() => {});
+    } else {
+      setOrgName('');
+    }
+    return () => {
+      active = false;
+    };
+  }, [access.organizationId]);
 
   if (!isOpen || !rate) return null;
+
+  const userDisplayName = user?.displayName || user?.email?.split('@')[0] || 'User';
+  const organizationName = access.organizationId
+    ? (orgName || accessRequest?.requestedOrganizationName || 'Agency Partner')
+    : '';
+  const attributionText = access.organizationId
+    ? `Prepared for ${organizationName} • By ${userDisplayName}`
+    : `Prepared by ${userDisplayName}`;
 
   const agentRateFormatted = formatCurrencyValue(rate.agentRate, currency, rate.isFlatFee);
   const masterRateFormatted = formatCurrencyValue(rate.masterRate, currency, rate.isFlatFee);
@@ -61,6 +89,7 @@ export const ShareRateCardModal: React.FC<ShareRateCardModalProps> = ({
     }
 
     text += `--------------------------------------\n`;
+    text += `${attributionText}\n`;
     text += `Verified Corporate Schedule - Basechan CMS`;
 
     return text;
@@ -163,14 +192,22 @@ export const ShareRateCardModal: React.FC<ShareRateCardModalProps> = ({
 
     context.strokeStyle = '#28354a';
     context.beginPath();
-    context.moveTo(64, height - 66);
-    context.lineTo(width - 64, height - 66);
+    context.moveTo(64, height - 70);
+    context.lineTo(width - 64, height - 70);
     context.stroke();
+
     context.fillStyle = '#94a3b8';
     context.font = '500 16px ui-monospace, monospace';
-    context.fillText(`Ref ID: ${rate.id.slice(0, 8)}`, 64, height - 34);
+    context.fillText(`Ref ID: ${rate.id.slice(0, 8)}`, 64, height - 30);
+
+    context.fillStyle = '#fbbf24';
+    context.font = '600 16px system-ui, sans-serif';
     context.textAlign = 'right';
-    context.fillText(`Valid for ${rate.intake} Cycle  ·  Basechan CMS`, width - 64, height - 34);
+    context.fillText(attributionText, width - 64, height - 42);
+
+    context.fillStyle = '#94a3b8';
+    context.font = '500 15px ui-monospace, monospace';
+    context.fillText(`Valid for ${rate.intake} Cycle  ·  Basechan CMS`, width - 64, height - 18);
     context.textAlign = 'left';
 
     const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error('The rate card image could not be created.')), 'image/png'));
@@ -330,6 +367,12 @@ export const ShareRateCardModal: React.FC<ShareRateCardModalProps> = ({
                 <Globe className="w-3.5 h-3.5" />
                 <span>{rate.country || 'United Kingdom'} • {rate.intake} • {rate.studyLevel}</span>
               </p>
+            </div>
+
+            {/* Attribution Badge */}
+            <div className="inline-flex items-center gap-1.5 text-[10px] text-amber-300/90 font-medium bg-amber-400/10 border border-amber-400/20 rounded-full px-2.5 py-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span>{attributionText}</span>
             </div>
 
             {/* Rate Payout Callout */}
