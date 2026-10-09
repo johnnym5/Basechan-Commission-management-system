@@ -274,7 +274,8 @@ service cloud.firestore {
       let sheet = data.keys().hasAny(['sourceSheet']) && data.sourceSheet is string
         ? data.sourceSheet
         : data.keys().hasAny(['intake']) && data.intake is string ? data.intake : '';
-      return exists(/databases/$(database)/documents/sheet_settings/$(sheet))
+      return sheet != ''
+        && exists(/databases/$(database)/documents/sheet_settings/$(sheet))
         && get(/databases/$(database)/documents/sheet_settings/$(sheet)).data.disabledForStaff == true;
     }
 
@@ -282,7 +283,8 @@ service cloud.firestore {
       let sheet = data.keys().hasAny(['sourceSheet']) && data.sourceSheet is string
         ? data.sourceSheet
         : data.keys().hasAny(['intake']) && data.intake is string ? data.intake : '';
-      return exists(/databases/$(database)/documents/sheet_settings/$(sheet))
+      return sheet != ''
+        && exists(/databases/$(database)/documents/sheet_settings/$(sheet))
         && get(/databases/$(database)/documents/sheet_settings/$(sheet)).data.disabledForAgents == true;
     }
 

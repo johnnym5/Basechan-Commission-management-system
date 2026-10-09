@@ -22,11 +22,11 @@ import {
 import { getWatchlist, toggleWatchlist, isStarred } from '../utils/watchlistUtils';
 import type { CurrencyCode } from '../utils/currencyUtils';
 import { formatCurrencyValue } from '../utils/currencyUtils';
+import { useSystemConfig } from '../hooks/useSystemConfig';
 import { BatchEditModal } from './BatchEditModal';
 import { ShareRateCardModal } from './ShareRateCardModal';
-import { updateRate, updateRates, deleteRates } from '../services/adminRateWriteService';
-import { isQuotaOffline } from '../services/firestoreOfflineMode';
-import { COMMON_AGGREGATORS } from '../constants/aggregators';
+import { doc, writeBatch, updateDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import {
   ArrowUpDown,
@@ -52,27 +52,29 @@ import {
 interface MasterTableProps {
   data: CommissionRate[];
   loading: boolean;
-  readOnly?: boolean;
   onEditRate: (rate: CommissionRate) => void;
   onBatchActionComplete?: (msg: string) => void;
+  readOnly?: boolean;
   externalSearchQuery?: string;
   onExternalSearchChange?: (q: string) => void;
   externalGuidanceFilter?: SchoolGuidance | 'ALL';
   onExternalGuidanceChange?: (g: SchoolGuidance | 'ALL') => void;
   externalAggregatorFilter?: string;
   onExternalAggregatorChange?: (agg: string) => void;
-  externalCountryFilter?: string;
-  onExternalCountryChange?: (country: string) => void;
-  externalLevelFilter?: StudyLevel | 'ALL';
-  onExternalLevelChange?: (level: StudyLevel | 'ALL') => void;
   externalIntakeFilter?: string;
   onExternalIntakeChange?: (intake: string) => void;
+  externalLevelFilter?: StudyLevel | 'ALL';
+  onExternalLevelChange?: (level: StudyLevel | 'ALL') => void;
+  externalCountryFilter?: string;
+  onExternalCountryChange?: (country: string) => void;
   externalSchoolIdsFilter?: string[];
 }
 
+const COMMON_AGGREGATORS = ['SI-UK', 'EDVOY', 'UAP', 'CRIZAC', 'BASECHAN', 'Direct'];
+
 // Interactive School Status Cell for Admin Users
-const SchoolStatusCell: React.FC<{ rate: CommissionRate; readOnly?: boolean }> = ({ rate, readOnly = false }) => {
-  const { role, user } = useAuth();
+const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
+  const { role } = useAuth();
   const isAdmin = role === 'ADMIN';
   const [isOpen, setIsOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -84,7 +86,8 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate; readOnly?: boolean }> =
     if (newGuidance === g) return;
     try {
       setUpdating(true);
-      await updateRate(rate, { ...rate, guidance: newGuidance, updatedAt: new Date().toISOString() }, user?.email || 'Admin');
+      const rateRef = doc(db, 'rates', rate.id);
+      await updateDoc(rateRef, { guidance: newGuidance, updatedAt: new Date().toISOString() });
     } catch (err) {
       console.error('Failed to update guidance status:', err);
     } finally {
@@ -117,7 +120,7 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate; readOnly?: boolean }> =
     );
   };
 
-  if (!isAdmin || readOnly) {
+  if (!isAdmin) {
     return renderBadge();
   }
 
@@ -194,16 +197,16 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate; readOnly?: boolean }> =
 
 // Interactive Aggregator Selector Dropdown for Admin
 const AggregatorRouteCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
-  const { role, user } = useAuth();
+  const { role } = useAuth();
   const isAdmin = role === 'ADMIN';
   const [updating, setUpdating] = useState(false);
 
   const handleUpdateAggregator = async (newAggregator: string) => {
-    if (!navigator.onLine || isQuotaOffline(user?.uid)) return;
     if (newAggregator === rate.aggregator) return;
     try {
       setUpdating(true);
-      await updateRate(rate, { ...rate, aggregator: newAggregator, updatedAt: new Date().toISOString() }, user?.email || 'Admin');
+      const rateRef = doc(db, 'rates', rate.id);
+      await updateDoc(rateRef, { aggregator: newAggregator, updatedAt: new Date().toISOString() });
     } catch (err) {
       console.error('Failed to update aggregator route:', err);
     } finally {
@@ -211,7 +214,7 @@ const AggregatorRouteCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
     }
   };
 
-  if (!isAdmin || !navigator.onLine || isQuotaOffline(user?.uid)) {
+  if (!isAdmin) {
     return (
       <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
         Use {rate.aggregator}
@@ -372,7 +375,6 @@ const GroupRoutesModal: React.FC<{
 
 export const MasterTable: React.FC<MasterTableProps> = ({
   data,
-  readOnly = false,
   onEditRate,
   onBatchActionComplete,
   externalSearchQuery,
@@ -381,15 +383,15 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   onExternalGuidanceChange,
   externalAggregatorFilter,
   onExternalAggregatorChange,
-  externalCountryFilter,
-  onExternalCountryChange,
-  externalLevelFilter,
-  onExternalLevelChange,
   externalIntakeFilter,
   onExternalIntakeChange,
+  externalLevelFilter,
+  onExternalLevelChange,
+  externalCountryFilter,
+  onExternalCountryChange,
   externalSchoolIdsFilter,
 }) => {
-  const { user } = useAuth();
+  const { defaultIntake } = useSystemConfig();
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'diffMargin', desc: true },
   ]);
@@ -421,13 +423,23 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const [internalCountry, setInternalCountry] = useState<string>('ALL');
   const [internalGuidanceFilter, setInternalGuidanceFilter] = useState<SchoolGuidance | 'ALL'>('ALL');
   const [internalAggregatorFilter, setInternalAggregatorFilter] = useState<string>('ALL');
+
   const selectedIntake = externalIntakeFilter ?? internalIntake;
   const selectedLevel = externalLevelFilter ?? internalLevel;
   const selectedCountry = externalCountryFilter ?? internalCountry;
+
   const setSelectedIntake = (value: string) => { setInternalIntake(value); onExternalIntakeChange?.(value); };
   const setSelectedLevel = (value: StudyLevel | 'ALL') => { setInternalLevel(value); onExternalLevelChange?.(value); };
   const setSelectedCountry = (value: string) => { setInternalCountry(value); onExternalCountryChange?.(value); };
+
   const [batchActionLoading, setBatchActionLoading] = useState(false);
+
+  // Auto-initialize to defaultIntake when loaded
+  useEffect(() => {
+    if (defaultIntake && defaultIntake !== 'ALL' && externalIntakeFilter === undefined) {
+      setInternalIntake(defaultIntake);
+    }
+  }, [defaultIntake, externalIntakeFilter]);
 
   // Sync external search query when passed
   const searchQuery = externalSearchQuery !== undefined ? externalSearchQuery : internalSearchQuery;
@@ -530,7 +542,6 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   // Client-side filtering logic with fuzzy search & watchlist filter
   const filteredData = useMemo(() => {
     return data.filter((row) => {
-      if (externalSchoolIdsFilter?.length && !externalSchoolIdsFilter.includes(row.universityId)) return false;
       if (onlyShowStarred && !isStarred(watchlist, row.universityName)) {
         return false;
       }
@@ -560,9 +571,13 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         if (rowGuidance !== selectedGuidance) return false;
       }
 
+      if (externalSchoolIdsFilter && externalSchoolIdsFilter.length > 0) {
+        if (!externalSchoolIdsFilter.includes(row.universityId)) return false;
+      }
+
       return true;
     });
-  }, [data, searchQuery, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, selectedGuidance, watchlist, onlyShowStarred, externalSchoolIdsFilter]);
+  }, [data, searchQuery, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, selectedGuidance, externalSchoolIdsFilter, watchlist, onlyShowStarred]);
 
   // Grouped Data Calculations
   const groupedUniversities = useMemo(() => {
@@ -686,7 +701,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       {
         accessorKey: 'guidance',
         header: 'School Status',
-        cell: (info) => <SchoolStatusCell rate={info.row.original} readOnly={readOnly} />,
+        cell: (info) => <SchoolStatusCell rate={info.row.original} />,
       },
       {
         accessorKey: 'intake',
@@ -764,8 +779,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             </button>
             <button
               onClick={() => onEditRate(info.row.original)}
-              disabled={readOnly}
-              className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+              className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg transition cursor-pointer"
               title="Edit Rate & Guidance"
             >
               <Pencil className="w-4 h-4" />
@@ -802,7 +816,9 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     if (selectedRates.length === 0) return;
     try {
       setBatchActionLoading(true);
-      await deleteRates(selectedRates, user?.email || 'Admin');
+      const batch = writeBatch(db);
+      selectedRates.forEach((rate) => batch.delete(doc(db, 'rates', rate.id)));
+      await batch.commit();
       setRowSelection({});
       if (onBatchActionComplete) onBatchActionComplete(`Successfully deleted ${selectedRates.length} selected rates.`);
     } catch (err) {
@@ -816,7 +832,11 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     if (selectedRates.length === 0) return;
     try {
       setBatchActionLoading(true);
-      await updateRates(selectedRates, (rate) => ({ ...rate, guidance, updatedAt: new Date().toISOString() }), user?.email || 'Admin', 'guidance');
+      const batch = writeBatch(db);
+      selectedRates.forEach((rate) => {
+        batch.update(doc(db, 'rates', rate.id), { guidance, updatedAt: new Date().toISOString() });
+      });
+      await batch.commit();
       setRowSelection({});
       if (onBatchActionComplete) onBatchActionComplete(`Updated guidance status for ${selectedRates.length} selected items.`);
     } catch (err) {
@@ -830,7 +850,11 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     if (selectedRates.length === 0 || !targetAggregator) return;
     try {
       setBatchActionLoading(true);
-      await updateRates(selectedRates, (rate) => ({ ...rate, aggregator: targetAggregator, updatedAt: new Date().toISOString() }), user?.email || 'Admin', 'routing');
+      const batch = writeBatch(db);
+      selectedRates.forEach((rate) => {
+        batch.update(doc(db, 'rates', rate.id), { aggregator: targetAggregator, updatedAt: new Date().toISOString() });
+      });
+      await batch.commit();
       setRowSelection({});
       if (onBatchActionComplete) onBatchActionComplete(`Updated route to "${targetAggregator}" for ${selectedRates.length} selected items.`);
     } catch (err) {
@@ -848,8 +872,8 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     return (
       <div
         key={rate.id}
-        onClick={() => { if (!readOnly) onEditRate(rate); }}
-        className={`p-3 sm:p-4 rounded-2xl border transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer'} relative flex flex-col justify-between gap-2.5 select-none ${
+        onClick={() => onEditRate(rate)}
+        className={`p-3 sm:p-4 rounded-2xl border transition-all duration-200 cursor-pointer relative flex flex-col justify-between gap-2.5 select-none ${
           isSelected
             ? 'bg-blue-50 dark:bg-amber-950/60 border-blue-500 dark:border-amber-400 shadow-md ring-1 ring-blue-500/30'
             : 'bg-white dark:bg-[#0E1526] border-slate-200 dark:border-[#222F43] hover:border-slate-300 dark:hover:border-slate-600 shadow-xs hover:-translate-y-0.5'
@@ -895,7 +919,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
         {/* Bottom Row: Status Badge & Actions (Share & Star) BOTTOM-RIGHT */}
         <div className="pt-2 border-t border-slate-100 dark:border-[#222F43] flex items-center justify-between gap-2">
-          <SchoolStatusCell rate={rate} readOnly={readOnly} />
+          <SchoolStatusCell rate={rate} />
 
           <div className="flex items-center gap-1.5 shrink-0 ml-auto" onClick={(e) => e.stopPropagation()}>
             <span className="font-mono font-black text-xs text-emerald-600 dark:text-amber-400 mr-1">
@@ -1034,44 +1058,6 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             </select>
           </div>
 
-          {/* DYNAMIC COUNTRY SEARCH & SELECT DROPDOWN */}
-          {groupByMode === 'COUNTRY' && (
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43] text-xs animate-in fade-in">
-              <Globe className="w-3.5 h-3.5 text-indigo-500 dark:text-amber-400 ml-1 hidden sm:inline" />
-              <select
-                value={selectedCountry}
-                onChange={(e) => setSelectedCountry(e.target.value)}
-                className="bg-transparent font-bold text-slate-700 dark:text-slate-200 text-xs focus:outline-none cursor-pointer max-w-[150px] truncate"
-              >
-                <option value="ALL">All Countries ({countries.length})</option>
-                {countries.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* DYNAMIC AGGREGATOR PORTAL SELECTOR */}
-          {groupByMode === 'AGGREGATOR' && (
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43] text-xs animate-in fade-in">
-              <Layers3 className="w-3.5 h-3.5 text-blue-500 dark:text-amber-400 ml-1 hidden sm:inline" />
-              <select
-                value={selectedAggregator}
-                onChange={(e) => setSelectedAggregator(e.target.value)}
-                className="bg-transparent font-bold text-slate-700 dark:text-slate-200 text-xs focus:outline-none cursor-pointer max-w-[150px] truncate"
-              >
-                <option value="ALL">All Portals ({aggregators.length})</option>
-                {aggregators.map((a) => (
-                  <option key={a} value={a}>
-                    Use {a}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
           {/* Group Sorting Selector */}
           {groupByMode === 'UNIVERSITY' && (
             <div className="hidden lg:flex items-center gap-1 bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43] text-xs">
@@ -1138,7 +1124,6 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <select
               defaultValue=""
-              disabled={readOnly}
               onChange={(e) => {
                 if (e.target.value) {
                   handleBatchSetAggregator(e.target.value);
@@ -1158,7 +1143,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             <button
               type="button"
               onClick={() => handleBatchSetGuidance('FOCUS')}
-              disabled={readOnly || batchActionLoading}
+              disabled={batchActionLoading}
               title="Set Guidance to Focus (Preferred)"
               className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
             >
@@ -1169,7 +1154,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             <button
               type="button"
               onClick={() => handleBatchSetGuidance('DO_NOT_USE')}
-              disabled={readOnly || batchActionLoading}
+              disabled={batchActionLoading}
               title="Set Guidance to Do Not Use (Avoid)"
               className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
             >
@@ -1180,7 +1165,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             <button
               type="button"
               onClick={() => handleBatchSetGuidance('ALLOWED')}
-              disabled={readOnly || batchActionLoading}
+              disabled={batchActionLoading}
               title="Set Guidance to Allowed"
               className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
             >
@@ -1197,7 +1182,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                   setIsBatchEditOpen(true);
                 }
               }}
-              disabled={readOnly || batchActionLoading}
+              disabled={batchActionLoading}
               title="Bulk Edit Selected Records"
               className="px-2.5 py-1.5 bg-blue-600 dark:bg-amber-400 hover:bg-blue-700 dark:hover:bg-amber-500 text-white dark:text-slate-950 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
             >
@@ -1208,7 +1193,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             <button
               type="button"
               onClick={handleDeleteSelected}
-              disabled={readOnly || batchActionLoading}
+              disabled={batchActionLoading}
               title="Delete Selected Records"
               className="p-1.5 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/60 rounded-xl transition cursor-pointer"
             >
@@ -1260,7 +1245,11 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                 className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
               >
                 <option value="ALL">All Intakes</option>
-                {intakes.map((i) => <option key={i} value={i}>{i}</option>)}
+                {intakes.map((i) => (
+                  <option key={i} value={i}>
+                    {i} {i === defaultIntake ? ' (Main Default)' : ''}
+                  </option>
+                ))}
               </select>
             </div>
             <div>

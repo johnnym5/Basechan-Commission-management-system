@@ -346,7 +346,9 @@ export function processChatTurn(
   if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !submittedIntent.intakeYearRange && !inputHasLevel && previousLevel) {
     contextParts.push(previousLevel === 'PG' ? 'postgraduate' : previousLevel === 'UG' ? 'undergraduate' : 'foundation');
   }
-  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !containsDatedIntake && !submittedIntent.intakeYearRange && !submittedIntent.intakeTerms.length && state.conversation.activeIntake) contextParts.push(state.conversation.activeIntake);
+  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !containsDatedIntake && !submittedIntent.intakeYearRange && !previousIntent?.intakeYearRange && !submittedIntent.intakeTerms.length && state.conversation.activeIntake) {
+    contextParts.push(state.conversation.activeIntake);
+  }
   const expandedInput = `${input} ${Array.from(new Set(contextParts)).join(' ')}`.trim();
   const intent = parseChatIntent(expandedInput, schoolNames, countryNames, aggregatorNames, role, intakeNames);
   if (pendingClarification?.field === 'intake' && rates.some((rate) => rate.intake.toLowerCase() === input.toLowerCase())) {
@@ -428,8 +430,26 @@ export function processChatTurn(
   const matchedSchools = Array.from(new Set(results.map((rate) => rate.universityName)));
   const schoolPreview = matchedSchools.slice(0, 10).join(', ');
   const extraSchoolCount = matchedSchools.length - Math.min(matchedSchools.length, 10);
+
+  // Diagnostic Smart Fallback for 0 results when an aggregator is specified
+  let diagnosticMessage: string | undefined;
+  let diagnosticChoices: { label: string; value: string }[] | undefined;
+
+  if (results.length === 0 && !questions.length && intent.aggregatorTerms.length > 0) {
+    const baseIntentNoAggregator = { ...intent, aggregatorTerms: [] };
+    const alternativeRoutes = filterRatesByIntent(rates, baseIntentNoAggregator);
+    if (alternativeRoutes.length > 0) {
+      const availableAggregators = Array.from(new Set(alternativeRoutes.map((r) => r.aggregator || '').filter(Boolean)));
+      const locationStr = countryDisplay || 'your search';
+      diagnosticMessage = `I found ${alternativeRoutes.length} routes for ${locationStr}, but none use ${intent.aggregatorTerms.join(', ')}. The available portals for ${locationStr} are ${availableAggregators.join(', ')}.`;
+      diagnosticChoices = availableAggregators.map((agg) => ({ label: `Use ${agg}`, value: agg }));
+    }
+  }
+
   const assistantText = questions.length
     ? questions.join(' ')
+    : diagnosticMessage
+      ? diagnosticMessage
       : intent.intakeOrder
         ? rankedIntake
           ? `The ${intent.intakeOrder} dated intake is ${rankedIntake}.`
@@ -469,10 +489,16 @@ export function processChatTurn(
     : results;
   const resolvedIntent = toStoredIntent(intent, rates);
   if (!resolvedIntent.intake && defaultIntake) resolvedIntent.intake = defaultIntake;
-  const clarification = questions.length ? clarificationFor(intent, finalAssistantText, rates, role) : undefined;
-  const followUpFilter = questions.length ? undefined : buildNextFilterPrompt(finalResults, role, toStoredIntent(intent, rates));
+
+  const clarification = questions.length
+    ? clarificationFor(intent, finalAssistantText, rates, role)
+    : diagnosticChoices
+      ? { field: 'aggregator' as const, prompt: finalAssistantText, choices: diagnosticChoices }
+      : undefined;
+
+  const followUpFilter = questions.length || diagnosticChoices ? undefined : buildNextFilterPrompt(finalResults, role, toStoredIntent(intent, rates));
   const assistantMessage = {
-    ...createMessage('assistant', finalAssistantText, questions.length ? 'clarifying' : 'results', finalResults.map((rate) => rate.id), finalResults, role),
+    ...createMessage('assistant', finalAssistantText, questions.length || diagnosticChoices ? 'clarifying' : 'results', finalResults.map((rate) => rate.id), finalResults, role),
     ...(clarification ? { clarification: { field: clarification.field, choices: clarification.choices } } : {}),
     ...(followUpFilter ? { followUpFilter } : {}),
   };
@@ -490,7 +516,7 @@ export function processChatTurn(
     } : {
       ...(intent.level ? { activeLevel: intent.level } : {}),
       ...(defaultIntake ? { activeIntake: defaultIntake } : {}),
-      ...(intent.schoolTerms.length ? { activeSchoolIds: Array.from(new Set(intent.schoolTerms.flatMap((school) => rates.filter((rate) => rate.universityName.toLowerCase() === school.toLowerCase()).map((rate) => rate.universityId)))) } : {}),
+      ...(intent.schoolTerms.length ? { activeSchoolIds: Array.from(new Set(intent.schoolTerms.flatMap((school) => rates.filter((rate) => rate.universityName.toLowerCase() === school.toLowerCase()).map((rate) => rate.universityId)))) } : undefined),
     }),
     ...(finalResults.length ? { lastResultSchoolIds: Array.from(new Set(finalResults.map((rate) => rate.universityId))).slice(0, MAX_COMPARISON_SCHOOLS) } : {}),
     searchIntent: resolvedIntent,

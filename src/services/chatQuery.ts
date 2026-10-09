@@ -75,8 +75,8 @@ const entitySearchStopWords = new Set([
 
 function matchLocalNames(text: string, knownNames: string[]): { exact: string[]; suggested: string[] } {
   const names = Array.from(new Set(knownNames.filter(Boolean)));
-  const words = text.toLowerCase().match(/[a-z0-9]+/g) || [];
-  const candidateWords = words.map((word, index) => ({ word, index }))
+  const allWords = text.toLowerCase().match(/[a-z0-9]+/g) || [];
+  const candidateWords = allWords.map((word, index) => ({ word, index }))
     .filter(({ word }) => !entitySearchStopWords.has(word));
   const windows = (count: number, source = candidateWords) => Array.from({ length: Math.max(0, source.length - count + 1) }, (_, start) => ({
     value: source.slice(start, start + count).map(({ word }) => word).join(''),
@@ -88,9 +88,9 @@ function matchLocalNames(text: string, knownNames: string[]): { exact: string[];
     const normalized = normalizeChatEntityName(name);
     const parts = name.toLowerCase().match(/[a-z0-9]+/g) || [];
     const match = windows(parts.length).find((window) => window.value === normalized);
-    if (match) {
+    if (match || includesPhrase(text, name) || text.trim().toLowerCase() === name.toLowerCase()) {
       exactNames.push(name);
-      match.indexes.forEach((index) => exactIndexes.add(index));
+      if (match) match.indexes.forEach((index) => exactIndexes.add(index));
     }
   }
 
@@ -107,10 +107,10 @@ function matchLocalNames(text: string, knownNames: string[]): { exact: string[];
       if (distance <= maxDistance && (!bestCandidates.has(name) || distance < bestCandidates.get(name)!)) bestCandidates.set(name, distance);
     }
   }
-  if (!bestCandidates.size) return { exact: exactNames, suggested: [] };
+  if (!bestCandidates.size) return { exact: Array.from(new Set(exactNames)), suggested: [] };
   const bestDistance = Math.min(...bestCandidates.values());
   return {
-    exact: exactNames,
+    exact: Array.from(new Set(exactNames)),
     suggested: Array.from(bestCandidates.entries()).filter(([, distance]) => distance === bestDistance).map(([name]) => name).slice(0, 4),
   };
 }
@@ -148,13 +148,25 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     ...(requestsUnitedKingdom ? ['united kingdom', 'uk', 'u.k.', 'britain', 'great britain'] : [])];
   const canReadPayout = role !== 'STAFF';
   const canReadRouting = role !== 'AGENT';
-  const aggregatorMatches = canReadRouting ? matchLocalNames(text, knownAggregators) : { exact: [], suggested: [] };
+  const defaultKnownAggregators = ['SI-UK', 'EDVOY', 'UAP', 'CRIZAC', 'BASECHAN', 'Direct'];
+  const allAggregatorsToMatch = Array.from(new Set([...knownAggregators, ...defaultKnownAggregators].filter(Boolean)));
+  const aggregatorMatches = canReadRouting ? matchLocalNames(text, allAggregatorsToMatch) : { exact: [], suggested: [] };
   const aggregatorTerms = aggregatorMatches.exact;
   const suggestedAggregators = aggregatorMatches.suggested;
-  const exactIntakeTerms = sanitizeChatInput(input).match(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/gi) || [];
+
   const containsYearRangeText = /\b20\d{2}\s*(?:[-–—]|to|through|and)\s*20\d{2}\b/i.test(text);
-  const intakeMatches = matchLocalNames(text, knownIntakes);
-  const intakeSuggestions = exactIntakeTerms.length || containsYearRangeText ? [] : intakeMatches.suggested;
+  const intakeMatches = containsYearRangeText ? { exact: [], suggested: [] } : matchLocalNames(text, knownIntakes);
+  const exactMonthIntakes = sanitizeChatInput(input).match(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/gi) || [];
+  const intakeSuggestions = containsYearRangeText || exactMonthIntakes.length ? [] : intakeMatches.suggested;
+
+  const exactIntakeTerms = containsYearRangeText
+    ? []
+    : exactMonthIntakes.length > 0
+      ? exactMonthIntakes
+      : intakeSuggestions.length > 0
+        ? []
+        : (/\b20\d{2}\b/.test(text) ? text.match(/\b20\d{2}\b/g) || [] : []);
+
   const minimumMatch = canReadPayout ? text.match(/\b(?:at least|minimum|min|over|above|more than|greater than|>=?)\s*[£$]?\s*(\d+(?:\.\d+)?)\s*(%|percent)?/i) : null;
   const maximumMatch = canReadPayout ? text.match(/\b(?:up to|maximum|max|under|below|less than|fewer than|<=?)\s*[£$]?\s*(\d+(?:\.\d+)?)\s*(%|percent)?/i) : null;
   const thresholdMatch = minimumMatch || maximumMatch;
@@ -175,7 +187,7 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     : /\b(?:lowest|earliest|oldest|first)\b.{0,32}\bintakes?\b|\bintakes?\b.{0,32}\b(?:lowest|earliest|oldest|first)\b/i.test(text)
       ? 'earliest'
       : undefined;
-  const scopeSelection: ChatIntent['scopeSelection'] = /\b(?:general|overall|everything|all of them|all available)\b|\b(?:all|every)\s+(?:available\s+)?(?:intakes?\s+and\s+(?:study\s+)?levels?|routes?|schools?)\b|\b(?:all|every)\s+(?:study\s+)?levels?\s+and\s+(?:available\s+)?intakes?\b/i.test(text)
+  const scopeSelection: ChatIntent['scopeSelection'] = /\b(?:general|overall|everything|all of them|all available)\b|\b(?:all|every)\s+(?:available\s+)?(?:intakes? and (?:study\s+)?levels?|routes?|schools?)\b|\b(?:all|every)\s+(?:study\s+)?levels?\s+and\s+(?:available\s+)?intakes?\b/i.test(text)
     ? 'all'
     : /\b(?:choose\s+(?:(?:a|an)\s+)?(?:specific\s+)?intake|specific\s+intake|particular\s+intake)\b/i.test(text)
       ? 'intake'

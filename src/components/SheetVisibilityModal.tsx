@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { CommissionRate } from '../types';
 import { useSheetVisibility } from '../hooks/useSheetVisibility';
+import { useSystemConfig } from '../hooks/useSystemConfig';
 import { useAuth } from '../context/AuthContext';
 import {
   X,
@@ -10,6 +11,7 @@ import {
   UserX,
   Layers3,
   Check,
+  Star,
 } from 'lucide-react';
 
 interface SheetVisibilityModalProps {
@@ -25,6 +27,7 @@ export const SheetVisibilityModal: React.FC<SheetVisibilityModalProps> = ({
 }) => {
   const { user } = useAuth();
   const { sheetSettings, updateSheetVisibility } = useSheetVisibility();
+  const { defaultIntake, updateDefaultIntake } = useSystemConfig();
 
   // Extract unique intake sheets & total counts
   const sheetSummary = useMemo(() => {
@@ -78,6 +81,36 @@ export const SheetVisibilityModal: React.FC<SheetVisibilityModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+          {/* Default Main Intake Selector */}
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-400/30 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+                <span className="font-extrabold text-xs text-amber-900 dark:text-amber-300">
+                  Default Main Intake Year
+                </span>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400 text-slate-950">
+                GLOBAL SYSTEM DEFAULT
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+              When users open the app, this intake is selected automatically. All other intakes act as secondary filters and can be selected anytime.
+            </p>
+            <select
+              value={defaultIntake}
+              onChange={(e) => updateDefaultIntake(e.target.value, user?.email || 'Admin')}
+              className="w-full p-2.5 rounded-xl border border-amber-400/50 bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-extrabold text-xs cursor-pointer focus:ring-2 focus:ring-amber-400"
+            >
+              <option value="ALL">Show All Intakes by Default</option>
+              {sheetSummary.map((s) => (
+                <option key={s.name} value={s.name}>
+                  {s.name} ({s.count} rates)
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/40 rounded-2xl border border-indigo-200 dark:border-indigo-800/80 text-indigo-900 dark:text-indigo-200 text-xs">
             <p className="font-semibold">
               Disabling a sheet hides all associated universities, rates, and totals for selected user roles (Staff or Agents). Admin access remains unaffected.
@@ -93,11 +126,16 @@ export const SheetVisibilityModal: React.FC<SheetVisibilityModalProps> = ({
               const setting = sheetSettings.find((s) => s.sheetName === sheet.name || s.id === sheet.name);
               const isHiddenStaff = setting?.disabledForStaff || false;
               const isHiddenAgents = setting?.disabledForAgents || false;
+              const isDefault = defaultIntake === sheet.name;
 
               return (
                 <div
                   key={sheet.name}
-                  className="p-4 rounded-2xl bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43] space-y-3"
+                  className={`p-4 rounded-2xl border space-y-3 transition-colors ${
+                    isDefault
+                      ? 'bg-amber-500/10 border-amber-400/50'
+                      : 'bg-slate-50 dark:bg-[#18181B] border-slate-200 dark:border-[#222F43]'
+                  }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -105,6 +143,11 @@ export const SheetVisibilityModal: React.FC<SheetVisibilityModalProps> = ({
                       <span className="font-extrabold text-xs text-slate-900 dark:text-slate-100">
                         {sheet.name}
                       </span>
+                      {isDefault && (
+                        <span className="px-1.5 py-0.2 rounded text-[8px] font-black uppercase bg-amber-400 text-slate-950">
+                          Main Default
+                        </span>
+                      )}
                     </div>
 
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
