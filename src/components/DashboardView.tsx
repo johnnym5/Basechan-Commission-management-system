@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { CommissionRate, SchoolGuidance } from '../types';
 import { MasterTable } from './MasterTable';
+import { DashboardShell } from './DashboardShell';
 import {
   Building2,
   Layers,
@@ -134,6 +135,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
   }, [rates]);
 
   return (
+    <DashboardShell role="ADMIN">
     <div className="space-y-6 sm:space-y-8">
       {/* Mobile Collapsible Header Bar Trigger (Shows on mobile only to toggle top summary) */}
       <div className="block sm:hidden">
@@ -459,5 +461,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
         />
       </section>
     </div>
+    </DashboardShell>
   );
 };
+
+
