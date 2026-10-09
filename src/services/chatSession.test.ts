@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createInitialChatState, processChatTurn } from './chatSession';
+import { buildNextFilterPrompt, createInitialChatState, getAvailableChatFacets, processChatTurn } from './chatSession';
 import type { CommissionRate } from '../types';
 
 vi.mock('./chatPersistence', () => ({ MAX_QUERIES_PER_MINUTE: 10, MAX_QUERIES_PER_SESSION: 50, PREFERENCE_LEARNING_THRESHOLD: 10 }));
@@ -7,6 +7,13 @@ vi.mock('./chatPersistence', () => ({ MAX_QUERIES_PER_MINUTE: 10, MAX_QUERIES_PE
 const rates: CommissionRate[] = [
   { id: 'a-pg', universityId: 'a', universityName: 'Aberdeen University', intake: 'Jan 2027', aggregator: '', studyLevel: 'PG', masterRate: 0, agentRate: 15, diffMargin: 0, isFlatFee: false, netOrGross: 'GROSS' },
   { id: 'a-ug', universityId: 'a', universityName: 'Aberdeen University', intake: 'Jan 2027', aggregator: '', studyLevel: 'UG', masterRate: 0, agentRate: 10, diffMargin: 0, isFlatFee: false, netOrGross: 'GROSS' },
+];
+
+const progressiveRates: CommissionRate[] = [
+  { ...rates[0], id: 'uk-21-alpha', universityId: 'uk-a', universityName: 'North University', country: 'UK', intake: '2021 - 2022', aggregator: 'Alpha Partners', guidance: 'FOCUS' },
+  { ...rates[1], id: 'uk-22-beta', universityId: 'uk-b', universityName: 'South University', country: 'UK', intake: 'September 2022', aggregator: 'Beta Group', guidance: 'ALLOWED' },
+  { ...rates[0], id: 'uk-26-alpha', universityId: 'uk-c', universityName: 'West University', country: 'UK', intake: '2026 - 2027', aggregator: 'Alpha Partners', studyLevel: 'FD', guidance: 'DO_NOT_USE' },
+  { ...rates[0], id: 'ca-26', universityId: 'ca-a', universityName: 'Canada University', country: 'Canada', intake: '2026 - 2027', aggregator: 'Gamma Group', guidance: 'FOCUS' },
 ];
 
 describe('chat session query policy', () => {
@@ -66,7 +73,7 @@ describe('chat session query policy', () => {
     expect(result.matchingRates.map((rate) => rate.intake)).toEqual(['Jan 2027']);
   });
 
-  it('clarifies the count scope and counts distinct schools across every intake and level when selected', () => {
+  it('counts distinct schools across all available intakes and levels without blocking', () => {
     const countryRates = [
       { ...rates[0], country: 'UK' },
       { ...rates[1], country: 'UK' },
@@ -74,13 +81,10 @@ describe('chat session query policy', () => {
       { ...rates[0], id: 'b-pg', universityId: 'b', universityName: 'Bristol University', country: 'UK' },
     ];
     const first = processChatTurn(createInitialChatState('u1'), 'How many schools are in UK?', countryRates, 1_000);
-    expect(first.clarificationQuestions.join(' ')).toMatch(/all available intakes and study levels/i);
-    expect(first.matchingRates).toEqual([]);
-    expect(first.state.conversation.pendingClarification?.choices).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: 'All available intakes and levels' }),
-      expect.objectContaining({ label: 'Choose an intake' }),
-      expect.objectContaining({ label: 'Choose a study level' }),
-    ]));
+    expect(first.clarificationQuestions).toEqual([]);
+    expect(first.matchingRates).toHaveLength(4);
+    expect(first.state.conversation.messages.at(-1)?.text).toMatch(/2 schools in your available UK data across all available intakes and all study levels/i);
+    expect(first.state.conversation.messages.at(-1)?.followUpFilter).toBeDefined();
 
     const answer = processChatTurn(first.state, 'all available intakes and levels', countryRates, 2_000);
     expect(answer.matchingRates).toHaveLength(4);
@@ -115,7 +119,7 @@ describe('chat session query policy', () => {
 
     const answer = processChatTurn(chooseLevel.state, 'Undergraduate', countryRates, 3_000);
     expect(new Set(answer.matchingRates.map((rate) => rate.universityId))).toEqual(new Set(['a', 'b']));
-    expect(answer.state.conversation.messages.at(-1)?.text).toMatch(/2 schools in your available UK data at UG level/i);
+    expect(answer.state.conversation.messages.at(-1)?.text).toMatch(/2 schools in your available UK data across all available intakes at UG level/i);
   });
 
   it('limits comparison results to a shared intake and level', () => {
@@ -173,8 +177,9 @@ describe('chat session query policy', () => {
       { ...rates[1], id: 'b-ug', universityId: 'b', universityName: 'Bristol University', country: 'UK' },
     ];
     const result = processChatTurn(createInitialChatState('u1'), 'how many schools are in UK?', UKRates, 1_000, 'AGENT');
-    expect(result.matchingRates).toHaveLength(0);
-    expect(result.clarificationQuestions.join(' ')).toMatch(/all available intakes and study levels/i);
+    expect(result.matchingRates).toHaveLength(3);
+    expect(result.clarificationQuestions).toEqual([]);
+    expect(result.state.conversation.messages.at(-1)?.text).toMatch(/2 schools in your available UK data across all available intakes and all study levels/i);
   });
 
   it('counts routes rather than unique schools when asked how many routes match', () => {
@@ -184,7 +189,7 @@ describe('chat session query policy', () => {
     ];
     const result = processChatTurn(createInitialChatState('u1'), 'how many routes are in UK?', UKRates, 1_000, 'STAFF');
     expect(result.matchingRates).toHaveLength(2);
-    expect(result.state.conversation.messages[1].text).toMatch(/2 routes in UK/i);
+    expect(result.state.conversation.messages[1].text).toMatch(/2 routes in your available UK data/i);
   });
 
   it('lists matching Focus schools and counts unique schools for “how many are in Focus”', () => {
@@ -235,6 +240,90 @@ describe('chat session query policy', () => {
     const result = processChatTurn(createInitialChatState('u1'), 'Which is the highest intake?', undated, 1_000, 'STAFF');
     expect(result.matchingRates).toHaveLength(0);
     expect(result.state.conversation.messages[1].text).toMatch(/no matching routes with dated intakes/i);
+  });
+
+  it('keeps country and year filters while adding aggregators', () => {
+    const first = processChatTurn(createInitialChatState('u1'), 'show schools in UK', progressiveRates, 1_000, 'STAFF');
+    const years = processChatTurn(first.state, 'from 2021 to 2025', progressiveRates, 2_000, 'STAFF');
+    const aggregators = processChatTurn(years.state, 'Alpha Partners and Beta Group', progressiveRates, 3_000, 'STAFF');
+    expect(aggregators.matchingRates.map((rate) => rate.id)).toEqual(['uk-21-alpha', 'uk-22-beta']);
+    expect(aggregators.state.conversation.searchIntent).toMatchObject({ country: 'UK', intakeYearRange: { startYear: 2021, endYear: 2025 }, aggregatorTerms: ['Alpha Partners', 'Beta Group'] });
+  });
+
+  it('confirms a suggested aggregator before applying it', () => {
+    const first = processChatTurn(createInitialChatState('u1'), 'show schools in UK', progressiveRates, 1_000, 'STAFF');
+    const suggestion = processChatTurn(first.state, 'Alpha Partnerz', progressiveRates, 2_000, 'STAFF');
+    expect(suggestion.matchingRates).toEqual([]);
+    expect(suggestion.state.conversation.pendingClarification).toMatchObject({ field: 'aggregator', choices: [{ label: 'Alpha Partners', value: 'Alpha Partners' }] });
+
+    const confirmed = processChatTurn(suggestion.state, 'Alpha Partners', progressiveRates, 3_000, 'STAFF');
+    expect(confirmed.matchingRates.map((rate) => rate.id)).toEqual(['uk-21-alpha', 'uk-26-alpha']);
+    expect(confirmed.state.conversation.searchIntent?.aggregatorTerms).toEqual(['Alpha Partners']);
+  });
+
+  it('asks only about facets with multiple accessible values', () => {
+    const available = getAvailableChatFacets(progressiveRates.filter((rate) => rate.country === 'UK'), 'STAFF');
+    expect(available).toMatchObject({
+      intakes: ['2021 - 2022', 'September 2022', '2026 - 2027'],
+      intakeYears: [2021, 2022, 2026],
+      aggregators: ['Alpha Partners', 'Beta Group'],
+      levels: ['PG', 'UG', 'FD'],
+      guidances: ['FOCUS', 'ALLOWED', 'DO_NOT_USE'],
+    });
+    expect(buildNextFilterPrompt(progressiveRates.slice(0, 2), 'AGENT', { schoolIds: [], aggregatorTerms: [], compare: false, compareSchoolIds: [] })?.field).toBe('intakeYearRange');
+    const broad = processChatTurn(createInitialChatState('u1'), 'show schools in UK', progressiveRates, 1_000, 'AGENT');
+    expect(broad.state.conversation.messages.at(-1)?.followUpFilter?.field).not.toBe('aggregator');
+    expect(JSON.stringify(broad.state.conversation.messages.at(-1)?.followUpFilter)).not.toMatch(/Alpha Partners|Beta Group/);
+  });
+
+  it('offers a broader scope after a filter returns zero routes', () => {
+    const first = processChatTurn(createInitialChatState('u1'), 'show schools in UK', progressiveRates, 1_000, 'STAFF');
+    const empty = processChatTurn(first.state, 'from 2020 to 2020', progressiveRates, 2_000, 'STAFF');
+    expect(empty.matchingRates).toEqual([]);
+    expect(empty.state.conversation.messages.at(-1)?.followUpFilter).toBeUndefined();
+    expect(empty.state.conversation.messages.at(-1)?.text).toMatch(/remov\w* a filter|broaden/i);
+  });
+
+  it('resets filters for a new explicit country search', () => {
+    const first = processChatTurn(createInitialChatState('u1'), 'show schools in UK', progressiveRates, 1_000, 'STAFF');
+    const years = processChatTurn(first.state, 'from 2021 to 2025', progressiveRates, 2_000, 'STAFF');
+    const aggregators = processChatTurn(years.state, 'Alpha Partners', progressiveRates, 3_000, 'STAFF');
+    const canada = processChatTurn(aggregators.state, 'show schools in Canada', progressiveRates, 4_000, 'STAFF');
+    expect(canada.state.conversation.searchIntent).toMatchObject({ country: 'Canada', aggregatorTerms: [] });
+    expect(canada.state.conversation.searchIntent?.intakeYearRange).toBeUndefined();
+    expect(canada.clarificationQuestions).toEqual([]);
+    expect(canada.matchingRates.map((rate) => rate.id)).toEqual(['ca-26']);
+  });
+
+  it('resets filters when a follow-up phrase names a new country', () => {
+    const first = processChatTurn(createInitialChatState('u1'), 'show schools in UK', progressiveRates, 1_000, 'STAFF');
+    const years = processChatTurn(first.state, 'from 2021 to 2025', progressiveRates, 2_000, 'STAFF');
+    const aggregators = processChatTurn(years.state, 'Alpha Partners', progressiveRates, 3_000, 'STAFF');
+    const canada = processChatTurn(aggregators.state, 'What about Canada?', progressiveRates, 4_000, 'STAFF');
+    expect(canada.matchingRates.map((rate) => rate.id)).toEqual(['ca-26']);
+    expect(canada.state.conversation.searchIntent).toMatchObject({ country: 'Canada', aggregatorTerms: [] });
+    expect(canada.state.conversation.searchIntent?.intakeYearRange).toBeUndefined();
+  });
+
+  it('lets an explicit year range replace an implicitly active default intake', () => {
+    const schoolRates = [
+      { ...rates[0], id: 'old-cycle', intake: '2021 - 2022' },
+      { ...rates[0], id: 'new-cycle', intake: '2026 - 2027' },
+    ];
+    const first = processChatTurn(createInitialChatState('u1'), 'Aberdeen University postgraduate', schoolRates, new Date('2026-10-01').getTime(), 'STAFF');
+    const years = processChatTurn(first.state, 'from 2021 to 2025', schoolRates, new Date('2026-10-02').getTime(), 'STAFF');
+    expect(years.matchingRates.map((rate) => rate.id)).toEqual(['old-cycle']);
+  });
+
+  it('clears stored school, level, and intake context when starting a new country search', () => {
+    const first = processChatTurn(createInitialChatState('u1'), 'North University postgraduate', progressiveRates, 1_000, 'STAFF');
+    const canada = processChatTurn(first.state, 'show schools in Canada', progressiveRates, 2_000, 'STAFF');
+    const refined = processChatTurn(canada.state, 'Gamma Group', progressiveRates, 3_000, 'STAFF');
+    expect(first.state.conversation.activeSchoolIds).toContain('uk-a');
+    expect(canada.state.conversation.activeSchoolIds).toBeUndefined();
+    expect(canada.state.conversation.activeLevel).toBeUndefined();
+    expect(canada.state.conversation.activeIntake).toBeUndefined();
+    expect(refined.matchingRates.map((rate) => rate.id)).toEqual(['ca-26']);
   });
 });
 

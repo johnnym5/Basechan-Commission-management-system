@@ -35,7 +35,7 @@ export function applyDashboardFilters(role: UserRole, rates: DashboardRate[], ra
 }
 export function filtersFromChatIntent(role: UserRole, intent: ChatSearchIntent, current: DashboardFilters): DashboardFilters {
   const next: DashboardFilters = { ...sanitizeDashboardFilters(role, current), query: '', schoolIds: intent.schoolIds.length ? [...intent.schoolIds] : current.schoolIds, countries: intent.country ? [intent.country] : current.countries, levels: intent.level ? [intent.level] : current.levels, intakes: intent.intake ? [intent.intake] : current.intakes, guidances: intent.guidances?.length ? [...intent.guidances] : intent.guidance ? [intent.guidance] : current.guidances };
-  if (role !== 'AGENT' && intent.aggregatorTerms.length) next.aggregators = [...intent.aggregatorTerms];
+  if (role !== 'AGENT' && intent.aggregatorTerms?.length) next.aggregators = [...intent.aggregatorTerms];
   if (role === 'AGENT' && (intent.rateMinimum !== undefined || intent.rateMaximum !== undefined)) { next.agentPayoutKind = intent.feeType ? (intent.feeType === 'FLAT' ? 'FLAT_FEE' : 'PERCENTAGE') : undefined; next.payoutMinimum = intent.rateMinimum; next.payoutMaximum = intent.rateMaximum; }
   return sanitizeDashboardFilters(role, next);
 }

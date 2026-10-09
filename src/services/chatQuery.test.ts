@@ -173,9 +173,9 @@ describe('natural language chat query', () => {
     expect(parseChatIntent('how many routes dey for UK?', schools, ['UK'])).toMatchObject({ quantity: 'routes', countryTerms: ['UK'], needsSchool: false, outOfScope: false });
   });
 
-  it('asks for intake and level scope before counting an unqualified country query', () => {
+  it('recognizes intake and level scope phrases for a country count', () => {
     const intent = parseChatIntent('how many schools are in UK?', rates.map((rate) => rate.universityName), ['UK']);
-    expect(buildClarifyingQuestions(intent).join(' ')).toMatch(/all available intakes and study levels/i);
+    expect(buildClarifyingQuestions(intent)).toEqual([]);
     expect(parseChatIntent('how many schools in UK across all available intakes and levels', [], ['UK'])).toMatchObject({ scopeSelection: 'all' });
     expect(parseChatIntent('how many schools in UK choose an intake', [], ['UK'])).toMatchObject({ scopeSelection: 'intake' });
     expect(parseChatIntent('how many schools in UK general', [], ['UK'])).toMatchObject({ scopeSelection: 'all' });
@@ -201,6 +201,28 @@ describe('natural language chat query', () => {
     expect(keys[1]).toBeGreaterThan(keys[0]!);
     expect(keys[2]).toBeGreaterThan(keys[0]!);
     expect(getIntakeDateKey('Current intake')).toBeNull();
+  });
+
+  it('treats common action verbs as request framing instead of unmatched school names', () => {
+    const schools = ['Winchester University'];
+    for (const query of [
+      'give the rate for Winchester University',
+      'take me to routes for Winchester University',
+      'change the filter for Winchester University',
+      'add Winchester University to my results',
+      'remove Winchester University from these results',
+      'update results for Winchester University',
+    ]) {
+      const intent = parseChatIntent(query, schools);
+      expect(intent.schoolTerms, query).toEqual(schools);
+      expect(intent.unmatchedSchoolLikeTerms, query).toEqual([]);
+    }
+  });
+
+  it('recognizes exact local intake labels that do not contain a date', () => {
+    const intent = parseChatIntent('Legacy', [], [], [], 'STAFF', ['Current intake', 'Legacy']);
+    expect(intent.intakeTerms).toEqual(['Legacy']);
+    expect(filterRatesByIntent([{ ...rates[0], intake: 'Legacy' }, rates[1]], intent).map((rate) => rate.intake)).toEqual(['Legacy']);
   });
 
   it('parses inclusive intake year ranges in common wording', () => {

@@ -4,6 +4,7 @@ import { createRate } from '../services/adminRateWriteService';
 import { useAuth } from '../context/AuthContext';
 import { generateCompositeId, normalizeUniversitySlug } from '../utils/idGenerator';
 import { PredictiveInput } from './PredictiveInput';
+import { COMMON_AGGREGATORS } from '../constants/aggregators';
 import type { CommissionRate, StudyLevel, NetOrGross } from '../types';
 
 interface AddRateModalProps {
@@ -67,7 +68,7 @@ export const AddRateModal: React.FC<AddRateModalProps> = ({
       uniqueUniversities: Array.from(unis).sort(),
       uniqueCountries: Array.from(countries).sort(),
       uniqueIntakes: Array.from(intakes).sort(),
-      uniqueAggregators: Array.from(aggs).sort(),
+      uniqueAggregators: Array.from(new Set([...COMMON_AGGREGATORS, ...aggs])).sort(),
       universityCountryMap: uniCountry,
     };
   }, [existingRates]);

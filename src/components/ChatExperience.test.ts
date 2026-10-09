@@ -149,6 +149,58 @@ describe('chat search results flow', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Compare selected' })).toBeTruthy());
   });
 
+  it('renders the next available filter prompt with choices under the result message', async () => {
+    const scopedRates = [
+      rate({ id: 'uk-a', universityId: 'uk-a', universityName: 'A University', country: 'UK', intake: 'Jan 2027' }),
+      rate({ id: 'uk-b', universityId: 'uk-b', universityName: 'B University', country: 'UK', intake: 'Sept 2027' }),
+    ];
+    render(React.createElement(ChatExperience, { rates: scopedRates, loading: false, role: 'AGENT', updates: [], onUpdatesChange: vi.fn() }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your message' }), { target: { value: 'show schools in UK' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(await screen.findByText('Would you like to narrow these results to a specific intake?')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Jan 2027' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sept 2027' })).toBeTruthy();
+  });
+
+  it('opens scoped school results and focuses the chat composer when the school total is clicked', async () => {
+    const scopedRates = [
+      rate({ id: 'uk-a-pg', universityId: 'uk-a', universityName: 'A University', country: 'UK', intake: 'Jan 2027' }),
+      rate({ id: 'uk-a-ug', universityId: 'uk-a', universityName: 'A University', country: 'UK', intake: 'Jan 2027', studyLevel: 'UG' }),
+      rate({ id: 'uk-b-pg', universityId: 'uk-b', universityName: 'B University', country: 'UK', intake: 'Sept 2027' }),
+    ];
+    render(React.createElement(ChatExperience, { rates: scopedRates, loading: false, role: 'AGENT', updates: [], onUpdatesChange: vi.fn() }));
+    const composer = screen.getByRole('textbox', { name: 'Your message' });
+    fireEvent.change(composer, { target: { value: 'show schools in UK' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    const schoolTotal = await screen.findByRole('button', { name: /2 unique schools/i });
+    fireEvent.change(composer, { target: { value: 'keep this filter draft' } });
+    fireEvent.click(schoolTotal);
+    expect(await screen.findByText(/2 results · 0\/4 selected/)).toBeTruthy();
+    const resultPanel = document.querySelector('.chat-results-list') as HTMLElement;
+    expect(within(resultPanel).getAllByText('A University')).toHaveLength(1);
+    expect(within(resultPanel).getAllByText('B University')).toHaveLength(1);
+    await waitFor(() => expect(document.activeElement).toBe(composer));
+    expect(composer).toHaveValue('keep this filter draft');
+  });
+
+  it('opens scoped route results and focuses the chat composer when the route total is clicked', async () => {
+    const scopedRates = [
+      rate({ id: 'uk-a-pg', universityId: 'uk-a', universityName: 'A University', country: 'UK', intake: 'Jan 2027' }),
+      rate({ id: 'uk-a-ug', universityId: 'uk-a', universityName: 'A University', country: 'UK', intake: 'Jan 2027', studyLevel: 'UG' }),
+      rate({ id: 'uk-b-pg', universityId: 'uk-b', universityName: 'B University', country: 'UK', intake: 'Sept 2027' }),
+    ];
+    render(React.createElement(ChatExperience, { rates: scopedRates, loading: false, role: 'AGENT', updates: [], onUpdatesChange: vi.fn() }));
+    const composer = screen.getByRole('textbox', { name: 'Your message' });
+    fireEvent.change(composer, { target: { value: 'show schools in UK' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    const routeTotal = await screen.findByRole('button', { name: /3 matching routes/i });
+    fireEvent.change(composer, { target: { value: 'keep this other draft' } });
+    fireEvent.click(routeTotal);
+    expect(await screen.findByText(/3 results · 0\/4 selected/)).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(composer));
+    expect(composer).toHaveValue('keep this other draft');
+  });
+
   it('syncs locally saved conversations to the account and honors offline favorite deletions', async () => {
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
     const favorite = { id: 'uni', universityId: 'uni', universityName: 'Example University', createdAt: '2026-10-09T10:00:00.000Z' };

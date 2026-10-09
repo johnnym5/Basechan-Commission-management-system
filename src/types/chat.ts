@@ -5,6 +5,12 @@ export interface IntakeYearRange {
   endYear: number;
 }
 
+export interface ChatFilterPrompt {
+  field: 'intake' | 'intakeYearRange' | 'aggregator' | 'level' | 'guidance';
+  question: string;
+  choices: Array<{ label: string; value: string }>;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -12,8 +18,9 @@ export interface ChatMessage {
   createdAt: string;
   resultIds?: string[];
   status?: 'sent' | 'clarifying' | 'results';
+  followUpFilter?: ChatFilterPrompt;
   clarification?: {
-    field: 'school' | 'country' | 'level' | 'intake' | 'scope' | 'intent' | 'ranking' | 'payout';
+    field: 'school' | 'country' | 'level' | 'intake' | 'intakeYearRange' | 'aggregator' | 'guidance' | 'scope' | 'intent' | 'ranking' | 'payout';
     choices: Array<{ label: string; value: string }>;
   };
   resultRates?: Array<{
@@ -34,14 +41,16 @@ export interface ChatMessage {
 export interface ChatSearchIntent {
   schoolIds: string[];
   country?: string;
+  countryTerms?: string[];
   level?: Exclude<StudyLevel, 'ALL'>;
   intake?: string;
+  intakeYearRange?: IntakeYearRange;
   guidance?: 'FOCUS' | 'ALLOWED' | 'DO_NOT_USE';
   guidances?: Array<'FOCUS' | 'ALLOWED' | 'DO_NOT_USE'>;
   intakeOrder?: 'latest' | 'earliest';
   quantity?: 'schools' | 'routes';
   scopeSelection?: 'all' | 'intake' | 'level';
-  aggregatorTerms: string[];
+  aggregatorTerms?: string[];
   rateMinimum?: number;
   rateMaximum?: number;
   feeType?: 'FLAT' | 'PERCENTAGE';
@@ -51,7 +60,7 @@ export interface ChatSearchIntent {
 }
 
 export interface PendingChatClarification {
-  field: 'school' | 'country' | 'level' | 'intake' | 'scope' | 'intent' | 'ranking' | 'payout';
+  field: 'school' | 'country' | 'level' | 'intake' | 'intakeYearRange' | 'aggregator' | 'guidance' | 'scope' | 'intent' | 'ranking' | 'payout';
   prompt: string;
   choices: Array<{ label: string; value: string }>;
 }

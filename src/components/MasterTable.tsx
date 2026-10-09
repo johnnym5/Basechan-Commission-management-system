@@ -26,6 +26,7 @@ import { BatchEditModal } from './BatchEditModal';
 import { ShareRateCardModal } from './ShareRateCardModal';
 import { updateRate, updateRates, deleteRates } from '../services/adminRateWriteService';
 import { isQuotaOffline } from '../services/firestoreOfflineMode';
+import { COMMON_AGGREGATORS } from '../constants/aggregators';
 import { useAuth } from '../context/AuthContext';
 import {
   ArrowUpDown,
@@ -68,8 +69,6 @@ interface MasterTableProps {
   onExternalIntakeChange?: (intake: string) => void;
   externalSchoolIdsFilter?: string[];
 }
-
-const COMMON_AGGREGATORS = ['SI-UK', 'EDVOY', 'UAP', 'CRIZAC', 'BASECHAN', 'Direct'];
 
 // Interactive School Status Cell for Admin Users
 const SchoolStatusCell: React.FC<{ rate: CommissionRate; readOnly?: boolean }> = ({ rate, readOnly = false }) => {

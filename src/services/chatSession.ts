@@ -1,8 +1,67 @@
-import type { AgentChatProfile, ChatConversation, ChatMessage, ChatPromptSuggestion, ChatSearchIntent, CommissionRate, FavoriteSchool, PendingChatClarification, UserRole } from '../types';
+import type { AgentChatProfile, ChatConversation, ChatMessage, ChatPromptSuggestion, ChatSearchIntent, CommissionRate, FavoriteSchool, PendingChatClarification, StudyLevel, UserRole } from '../types';
+import type { ChatFilterPrompt } from '../types/chat';
 import type { DashboardFilters } from '../types/dashboard';
 import { filtersFromChatIntent } from './dashboardFilters';
-import { buildClarifyingQuestions, filterRatesByIntent, getDefaultIntake, getIntakeDateKey, MAX_COMPARISON_SCHOOLS, parseChatIntent, sanitizeChatInput } from './chatQuery';
+import { buildClarifyingQuestions, filterRatesByIntent, getDefaultIntake, getIntakeDateKey, getIntakeStartYear, MAX_COMPARISON_SCHOOLS, parseChatIntent, sanitizeChatInput } from './chatQuery';
 import { MAX_QUERIES_PER_MINUTE, MAX_QUERIES_PER_SESSION, PREFERENCE_LEARNING_THRESHOLD } from './chatPersistence';
+
+export interface AvailableChatFacets {
+  intakes: string[];
+  intakeYears: number[];
+  aggregators: string[];
+  levels: StudyLevel[];
+  guidances: Array<'FOCUS' | 'ALLOWED' | 'DO_NOT_USE'>;
+}
+
+export function getAvailableChatFacets(results: CommissionRate[], role: UserRole): AvailableChatFacets {
+  const distinct = <T,>(values: T[]) => Array.from(new Set(values));
+  return {
+    intakes: distinct(results.map((rate) => rate.intake).filter(Boolean)),
+    intakeYears: distinct(results.map((rate) => getIntakeStartYear(rate.intake)).filter((year): year is number => year !== null)).sort((a, b) => a - b),
+    aggregators: role === 'AGENT' ? [] : distinct(results.map((rate) => rate.aggregator || '').filter(Boolean)),
+    levels: distinct(results.map((rate) => rate.studyLevel).filter((level): level is StudyLevel => level !== 'ALL')),
+    guidances: distinct(results.map((rate) => rate.guidance || 'ALLOWED')),
+  };
+}
+
+export function buildNextFilterPrompt(results: CommissionRate[], role: UserRole, intent: ChatSearchIntent): ChatFilterPrompt | undefined {
+  if (!results.length) return undefined;
+  const facets = getAvailableChatFacets(results, role);
+  if (!intent.intake && !intent.intakeYearRange) {
+    if (facets.intakeYears.length > 1) return {
+      field: 'intakeYearRange',
+      question: 'Would you like to narrow these results by intake year?',
+      choices: facets.intakeYears.slice(0, 8).map((year) => ({ label: String(year), value: `from ${year} to ${year}` })),
+    };
+    if (facets.intakes.length > 1) return {
+      field: 'intake',
+      question: 'Would you like to narrow these results to a specific intake?',
+      choices: facets.intakes.slice(0, 8).map((intake) => ({ label: intake, value: intake })),
+    };
+  }
+  if (role !== 'AGENT' && !intent.aggregatorTerms?.length && facets.aggregators.length > 1) return {
+    field: 'aggregator',
+    question: 'Would you like to narrow these results by aggregator?',
+    choices: facets.aggregators.slice(0, 8).map((aggregator) => ({ label: aggregator, value: aggregator })),
+  };
+  if (!intent.level && facets.levels.length > 1) return {
+    field: 'level',
+    question: 'Would you like to narrow these results by study level?',
+    choices: facets.levels.slice(0, 8).map((level) => ({
+      label: level === 'FD' ? 'Foundation' : level === 'UG' ? 'Undergraduate' : level === 'PG' ? 'Postgraduate' : level,
+      value: level === 'FD' ? 'Foundation' : level === 'UG' ? 'Undergraduate' : level === 'PG' ? 'Postgraduate' : level,
+    })),
+  };
+  if (!(intent.guidances?.length || intent.guidance) && facets.guidances.length > 1) return {
+    field: 'guidance',
+    question: 'Would you like to narrow these results by guidance status?',
+    choices: facets.guidances.map((guidance) => ({
+      label: guidance === 'DO_NOT_USE' ? 'Restricted' : guidance === 'FOCUS' ? 'Focus' : 'Allowed',
+      value: guidance === 'DO_NOT_USE' ? 'Restricted' : guidance,
+    })),
+  };
+  return undefined;
+}
 
 export interface ChatSessionState {
   conversation: ChatConversation;
@@ -64,6 +123,12 @@ export function buildContextualSuggestions(state: ChatSessionState, rates: Commi
 }
 
 function clarificationFor(intent: ReturnType<typeof parseChatIntent>, questionText: string, rates: CommissionRate[], role: UserRole): PendingChatClarification | undefined {
+  if (intent.suggestedAggregators.length && role !== 'AGENT') return { field: 'aggregator', prompt: questionText, choices: intent.suggestedAggregators.map((aggregator) => ({ label: aggregator, value: aggregator })) };
+  if (intent.intakeSuggestions.length) return { field: 'intake', prompt: questionText, choices: intent.intakeSuggestions.map((intake) => ({ label: intake, value: intake })) };
+  if (intent.invalidIntakeYearRange) {
+    const years = Array.from(new Set(rates.map((rate) => getIntakeStartYear(rate.intake)).filter((year): year is number => year !== null)));
+    return { field: 'intakeYearRange', prompt: questionText, choices: years.map((year) => ({ label: String(year), value: `from ${year} to ${year}` })) };
+  }
   if (intent.outOfScope) return { field: 'intent', prompt: questionText, choices: [
     { label: 'Show Focus schools', value: 'Show me Focus schools' },
     { label: 'Show all available schools', value: 'Show all available schools' },
@@ -127,8 +192,10 @@ function toStoredIntent(intent: ReturnType<typeof parseChatIntent>, rates: Commi
   return {
     schoolIds,
     ...(country ? { country } : {}),
+    ...(intent.countryTerms.length ? { countryTerms: intent.countryTerms } : {}),
     ...(intent.level ? { level: intent.level } : {}),
     ...(intent.intakeTerms[0] ? { intake: intent.intakeTerms[0] } : {}),
+    ...(intent.intakeYearRange ? { intakeYearRange: intent.intakeYearRange } : {}),
     ...(intent.guidance ? { guidance: intent.guidance } : {}),
     ...(intent.guidances?.length ? { guidances: intent.guidances } : {}),
     ...(intent.intakeOrder ? { intakeOrder: intent.intakeOrder } : {}),
@@ -219,6 +286,9 @@ export function processChatTurn(
 
   const schoolNames = Array.from(new Set(rates.map((rate) => rate.universityName)));
   const countryNames = Array.from(new Set(rates.map((rate) => rate.country || '').filter(Boolean)));
+  const aggregatorNames = Array.from(new Set(rates.map((rate) => rate.aggregator || '').filter(Boolean)));
+  const intakeNames = Array.from(new Set(rates.map((rate) => rate.intake).filter(Boolean)));
+  const submittedIntent = parseChatIntent(input, schoolNames, countryNames, aggregatorNames, role, intakeNames);
   const compareAllPrevious = /\bcompare\s+(?:all\s+)?(?:4|four)\b/i.test(input);
   const priorSchoolIds = compareAllPrevious && state.conversation.lastResultSchoolIds?.length
     ? state.conversation.lastResultSchoolIds
@@ -232,11 +302,20 @@ export function processChatTurn(
   const genericSchoolWords = new Set(['university', 'universities', 'school', 'schools', 'college', 'colleges', 'institute', 'institutes', 'international', 'group', 'campus', 'center', 'centre']);
   const inputNamesSchool = schoolNames.some((school) => input.toLowerCase().includes(school.toLowerCase())
     || school.toLowerCase().split(/\s+/).some((word) => word.length >= 5 && !genericSchoolWords.has(word) && inputWords.has(word)));
+  const countryAliases = ['united kingdom', 'uk', 'u.k.', 'britain', 'great britain', 'england', 'scotland', 'wales', 'northern ireland'];
+  const inputNamesCountry = countryNames.some((country) => input.toLowerCase().includes(country.toLowerCase()))
+    || countryAliases.some((country) => new RegExp(`(^|[^a-z0-9])${country.replace('.', '\\.').replace(/\s+/g, '\\s+')}(?=$|[^a-z0-9])`, 'i').test(input));
+  const explicitlyKeepsScope = /\b(same|also|include|keep|continue)\b/i.test(input);
+  const isFreshEntitySearch = !isPendingChoice && (inputNamesSchool || inputNamesCountry) && !explicitlyKeepsScope;
+  const typedFilterOnly = Boolean(state.conversation.searchIntent && !inputNamesSchool && !inputNamesCountry && (
+    submittedIntent.level || submittedIntent.intakeTerms.length || submittedIntent.intakeYearRange || submittedIntent.intakeSuggestions.length
+    || submittedIntent.aggregatorTerms.length || submittedIntent.suggestedAggregators.length || submittedIntent.guidances?.length
+  ));
   const compareUsesPreviousSchool = /\b(compare|with|versus|vs)\b.{0,32}\b(this|that|these|those|it)\b|\b(this|that|these|those|it)\b.{0,32}\b(compare|with|versus|vs)\b/i.test(input);
-  const refersToPreviousSchools = waitingForLevel || compareAllPrevious || (isFilterFollowup && !inputNamesSchool) || compareUsesPreviousSchool;
-  const carriesPreviousFilters = compareAllPrevious || isPendingChoice || isFilterFollowup;
+  const refersToPreviousSchools = !isFreshEntitySearch && (waitingForLevel || compareAllPrevious || (isFilterFollowup && !inputNamesSchool) || compareUsesPreviousSchool);
+  const carriesPreviousFilters = !isFreshEntitySearch && (compareAllPrevious || isPendingChoice || isFilterFollowup || typedFilterOnly);
   const inputHasLevel = /\b(post\s*grad|postgraduate|master'?s|msc|phd|doctoral|under\s*grad|undergraduate|bachelor'?s|bsc|foundation|fd)\b/i.test(input);
-  const containsDatedIntake = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/i.test(input);
+  const containsDatedIntake = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/i.test(input) || submittedIntent.intakeSuggestions.length > 0;
   const contextParts = [ ...(refersToPreviousSchools ? contextNames : []) ];
   if (activeDashboardFilters && carriesPreviousFilters) {
     if (!inputNamesSchool) contextParts.push(...activeDashboardFilters.schoolIds.flatMap(id => rates.filter(rate => rate.universityId === id).map(rate => rate.universityName)));
@@ -250,24 +329,26 @@ export function processChatTurn(
   const previousIntent = state.conversation.searchIntent;
   if (carriesPreviousFilters && previousIntent) {
     if ((pendingClarification?.field !== 'school' && !inputNamesSchool) || previousIntent.compare || compareUsesPreviousSchool) contextParts.push(...previousIntent.schoolIds.flatMap((id) => rates.filter((rate) => rate.universityId === id).map((rate) => rate.universityName)));
-    if (pendingClarification?.field !== 'country' && previousIntent.country) contextParts.push(previousIntent.country);
-    if (pendingClarification?.field !== 'level' && previousIntent.level) contextParts.push(previousIntent.level === 'PG' ? 'postgraduate' : previousIntent.level === 'UG' ? 'undergraduate' : 'foundation');
-    if (pendingClarification?.field !== 'intake' && previousIntent.intake) contextParts.push(previousIntent.intake);
+    if (pendingClarification?.field !== 'country' && !inputNamesCountry && previousIntent.country) contextParts.push(previousIntent.country);
+    if (previousIntent.countryTerms?.length && !inputNamesCountry) contextParts.push(...previousIntent.countryTerms);
+    if (pendingClarification?.field !== 'level' && !submittedIntent.level && previousIntent.level) contextParts.push(previousIntent.level === 'PG' ? 'postgraduate' : previousIntent.level === 'UG' ? 'undergraduate' : 'foundation');
+    if (pendingClarification?.field !== 'intake' && !submittedIntent.intakeTerms.length && !submittedIntent.intakeYearRange && previousIntent.intake) contextParts.push(previousIntent.intake);
+    if (!submittedIntent.intakeYearRange && previousIntent.intakeYearRange) contextParts.push(`from ${previousIntent.intakeYearRange.startYear} to ${previousIntent.intakeYearRange.endYear}`);
+    if (!submittedIntent.aggregatorTerms.length && !submittedIntent.suggestedAggregators.length) contextParts.push(...(previousIntent.aggregatorTerms || []));
     if (previousIntent.quantity) contextParts.push(previousIntent.quantity === 'schools' ? 'how many schools' : 'how many routes');
     if (pendingClarification?.field !== 'scope' && previousIntent.scopeSelection) {
       contextParts.push(previousIntent.scopeSelection === 'all' ? 'all available intakes and levels' : previousIntent.scopeSelection === 'intake' ? 'choose a specific intake' : 'choose a specific study level');
     }
-    if (pendingClarification?.field !== 'intent') contextParts.push(...(previousIntent.guidances || (previousIntent.guidance ? [previousIntent.guidance] : [])).map((value) => value === 'DO_NOT_USE' ? 'restricted' : value));
+    if (pendingClarification?.field !== 'intent' && !submittedIntent.guidances?.length) contextParts.push(...(previousIntent.guidances || (previousIntent.guidance ? [previousIntent.guidance] : [])).map((value) => value === 'DO_NOT_USE' ? 'restricted' : value));
     if (previousIntent.compare) contextParts.push('compare');
   }
   const previousLevel = state.conversation.activeLevel;
-  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !inputHasLevel && previousLevel) {
+  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !submittedIntent.intakeYearRange && !inputHasLevel && previousLevel) {
     contextParts.push(previousLevel === 'PG' ? 'postgraduate' : previousLevel === 'UG' ? 'undergraduate' : 'foundation');
   }
-  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !containsDatedIntake && state.conversation.activeIntake) contextParts.push(state.conversation.activeIntake);
+  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !containsDatedIntake && !submittedIntent.intakeYearRange && !submittedIntent.intakeTerms.length && state.conversation.activeIntake) contextParts.push(state.conversation.activeIntake);
   const expandedInput = `${input} ${Array.from(new Set(contextParts)).join(' ')}`.trim();
-  const aggregatorNames = Array.from(new Set(rates.map((rate) => rate.aggregator || '').filter(Boolean)));
-  const intent = parseChatIntent(expandedInput, schoolNames, countryNames, aggregatorNames, role);
+  const intent = parseChatIntent(expandedInput, schoolNames, countryNames, aggregatorNames, role, intakeNames);
   if (pendingClarification?.field === 'intake' && rates.some((rate) => rate.intake.toLowerCase() === input.toLowerCase())) {
     intent.intakeTerms = [rates.find((rate) => rate.intake.toLowerCase() === input.toLowerCase())!.intake];
   }
@@ -312,9 +393,9 @@ export function processChatTurn(
       intentResults = dated.filter((item) => item.key === extremeKey).map((item) => item.rate);
     } else intentResults = [];
   }
-  const broadScope = intent.broadSearch || intent.intakeOrder !== undefined || (intent.countryTerms.length > 0 && intent.schoolTerms.length === 0);
-  const defaultIntake = intent.intakeTerms[0] || (!broadScope ? getDefaultIntake(intentResults, new Date(now)) : undefined);
-  if (!intent.intakeTerms.length && defaultIntake) {
+  const broadScope = intent.broadSearch || intent.intakeOrder !== undefined || Boolean(intent.intakeYearRange) || (intent.countryTerms.length > 0 && intent.schoolTerms.length === 0);
+  const defaultIntake = intent.intakeTerms[0] || (!broadScope && !intent.intakeYearRange ? getDefaultIntake(intentResults, new Date(now)) : undefined);
+  if (!intent.intakeTerms.length && !intent.intakeYearRange && defaultIntake) {
     intentResults = intentResults.filter((rate) => rate.intake === defaultIntake);
   }
   const results = intent.sortBy === 'rate_desc'
@@ -340,7 +421,7 @@ export function processChatTurn(
   const quantityLabel = intent.quantity === 'schools'
     ? quantityCount === 1 ? 'school' : 'schools'
     : quantityCount === 1 ? 'route' : 'routes';
-  const quantityScope = intent.countryTerms[0] ? ` in ${intent.countryTerms[0]}` : ' matching your search';
+  const quantityScope = intent.countryTerms[0] ? ` in your available ${intent.countryTerms[0]} data` : ' matching your search in available data';
   const ukLabels = new Set(['united kingdom', 'uk', 'u.k.', 'britain', 'great britain', 'england', 'scotland', 'wales', 'northern ireland']);
   const countryDisplay = intent.countryTerms.length > 1 && intent.countryTerms.every((value) => ukLabels.has(value.toLowerCase())) ? 'UK' : intent.countryTerms[0];
   const guidanceLabel = (intent.guidances || (intent.guidance ? [intent.guidance] : [])).map((value) => value === 'DO_NOT_USE' ? 'Restricted' : value === 'FOCUS' ? 'Focus' : 'Allowed').join(' or ');
@@ -356,7 +437,7 @@ export function processChatTurn(
       : intent.quantity
         ? quantityCount
           ? intent.quantity === 'schools'
-            ? `There ${quantityCount === 1 ? 'is' : 'are'} ${quantityCount} ${quantityLabel} in your available${countryDisplay ? ` ${countryDisplay}` : ''} data${intent.intakeTerms[0] ? ` for ${intent.intakeTerms[0]}` : intent.scopeSelection === 'all' ? ' across all available intakes' : ''}${intent.level ? ` at ${intent.level} level` : intent.scopeSelection === 'all' ? ' and all study levels' : ''}${guidanceLabel ? ` with ${guidanceLabel} guidance` : ''}.`
+            ? `There ${quantityCount === 1 ? 'is' : 'are'} ${quantityCount} ${quantityLabel} in your available${countryDisplay ? ` ${countryDisplay}` : ''} data${intent.intakeTerms[0] ? ` for ${intent.intakeTerms[0]}` : intent.intakeYearRange ? ` from ${intent.intakeYearRange.startYear} to ${intent.intakeYearRange.endYear}` : ' across all available intakes'}${intent.level ? ` at ${intent.level} level` : ' and all study levels'}${guidanceLabel ? ` with ${guidanceLabel} guidance` : ''}.`
             : `There ${quantityCount === 1 ? 'is' : 'are'} ${quantityCount} ${quantityLabel}${quantityScope}${guidanceLabel ? ` with ${guidanceLabel} guidance` : ''}.`
           : intent.quantity === 'schools'
             ? `No schools with matching routes were found in your available${countryDisplay ? ` ${countryDisplay}` : ''} data. Try another intake or level.`
@@ -373,6 +454,7 @@ export function processChatTurn(
           ...intent.countryTerms,
           ...(intent.level ? [intent.level] : []),
           ...intent.intakeTerms,
+          ...(intent.intakeYearRange ? [`${intent.intakeYearRange.startYear}-${intent.intakeYearRange.endYear}`] : []),
           ...(intent.guidance ? [intent.guidance === 'DO_NOT_USE' ? 'Restricted guidance' : `${intent.guidance} guidance`] : []),
           ...intent.aggregatorTerms,
         ];
@@ -388,7 +470,12 @@ export function processChatTurn(
   const resolvedIntent = toStoredIntent(intent, rates);
   if (!resolvedIntent.intake && defaultIntake) resolvedIntent.intake = defaultIntake;
   const clarification = questions.length ? clarificationFor(intent, finalAssistantText, rates, role) : undefined;
-  const assistantMessage = { ...createMessage('assistant', finalAssistantText, questions.length ? 'clarifying' : 'results', finalResults.map((rate) => rate.id), finalResults, role), ...(clarification ? { clarification: { field: clarification.field, choices: clarification.choices } } : {}) };
+  const followUpFilter = questions.length ? undefined : buildNextFilterPrompt(finalResults, role, toStoredIntent(intent, rates));
+  const assistantMessage = {
+    ...createMessage('assistant', finalAssistantText, questions.length ? 'clarifying' : 'results', finalResults.map((rate) => rate.id), finalResults, role),
+    ...(clarification ? { clarification: { field: clarification.field, choices: clarification.choices } } : {}),
+    ...(followUpFilter ? { followUpFilter } : {}),
+  };
   const messages = [...state.conversation.messages, userMessage, assistantMessage];
   const conversation = {
     ...state.conversation,
@@ -396,12 +483,20 @@ export function processChatTurn(
     updatedAt: new Date(now).toISOString(),
     messages,
     queryCount: conversationQueryCount + 1,
-    ...(intent.level ? { activeLevel: intent.level } : {}),
-    ...(defaultIntake ? { activeIntake: defaultIntake } : {}),
-    ...(intent.schoolTerms.length ? { activeSchoolIds: Array.from(new Set(intent.schoolTerms.flatMap((school) => rates.filter((rate) => rate.universityName.toLowerCase() === school.toLowerCase()).map((rate) => rate.universityId)))) } : {}),
+    ...(isFreshEntitySearch ? {
+      activeLevel: intent.level,
+      activeIntake: defaultIntake,
+      activeSchoolIds: intent.schoolTerms.length ? Array.from(new Set(intent.schoolTerms.flatMap((school) => rates.filter((rate) => rate.universityName.toLowerCase() === school.toLowerCase()).map((rate) => rate.universityId)))) : undefined,
+    } : {
+      ...(intent.level ? { activeLevel: intent.level } : {}),
+      ...(defaultIntake ? { activeIntake: defaultIntake } : {}),
+      ...(intent.schoolTerms.length ? { activeSchoolIds: Array.from(new Set(intent.schoolTerms.flatMap((school) => rates.filter((rate) => rate.universityName.toLowerCase() === school.toLowerCase()).map((rate) => rate.universityId)))) } : {}),
+    }),
     ...(finalResults.length ? { lastResultSchoolIds: Array.from(new Set(finalResults.map((rate) => rate.universityId))).slice(0, MAX_COMPARISON_SCHOOLS) } : {}),
     searchIntent: resolvedIntent,
-    ...(clarification ? { pendingClarification: clarification } : { pendingClarification: undefined }),
+    ...(clarification ? { pendingClarification: clarification } : followUpFilter ? {
+      pendingClarification: { field: followUpFilter.field, prompt: followUpFilter.question, choices: followUpFilter.choices },
+    } : { pendingClarification: undefined }),
   };
   const canApplyDashboardFilters = questions.length === 0 && !intent.outOfScope && !intent.unsupportedMetric
     && (resolvedIntent.schoolIds.length > 0 || resolvedIntent.country || resolvedIntent.level || resolvedIntent.intake
