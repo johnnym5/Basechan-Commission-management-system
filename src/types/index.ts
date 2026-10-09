@@ -120,4 +120,24 @@ export interface UserRecord {
   isDisabled?: boolean;
 }
 
+export interface SystemConfigDefaults {
+  defaultIntake: string;
+  defaultAggregator: string;
+  defaultStudyLevel: string;
+  defaultViewMode: 'cards' | 'table';
+  defaultSortBy: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface IntakeLifecycleSetting {
+  sheetName: string;
+  status: 'active' | 'closing' | 'archived';
+  applicationDeadline?: string | null;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export type { SystemAnnouncement } from '../services/announcementService';
+
 export type { ChatConversation, ChatMessage, AgentChatProfile, FavoriteSchool, UserUpdate } from './chat';

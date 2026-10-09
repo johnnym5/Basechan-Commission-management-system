@@ -135,6 +135,7 @@ describe('chat search results flow', () => {
       role: 'AGENT',
       updates: [],
       onUpdatesChange: vi.fn(),
+      onViewDashboard: vi.fn(),
     }));
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Your message' }), {
@@ -142,10 +143,10 @@ describe('chat search results flow', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
 
-    expect(await screen.findByRole('button', { name: 'Open all results' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'View on dashboard' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Compare selected' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open all results' }));
+    fireEvent.click(screen.getByRole('button', { name: /1 matching route/i }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Compare selected' })).toBeTruthy());
   });
 
@@ -156,13 +157,14 @@ describe('chat search results flow', () => {
       role: 'AGENT',
       updates: [],
       onUpdatesChange: vi.fn(),
+      onViewDashboard: vi.fn(),
     }));
 
     const composer = screen.getByRole('textbox', { name: 'Your message' });
     fireEvent.change(composer, { target: { value: 'Show me University of Aberdeen postgraduate' } });
     fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
 
-    expect(await screen.findByRole('button', { name: 'Open all results' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'View on dashboard' })).toBeTruthy();
   });
 
   it('renders the next available filter prompt with choices under the result message', async () => {

@@ -655,13 +655,24 @@ const InlineResultPreview: React.FC<{ message: ChatMessage; role: 'STAFF' | 'AGE
   const results = message.resultRates || [];
   const schoolCount = new Set(results.map((rate) => rate.universityId)).size;
   return <section aria-label="Search results preview" className="chat-result-preview">
-    <div className="mb-2 flex items-center justify-between gap-2"><div className="flex flex-wrap gap-3"><button type="button" onClick={onOpenSchools} aria-label={`Open results for ${schoolCount} unique schools`} className="text-left text-xs font-bold text-slate-700 underline decoration-slate-400 underline-offset-2 dark:text-slate-100">{schoolCount} unique schools</button><button type="button" onClick={onOpen} aria-label={`Open all ${results.length} matching routes`} className="text-left text-xs font-bold text-slate-700 underline decoration-slate-400 underline-offset-2 dark:text-slate-100">{results.length} matching routes</button></div><div className="flex gap-2">{onViewDashboard && <button onClick={onViewDashboard} className="chat-secondary-button" style={{ minHeight: 36, padding: '0 10px', fontSize: 11 }}>View on dashboard</button>}<button onClick={onOpen} className="chat-primary-button" style={{ minHeight: 36, padding: '0 12px', fontSize: 11 }}>Open all results</button></div></div>
+    <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="flex flex-wrap gap-3">
+        <button type="button" onClick={onOpenSchools} aria-label={`Open results for ${schoolCount} unique schools`} className="text-left text-xs font-bold text-slate-700 underline decoration-slate-400 underline-offset-2 dark:text-slate-100">{schoolCount} unique schools</button>
+        <button type="button" onClick={onOpen} aria-label={`Open all ${results.length} matching routes`} className="text-left text-xs font-bold text-slate-700 underline decoration-slate-400 underline-offset-2 dark:text-slate-100">{results.length} matching routes</button>
+      </div>
+      <div className="flex gap-2">
+        {onViewDashboard ? (
+          <button onClick={onViewDashboard} className="chat-primary-button" style={{ minHeight: 36, padding: '0 12px', fontSize: 11 }}>View on dashboard</button>
+        ) : (
+          <button onClick={onOpen} className="chat-primary-button" style={{ minHeight: 36, padding: '0 12px', fontSize: 11 }}>View on dashboard</button>
+        )}
+      </div>
+    </div>
     <div className="grid gap-2 sm:grid-cols-2">{results.slice(0, 4).map((partial) => {
       const rate = { ...partial, aggregator: partial.aggregator || '', agentRate: partial.agentRate || 0, masterRate: 0, diffMargin: 0, isFlatFee: partial.isFlatFee || false, netOrGross: 'GROSS' as const };
       const favorite = favorites.some((item) => item.universityId === rate.universityId);
       return <article key={rate.id} className="chat-result-card flex items-start justify-between gap-2"><button onClick={() => onOpenSchool(rate.universityId)} aria-label={`Open ${rate.universityName} results`} className="min-w-0 flex-1 text-left"><b className="block truncate text-xs">{rate.universityName}</b><span className="mt-1 block text-[10px] text-slate-400">{rate.intake} · {rate.studyLevel}{role !== 'AGENT' && rate.aggregator ? ` · ${rate.aggregator}` : ''}</span><span className="mt-2 inline-block rounded-full bg-slate-700 px-2 py-0.5 text-[9px] font-bold text-slate-100">{rate.guidance || 'ALLOWED'}</span>{role !== 'STAFF' && typeof rate.agentRate === 'number' && <span className="mt-2 block text-xs font-black text-emerald-400">{rate.isFlatFee ? `£${rate.agentRate}` : `${rate.agentRate}%`}</span>}</button><button onClick={() => onFavorite(rate)} aria-label={`${favorite ? 'Remove' : 'Add'} ${rate.universityName} ${favorite ? 'from' : 'to'} favorites`} className={`rounded-lg p-1.5 ${favorite ? 'text-rose-400' : 'text-slate-400 hover:text-rose-300'}`}><Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} /></button></article>;
     })}</div>
-    {results.length > 4 && <button onClick={onOpen} className="mt-2 text-xs font-bold text-indigo-700 dark:text-indigo-300">View all {results.length} results</button>}
   </section>;
 };
 
