@@ -1,10 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Save, AlertCircle, Copy, Sparkles } from 'lucide-react';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { createRate } from '../services/adminRateWriteService';
 import { useAuth } from '../context/AuthContext';
 import { generateCompositeId, normalizeUniversitySlug } from '../utils/idGenerator';
-import { logRateChange } from '../utils/auditLogger';
 import { PredictiveInput } from './PredictiveInput';
 import type { CommissionRate, StudyLevel, NetOrGross } from '../types';
 
@@ -170,10 +168,7 @@ export const AddRateModal: React.FC<AddRateModalProps> = ({
     if (sourceSheet) newRate.sourceSheet = sourceSheet;
 
     try {
-      await setDoc(doc(db, 'rates', compositeId), newRate, { merge: true });
-
-      // Record Audit Log
-      await logRateChange(user?.email || 'Admin', 'CREATE', compositeId, universityName);
+      await createRate(newRate, user?.email || 'Admin');
 
       onRateAdded(newRate);
       onClose();

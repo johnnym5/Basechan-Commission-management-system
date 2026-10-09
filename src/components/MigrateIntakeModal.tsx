@@ -1,9 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { doc, writeBatch } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { writeRateOperation } from '../services/adminRateWriteService';
 import { useAuth } from '../context/AuthContext';
 import { generateCompositeId } from '../utils/idGenerator';
-import { logRateChange } from '../utils/auditLogger';
 import { PredictiveInput } from './PredictiveInput';
 import type { CommissionRate } from '../types';
 import {
@@ -90,15 +88,8 @@ export const MigrateIntakeModal: React.FC<MigrateIntakeModalProps> = ({
     setProgress({ completed: 0, total, percentage: 0 });
 
     try {
-      const BATCH_SIZE = 200;
-      const totalBatches = Math.ceil(total / BATCH_SIZE);
       const newTargetIntake = targetIntake.trim();
-
-      for (let b = 0; b < totalBatches; b++) {
-        const chunk = sourceRates.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
-        const batch = writeBatch(db);
-
-        chunk.forEach((srcRate) => {
+      const clonedRates: CommissionRate[] = sourceRates.map((srcRate) => {
           const newId = generateCompositeId(
             srcRate.universityName,
             newTargetIntake,
@@ -130,24 +121,14 @@ export const MigrateIntakeModal: React.FC<MigrateIntakeModalProps> = ({
             updatedAt: new Date().toISOString(),
           };
 
-          const docRef = doc(db, 'rates', newId);
-          batch.set(docRef, clonedRate, { merge: true });
-        });
-
-        await batch.commit();
-
-        const completed = Math.min((b + 1) * BATCH_SIZE, total);
-        const percentage = Math.round((completed / total) * 100);
-        setProgress({ completed, total, percentage });
-      }
-
-      // Record Audit Log for bulk migration
-      await logRateChange(
-        user?.email || 'Admin',
-        'BATCH_EDIT',
-        `MIGRATE_${sourceValue}_TO_${newTargetIntake}`,
-        `Migrated ${total} rates to ${newTargetIntake}`
-      );
+          return clonedRate;
+      });
+      await writeRateOperation({
+        mutations: clonedRates.map((next) => ({ next })),
+        adminEmail: user?.email || 'Admin',
+        category: 'intake',
+      });
+      setProgress({ completed: total, total, percentage: 100 });
 
       onMigratedComplete(total, newTargetIntake);
       onClose();

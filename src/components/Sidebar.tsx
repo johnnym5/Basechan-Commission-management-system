@@ -179,7 +179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Navigation List */}
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
           {/* Admin Navigation */}
-          {role === 'ADMIN' && (
+          {role === 'ADMIN' && effectiveRole === 'ADMIN' && (
             <>
               <div>
                 <div
@@ -267,9 +267,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 Staff Navigation
               </div>
               <div className="space-y-1">
-                <NavItem
-                  name="Application Directory"
-                  icon={Briefcase}
+                  <NavItem
+                    name="Chat"
+                    icon={Briefcase}
                   currentPage={currentPage}
                   setCurrentPage={setCurrentPage}
                   setIsOpen={setIsOpen}
@@ -292,7 +292,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="space-y-1">
                 <NavItem 
-                  name="Agent Commissions"
+                  name="Chat"
                   icon={Award}
                   currentPage={currentPage}
                   setCurrentPage={setCurrentPage}

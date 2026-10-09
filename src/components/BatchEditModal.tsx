@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { doc, writeBatch } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { updateRates } from '../services/adminRateWriteService';
+import { useAuth } from '../context/AuthContext';
 import type { CommissionRate, StudyLevel, SchoolGuidance } from '../types';
 import { X, Save, AlertCircle, Info } from 'lucide-react';
 
@@ -17,6 +17,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
   selectedRates,
   onBatchUpdated,
 }) => {
+  const { user } = useAuth();
   const [masterRateStr, setMasterRateStr] = useState('');
   const [agentRateStr, setAgentRateStr] = useState('');
   const [studyLevel, setStudyLevel] = useState<StudyLevel | ''>('');
@@ -55,44 +56,13 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
     }
 
     try {
-      const BATCH_SIZE = 200;
-      const totalBatches = Math.ceil(totalSelected / BATCH_SIZE);
-      let completed = 0;
-
-      for (let b = 0; b < totalBatches; b++) {
-        const start = b * BATCH_SIZE;
-        const end = Math.min(start + BATCH_SIZE, totalSelected);
-        const chunk = selectedRates.slice(start, end);
-
-        const batch = writeBatch(db);
-
-        for (const rate of chunk) {
-          const rateRef = doc(db, 'rates', rate.id);
-          
-          const newMasterRate = updates.masterRate !== undefined ? updates.masterRate : rate.masterRate;
-          const newAgentRate = updates.agentRate !== undefined ? updates.agentRate : rate.agentRate;
-          
-          const rateUpdates: Record<string, any> = {
-            ...updates,
-            diffMargin: parseFloat((newMasterRate - newAgentRate).toFixed(2)),
-            updatedAt: new Date().toISOString(),
-          };
-
-          // Sanitize undefined
-          const cleanUpdates: Record<string, any> = {};
-          for (const [key, val] of Object.entries(rateUpdates)) {
-            if (val !== undefined) cleanUpdates[key] = val;
-          }
-
-          batch.update(rateRef, cleanUpdates);
-        }
-
-        await batch.commit();
-        completed += chunk.length;
-        setProgress(Math.round((completed / totalSelected) * 100));
-      }
-
-      onBatchUpdated(completed);
+      await updateRates(selectedRates, (rate) => {
+        const newMasterRate = updates.masterRate !== undefined ? updates.masterRate : rate.masterRate;
+        const newAgentRate = updates.agentRate !== undefined ? updates.agentRate : rate.agentRate;
+        return { ...rate, ...updates, masterRate: newMasterRate, agentRate: newAgentRate, diffMargin: Number((newMasterRate - newAgentRate).toFixed(2)), updatedAt: new Date().toISOString() };
+      }, user?.email || 'Admin', updates.guidance ? 'guidance' : undefined);
+      setProgress(100);
+      onBatchUpdated(totalSelected);
       onClose();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Batch update failed';

@@ -13,10 +13,11 @@ interface SheetViewProps {
   sheetName: string;
   rates: CommissionRate[];
   loading: boolean;
+  readOnly?: boolean;
   onEditRate: (rate: CommissionRate) => void;
 }
 
-export const SheetView: React.FC<SheetViewProps> = ({ sheetName, rates, loading, onEditRate }) => {
+export const SheetView: React.FC<SheetViewProps> = ({ sheetName, rates, loading, onEditRate, readOnly = false }) => {
   const filteredRates = useMemo(() => {
     return rates.filter(rate => rate.sourceSheet === sheetName);
   }, [rates, sheetName]);
@@ -108,6 +109,7 @@ export const SheetView: React.FC<SheetViewProps> = ({ sheetName, rates, loading,
         <MasterTable
           data={filteredRates}
           loading={loading}
+          readOnly={readOnly}
           onEditRate={onEditRate}
         />
       </section>

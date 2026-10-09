@@ -130,3 +130,38 @@ html.dark .skeleton-shimmer {
   background: linear-gradient(90deg, #0E1526 25%, #222F43 50%, #0E1526 75%);
   background-size: 200% 100%;
 }
+
+/* Executive Print & PDF Letterhead Styles */
+@media print {
+  @page {
+    size: letter portrait;
+    margin: 0.5in;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #printable-rate-card, #printable-rate-card * {
+    visibility: visible !important;
+  }
+
+  #printable-rate-card {
+    position: fixed !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    width: 90% !important;
+    max-width: 650px !important;
+    margin: 0 auto !important;
+    padding: 36px !important;
+    border: 2px solid #222F43 !important;
+    border-radius: 24px !important;
+    background: #0E1526 !important;
+    color: #ffffff !important;
+    box-shadow: none !important;
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

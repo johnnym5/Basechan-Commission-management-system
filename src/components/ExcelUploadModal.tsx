@@ -4,6 +4,7 @@ import { parseCommissionWorkbook } from '../utils/excelParser';
 import { uploadRatesInBatches } from '../utils/firestoreBatcher';
 import type { BatchUploadProgress } from '../utils/firestoreBatcher';
 import type { CommissionRate } from '../types';
+import { useAuth } from '../context/AuthContext';
 
 interface ExcelUploadModalProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
   onClose,
   onUploadComplete,
 }) => {
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState<boolean>(false);
@@ -72,7 +74,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
     try {
       const res = await uploadRatesInBatches(parsedRates, (prog) => {
         setProgress(prog);
-      });
+      }, user?.email || 'Admin');
 
       if (res.success) {
         onUploadComplete(res.uploadedCount);

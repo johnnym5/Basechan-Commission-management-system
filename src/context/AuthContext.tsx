@@ -1,159 +1,233 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { 
-  signInWithPopup, 
-  signOut as firebaseSignOut, 
-  onAuthStateChanged 
+import {
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  updateProfile,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import {
+  doc,
+  getDocFromServer,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+} from 'firebase/firestore';
 import { auth, googleProvider, db } from '../lib/firebase';
-import type { UserRole } from '../types';
+import type { AgentAccessRequest, UserAccess, UserRole } from '../types';
+import { resolveUserAccess } from '../services/accessPolicy';
+import { buildUserProfileRecord } from '../services/authProfile';
+import { clearQuotaState, enterQuotaOfflineMode, isConnectivityError, isQuotaError, isQuotaOffline, subscribeToFirestoreMode } from '../services/firestoreOfflineMode';
+import { deleteLocalRateDatabase, getLocalRateMetadata } from '../services/localRateDatabase';
+import { assertFirestoreWritesAllowed } from '../services/firestoreWriteGuard';
 
-export const determineUserRole = (email: string): UserRole => {
-  const lower = email.toLowerCase().trim();
-  // Admin rule: @basechaninternational.com
-  if (lower.endsWith('@basechaninternational.com')) {
-    return 'ADMIN';
+async function resolveCachedAccess(currentUser: User): Promise<SyncResult> {
+  const email = currentUser.email || '';
+  const baseAccess = resolveUserAccess({ email });
+  const metadata = await getLocalRateMetadata(currentUser.uid).catch(() => null);
+  if (baseAccess.role === 'AGENT' && metadata?.complete && metadata.role === 'AGENT' && metadata.organizationId) {
+    const request: AgentAccessRequest = {
+      uid: currentUser.uid,
+      email,
+      displayName: currentUser.displayName || '',
+      status: 'approved',
+      organizationId: metadata.organizationId,
+      createdAt: metadata.lastVerifiedAt,
+      updatedAt: metadata.lastVerifiedAt,
+    };
+    return {
+      access: resolveUserAccess({ email, accessRequest: { status: 'approved', organizationId: metadata.organizationId } }),
+      accessRequest: request,
+      isDisabled: false,
+    };
   }
-  // Staff rule: .basechaninternational@gmail.com
-  if (
-    lower.includes('basechaninternational@gmail.com') ||
-    lower.includes('.basechaninternational@gmail.com')
-  ) {
-    return 'STAFF';
-  }
-  // Agent rule: Any other email
-  return 'AGENT';
-};
+  return { access: baseAccess, accessRequest: null, isDisabled: false };
+}
+
+export const determineUserRole = (email: string): UserRole => resolveUserAccess({ email }).role;
 
 interface SyncResult {
-  role: UserRole;
+  access: UserAccess;
+  accessRequest: AgentAccessRequest | null;
   isDisabled: boolean;
 }
 
 interface AuthContextType {
   user: User | null;
   role: UserRole;
+  access: UserAccess;
+  accessRequest: AgentAccessRequest | null;
   loading: boolean;
   error: string | null;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (name: string, email: string, password: string) => Promise<void>;
+  sendPasswordReset: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   clearError: () => void;
-  updateUserRole: (uid: string, newRole: UserRole) => Promise<void>;
   setUserDisabledStatus: (uid: string, isDisabled: boolean) => Promise<void>;
   deleteUserRecord: (uid: string) => Promise<void>;
 }
 
+const INITIAL_ACCESS: UserAccess = { role: 'AGENT', accessState: 'not_requested' };
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [role, setRole] = useState<UserRole>('AGENT');
+  const [access, setAccess] = useState<UserAccess>(INITIAL_ACCESS);
+  const [accessRequest, setAccessRequest] = useState<AgentAccessRequest | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [quotaMode, setQuotaMode] = useState(() => isQuotaOffline(user?.uid));
 
-  const syncUserData = async (currentUser: User): Promise<SyncResult> => {
-    try {
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      const snap = await getDoc(userDocRef);
-      const email = currentUser.email || '';
-      const derivedRole = determineUserRole(email);
+  useEffect(() => subscribeToFirestoreMode((uid) => {
+    if (!uid || uid === user?.uid) setQuotaMode(isQuotaOffline(user?.uid));
+  }), [user?.uid]);
 
-      const snapData = snap.exists() ? snap.data() : null;
-      const isDisabled = snapData?.isDisabled === true;
-      const assignedRole: UserRole = snapData?.role ? (snapData.role as UserRole) : derivedRole;
-
-      if (isDisabled) {
-        return { role: assignedRole, isDisabled: true };
-      }
-
-      const now = new Date().toISOString();
-      const userData = {
-        uid: currentUser.uid,
-        email: email,
-        displayName: currentUser.displayName || email.split('@')[0] || 'User',
-        photoURL: currentUser.photoURL || '',
-        role: assignedRole,
-        lastLoginAt: now,
-        createdAt: snapData?.createdAt || now,
-        isOnline: true,
-        isDisabled: false,
-      };
-
-      await setDoc(userDocRef, userData, { merge: true });
-      return { role: assignedRole, isDisabled: false };
-    } catch (err) {
-      console.error('Error syncing user record to Firestore:', err);
-      return { role: determineUserRole(currentUser.email || ''), isDisabled: false };
+  const requireVerifiedEmail = async (currentUser: User) => {
+    if (!currentUser.emailVerified) {
+      await firebaseSignOut(auth);
+      setUser(null);
+      setAccess(INITIAL_ACCESS);
+      setAccessRequest(null);
+      throw new Error('Please verify your email using the link we sent before signing in.');
     }
   };
 
-  // Auth State Listener
+  const syncUserData = async (currentUser: User): Promise<SyncResult> => {
+    const email = currentUser.email || '';
+    const baseAccess = resolveUserAccess({ email });
+    if (!navigator.onLine || isQuotaOffline(currentUser.uid)) return resolveCachedAccess(currentUser);
+    try {
+      const userDocRef = doc(db, 'users', currentUser.uid);
+      const snap = await getDocFromServer(userDocRef);
+      const snapData = snap.exists() ? snap.data() : null;
+      const isDisabled = snapData?.isDisabled === true;
+      if (isDisabled) return { access: baseAccess, accessRequest: null, isDisabled: true };
+
+      if (!snap.metadata.fromCache) assertFirestoreWritesAllowed('Account profile');
+      if (!snap.metadata.fromCache) await setDoc(
+        userDocRef,
+        buildUserProfileRecord(
+          {
+            uid: currentUser.uid,
+            email: currentUser.email,
+            displayName: currentUser.displayName,
+            photoURL: currentUser.photoURL,
+          },
+          snapData ? { createdAt: snapData.createdAt as string | undefined } : null
+        ),
+        { merge: true }
+      );
+
+      let request: AgentAccessRequest | null = null;
+      if (baseAccess.role === 'AGENT') {
+        const requestSnap = await getDocFromServer(doc(db, 'agent_access_requests', currentUser.uid));
+        request = requestSnap.exists() ? requestSnap.data() as AgentAccessRequest : null;
+      }
+
+      return {
+        access: resolveUserAccess({
+          email,
+          accessRequest: request
+            ? { status: request.status, organizationId: request.organizationId || '' }
+            : undefined,
+        }),
+        accessRequest: request,
+        isDisabled: false,
+      };
+    } catch (err) {
+      if (isQuotaError(err)) await enterQuotaOfflineMode(currentUser.uid);
+      if (isQuotaError(err) || isConnectivityError(err) || !navigator.onLine) return resolveCachedAccess(currentUser);
+      console.error('Error syncing user record to Firestore:', err);
+      return { access: baseAccess, accessRequest: null, isDisabled: false };
+    }
+  };
+
   useEffect(() => {
+    let active = true;
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        const result = await syncUserData(currentUser);
-        if (result.isDisabled) {
-          await firebaseSignOut(auth);
-          setUser(null);
-          setRole('AGENT');
-          setError('Access Revoked: Your account has been disabled by an administrator.');
-        } else {
-          setUser(currentUser);
-          setRole(result.role);
-          setError(null);
-        }
-      } else {
+      if (!currentUser) {
+        if (!active) return;
         setUser(null);
-        setRole('AGENT');
+        setQuotaMode(false);
+        setAccess(INITIAL_ACCESS);
+        setAccessRequest(null);
+        setError(null);
+        setLoading(false);
+        return;
+      }
+
+      const result = await syncUserData(currentUser);
+      if (!active) return;
+      if (result.isDisabled) {
+        await deleteLocalRateDatabase(currentUser.uid).catch(() => {});
+        await clearQuotaState(currentUser.uid);
+        await firebaseSignOut(auth);
+        setUser(null);
+        setAccess(INITIAL_ACCESS);
+        setAccessRequest(null);
+        setError('Access Revoked: Your account has been disabled by an administrator.');
+      } else {
+        setUser(currentUser);
+        setQuotaMode(isQuotaOffline(currentUser.uid));
+        setAccess(result.access);
+        setAccessRequest(result.accessRequest);
+        setError(null);
       }
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
-  // REAL-TIME LOCKOUT & ROLE SYNC LISTENER
-  // Instantly logs out and locks out any user whose account is disabled/revoked in Firestore in real-time!
   useEffect(() => {
-    if (!user) return;
-
+    if (!user || quotaMode) return;
     const userDocRef = doc(db, 'users', user.uid);
-    const unsubscribeUserDoc = onSnapshot(
+    return onSnapshot(
       userDocRef,
       async (snap) => {
-        if (!snap.exists()) return;
-        const snapData = snap.data();
-
-        // 1. Instant Real-Time Logout if account disabled/revoked
-        if (snapData?.isDisabled === true) {
+        if (snap.data()?.isDisabled === true) {
           await firebaseSignOut(auth);
           setUser(null);
-          setRole('AGENT');
+          setAccess(INITIAL_ACCESS);
+          setAccessRequest(null);
           setError('Access Revoked: Your account has been disabled by an administrator.');
-          return;
-        }
-
-        // 2. Real-Time Role Sync if Admin changes user's role
-        if (snapData?.role && snapData.role !== role) {
-          setRole(snapData.role as UserRole);
         }
       },
-      (err) => {
-        console.error('Error in real-time user document listener:', err);
-      }
+      (err) => console.error('Error in real-time user document listener:', err)
     );
+  }, [user, quotaMode]);
 
-    return () => unsubscribeUserDoc();
-  }, [user, role]);
+  useEffect(() => {
+    if (!user || quotaMode || access.role !== 'AGENT') return;
+    return onSnapshot(
+      doc(db, 'agent_access_requests', user.uid),
+      (snap) => {
+        const request = snap.exists() ? snap.data() as AgentAccessRequest : null;
+        setAccessRequest(request);
+        setAccess(resolveUserAccess({
+          email: user.email,
+          accessRequest: request
+            ? { status: request.status, organizationId: request.organizationId || '' }
+            : undefined,
+        }));
+      },
+      (err) => console.error('Error listening to organization access status:', err)
+    );
+  }, [user?.uid, access.role, quotaMode]);
 
-  // Update online status to false on tab/window close
   useEffect(() => {
     const handleUnload = () => {
-      if (user) {
-        const userDocRef = doc(db, 'users', user.uid);
-        updateDoc(userDocRef, { isOnline: false }).catch(() => {});
-      }
+      if (user && navigator.onLine && !isQuotaOffline(user.uid)) updateDoc(doc(db, 'users', user.uid), { isOnline: false }).catch(() => {});
     };
     window.addEventListener('beforeunload', handleUnload);
     return () => window.removeEventListener('beforeunload', handleUnload);
@@ -165,15 +239,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(true);
       const result = await signInWithPopup(auth, googleProvider);
       if (result.user) {
-        const syncRes = await syncUserData(result.user);
-        if (syncRes.isDisabled) {
+        const syncResult = await syncUserData(result.user);
+        if (syncResult.isDisabled) {
           await firebaseSignOut(auth);
           setUser(null);
-          setRole('AGENT');
+          setAccess(INITIAL_ACCESS);
+          setAccessRequest(null);
           setError('Access Revoked: Your account has been disabled by an administrator.');
         } else {
           setUser(result.user);
-          setRole(syncRes.role);
+          setAccess(syncResult.access);
+          setAccessRequest(syncResult.accessRequest);
         }
       }
     } catch (err: unknown) {
@@ -184,73 +260,111 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const signInWithEmail = async (email: string, password: string) => {
+    try {
+      setError(null);
+      setLoading(true);
+      const result = await signInWithEmailAndPassword(auth, email.trim(), password);
+      await requireVerifiedEmail(result.user);
+      const syncResult = await syncUserData(result.user);
+      if (syncResult.isDisabled) {
+        await firebaseSignOut(auth);
+        setError('Access Revoked: Your account has been disabled by an administrator.');
+        return;
+      }
+      setUser(result.user);
+      setAccess(syncResult.access);
+      setAccessRequest(syncResult.accessRequest);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Email sign-in failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const signUpWithEmail = async (name: string, email: string, password: string) => {
+    try {
+      setError(null);
+      setLoading(true);
+      const trimmedName = name.trim();
+      const normalizedEmail = email.trim().toLowerCase();
+      if (!trimmedName) throw new Error('Enter your name to create an account.');
+      const result = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+      await updateProfile(result.user, { displayName: trimmedName });
+      await sendEmailVerification(result.user);
+      await firebaseSignOut(auth);
+      setError('Account created. Check your inbox and verify your email before signing in.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Email sign-up failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sendPasswordReset = async (email: string) => {
+    try {
+      setError(null);
+      setLoading(true);
+      await sendPasswordResetEmail(auth, email.trim());
+      setError('If an account exists for that email, a password reset link has been sent.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not send a password reset email. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const signOut = async () => {
     try {
-      if (user) {
-        const userDocRef = doc(db, 'users', user.uid);
-        await updateDoc(userDocRef, { isOnline: false }).catch(() => {});
+      const current = user;
+      setUser(null);
+      setAccess(INITIAL_ACCESS);
+      setAccessRequest(null);
+      if (current) {
+        if (navigator.onLine && !isQuotaOffline(current.uid)) await updateDoc(doc(db, 'users', current.uid), { isOnline: false }).catch(() => {});
+        await Promise.all([deleteLocalRateDatabase(current.uid).catch(() => {}), clearQuotaState(current.uid)]);
       }
       await firebaseSignOut(auth);
       setUser(null);
-      setRole('AGENT');
+      setAccess(INITIAL_ACCESS);
+      setAccessRequest(null);
       setError(null);
-    } catch (err: unknown) {
+    } catch (err) {
       console.error('Error signing out:', err);
     }
   };
 
-  const updateUserRole = async (uid: string, newRole: UserRole) => {
-    try {
-      const userDocRef = doc(db, 'users', uid);
-      await updateDoc(userDocRef, { role: newRole });
-      if (user && user.uid === uid) {
-        setRole(newRole);
-      }
-    } catch (err) {
-      console.error('Error updating user role:', err);
-      throw err;
-    }
-  };
-
   const setUserDisabledStatus = async (uid: string, isDisabled: boolean) => {
-    try {
-      const userDocRef = doc(db, 'users', uid);
-      await updateDoc(userDocRef, {
-        isDisabled,
-        isOnline: false,
-        disabledAt: isDisabled ? new Date().toISOString() : null,
-      });
-    } catch (err) {
-      console.error('Error setting user disabled status:', err);
-      throw err;
-    }
+    assertFirestoreWritesAllowed('Account access changes');
+    await updateDoc(doc(db, 'users', uid), {
+      isDisabled,
+      isOnline: false,
+      disabledAt: isDisabled ? new Date().toISOString() : null,
+    });
   };
 
   const deleteUserRecord = async (uid: string) => {
-    try {
-      const userDocRef = doc(db, 'users', uid);
-      await deleteDoc(userDocRef);
-    } catch (err) {
-      console.error('Error deleting user record:', err);
-      throw err;
-    }
+    assertFirestoreWritesAllowed('Account deletion');
+    await deleteDoc(doc(db, 'users', uid));
   };
-
-  const clearError = () => setError(null);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        role,
+        role: access.role,
+        access,
+        accessRequest,
         loading,
         error,
         signInWithGoogle,
+        signInWithEmail,
+        signUpWithEmail,
+        sendPasswordReset,
         signOut,
-        clearError,
-        updateUserRole,
+        clearError: () => setError(null),
         setUserDisabledStatus,
-        deleteUserRecord
+        deleteUserRecord,
       }}
     >
       {children}
@@ -260,8 +374,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };

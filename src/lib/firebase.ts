@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, enableMultiTabIndexedDbPersistence } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, memoryLocalCache } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -19,17 +19,29 @@ googleProvider.setCustomParameters({
   prompt: 'select_account',
 });
 
-export const db = getFirestore(app);
+// Rate data lives in the account-scoped repository. Keep Firestore's other
+// cached documents in memory so sign-out cannot leave another persistent copy.
+export const db = (() => {
+  const hotData = import.meta.hot?.data as { firestore?: ReturnType<typeof getFirestore> } | undefined;
+  if (hotData?.firestore) return hotData.firestore;
 
-// Enable offline persistence across multiple tabs
-enableMultiTabIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    // Multiple tabs open, persistence can only be enabled in one tab at a time unless multi-tab is supported
-    console.warn('Firestore offline persistence precondition failed');
-  } else if (err.code === 'unimplemented') {
-    // The current browser does not support all of the features required to enable persistence
-    console.warn('Firestore offline persistence is not supported in this browser');
+  try {
+    const instance = initializeFirestore(app, {
+      localCache: memoryLocalCache(),
+    });
+    if (import.meta.hot?.data) import.meta.hot.data.firestore = instance;
+    return instance;
+  } catch (error) {
+    // Vite may re-evaluate this module while the previous Firestore singleton
+    // remains alive. Reuse that instance only for this known HMR case.
+    const message = error instanceof Error ? error.message : '';
+    if (message.includes('initializeFirestore() has already been called with different options')) {
+      const instance = getFirestore(app);
+      if (import.meta.hot?.data) import.meta.hot.data.firestore = instance;
+      return instance;
+    }
+    throw error;
   }
-});
+})();
 
 export default app;
