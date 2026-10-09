@@ -289,6 +289,17 @@ describe('chat session query policy', () => {
     const years = processChatTurn(first.state, 'from 2021 to 2025', progressiveRates, 2_000, 'STAFF');
     const aggregators = processChatTurn(years.state, 'Alpha Partners', progressiveRates, 3_000, 'STAFF');
     const canada = processChatTurn(aggregators.state, 'show schools in Canada', progressiveRates, 4_000, 'STAFF');
+    expect(canada.state.conversation.searchIntent).toMatchObject({ country: 'Canada', aggregatorTerms: [] });
+    expect(canada.state.conversation.searchIntent?.intakeYearRange).toBeUndefined();
+    expect(canada.clarificationQuestions).toEqual([]);
+    expect(canada.matchingRates.map((rate) => rate.id)).toEqual(['ca-26']);
+  });
+
+  it('resets filters when a follow-up phrase names a new country', () => {
+    const first = processChatTurn(createInitialChatState('u1'), 'show schools in UK', progressiveRates, 1_000, 'STAFF');
+    const years = processChatTurn(first.state, 'from 2021 to 2025', progressiveRates, 2_000, 'STAFF');
+    const aggregators = processChatTurn(years.state, 'Alpha Partners', progressiveRates, 3_000, 'STAFF');
+    const canada = processChatTurn(aggregators.state, 'What about Canada?', progressiveRates, 4_000, 'STAFF');
     expect(canada.matchingRates.map((rate) => rate.id)).toEqual(['ca-26']);
     expect(canada.state.conversation.searchIntent).toMatchObject({ country: 'Canada', aggregatorTerms: [] });
     expect(canada.state.conversation.searchIntent?.intakeYearRange).toBeUndefined();

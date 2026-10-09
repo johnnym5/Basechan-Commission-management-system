@@ -293,13 +293,15 @@ export function processChatTurn(
   const countryAliases = ['united kingdom', 'uk', 'u.k.', 'britain', 'great britain', 'england', 'scotland', 'wales', 'northern ireland'];
   const inputNamesCountry = countryNames.some((country) => input.toLowerCase().includes(country.toLowerCase()))
     || countryAliases.some((country) => new RegExp(`(^|[^a-z0-9])${country.replace('.', '\\.').replace(/\s+/g, '\\s+')}(?=$|[^a-z0-9])`, 'i').test(input));
+  const explicitlyKeepsScope = /\b(same|also|include|keep|continue)\b/i.test(input);
+  const isFreshEntitySearch = !isPendingChoice && (inputNamesSchool || inputNamesCountry) && !explicitlyKeepsScope;
   const typedFilterOnly = Boolean(state.conversation.searchIntent && !inputNamesSchool && !inputNamesCountry && (
     submittedIntent.level || submittedIntent.intakeTerms.length || submittedIntent.intakeYearRange || submittedIntent.intakeSuggestions.length
-    || submittedIntent.aggregatorTerms.length || submittedIntent.suggestedAggregators.length || submittedIntent.guidances.length
+    || submittedIntent.aggregatorTerms.length || submittedIntent.suggestedAggregators.length || submittedIntent.guidances?.length
   ));
   const compareUsesPreviousSchool = /\b(compare|with|versus|vs)\b.{0,32}\b(this|that|these|those|it)\b|\b(this|that|these|those|it)\b.{0,32}\b(compare|with|versus|vs)\b/i.test(input);
-  const refersToPreviousSchools = waitingForLevel || compareAllPrevious || (isFilterFollowup && !inputNamesSchool) || compareUsesPreviousSchool;
-  const carriesPreviousFilters = compareAllPrevious || isPendingChoice || isFilterFollowup || typedFilterOnly;
+  const refersToPreviousSchools = !isFreshEntitySearch && (waitingForLevel || compareAllPrevious || (isFilterFollowup && !inputNamesSchool) || compareUsesPreviousSchool);
+  const carriesPreviousFilters = !isFreshEntitySearch && (compareAllPrevious || isPendingChoice || isFilterFollowup || typedFilterOnly);
   const contextParts = [ ...(refersToPreviousSchools ? contextNames : []) ];
   const previousIntent = state.conversation.searchIntent;
   if (carriesPreviousFilters && previousIntent) {
@@ -314,7 +316,7 @@ export function processChatTurn(
     if (pendingClarification?.field !== 'scope' && previousIntent.scopeSelection) {
       contextParts.push(previousIntent.scopeSelection === 'all' ? 'all available intakes and levels' : previousIntent.scopeSelection === 'intake' ? 'choose a specific intake' : 'choose a specific study level');
     }
-    if (pendingClarification?.field !== 'intent' && !submittedIntent.guidances.length) contextParts.push(...(previousIntent.guidances || (previousIntent.guidance ? [previousIntent.guidance] : [])).map((value) => value === 'DO_NOT_USE' ? 'restricted' : value));
+    if (pendingClarification?.field !== 'intent' && !submittedIntent.guidances?.length) contextParts.push(...(previousIntent.guidances || (previousIntent.guidance ? [previousIntent.guidance] : [])).map((value) => value === 'DO_NOT_USE' ? 'restricted' : value));
     if (previousIntent.compare) contextParts.push('compare');
   }
   const previousLevel = state.conversation.activeLevel;
