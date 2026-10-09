@@ -11,6 +11,7 @@ const renderView = (role: 'STAFF' | 'AGENT', rates: DashboardRate[], filters: Da
 describe('RoleDashboardView', () => {
   it('Staff sees route, school, country, and Focus KPIs without payout metrics', () => {
     renderView('STAFF', staff);
+    expect(screen.getByTestId('personal-workspace-widget')).toBeInTheDocument();
     expect(screen.getByText('Visible routes')).toBeInTheDocument();
     expect(screen.getByText('Universities')).toBeInTheDocument();
     expect(screen.getByText('Countries')).toBeInTheDocument();

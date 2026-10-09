@@ -646,8 +646,8 @@ export const AppLayout: React.FC = () => {
 
           <div key={`${effectiveRole}-${access.accessState}-${access.organizationId || 'none'}`} className="animate-page-enter">
             {currentPage === 'Dashboard' && (effectiveRole === 'ADMIN'
-              ? <DashboardView rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />
-              : <RoleDashboardView role={effectiveRole} rates={dashboardRates} loading={loading} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />)}
+              ? <DashboardView rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} filters={dashboardFilters} onFiltersChange={setDashboardFilters} onOpenChat={() => setIsChatOpen(true)} />
+              : <RoleDashboardView role={effectiveRole} rates={dashboardRates} loading={loading} filters={dashboardFilters} onFiltersChange={setDashboardFilters} onOpenChat={() => setIsChatOpen(true)} />)}
             {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage === 'Compare Rates' && <CompareView allRates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Deal Calculator' && <DealCalculatorView rates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Users & Activity' && <UserManagementView />}

@@ -16,6 +16,11 @@ describe('DashboardView', () => {
     expect(screen.getByText('Admin margin')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Edit rate' })).toBeEnabled();
   });
+  it('DashboardView renders PersonalWorkspaceWidget at the top of the view', () => {
+    render(<DashboardView rates={[rate]} loading={false} onEditRate={vi.fn()} favoriteCount={2} />);
+    expect(screen.getByTestId('personal-workspace-widget')).toBeInTheDocument();
+    expect(screen.getByTestId('favorite-count-badge')).toHaveTextContent('2 Favorite Schools');
+  });
   it('DashboardView passes country level intake guidance and aggregator filters to MasterTable', () => {
     render(<DashboardView rates={[rate]} loading={false} filters={filters} onFiltersChange={vi.fn()} onEditRate={vi.fn()} />);
     expect(screen.getByTestId('controlled-filters')).toHaveTextContent('School|UK|UG|Jan 2026|FOCUS|SI-UK');

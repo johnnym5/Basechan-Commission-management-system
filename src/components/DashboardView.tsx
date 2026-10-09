@@ -6,6 +6,7 @@ import { applyDashboardFilters } from '../services/dashboardFilters';
 import { buildDashboardRates } from '../services/dashboardData';
 import { MasterTable } from './MasterTable';
 import { DashboardShell } from './DashboardShell';
+import { PersonalWorkspaceWidget } from './PersonalWorkspaceWidget';
 import {
   Building2,
   Layers,
@@ -31,6 +32,8 @@ interface DashboardViewProps {
   onEditRate: (rate: CommissionRate) => void;
   filters?: DashboardFilters;
   onFiltersChange?: (filters: DashboardFilters) => void;
+  favoriteCount?: number;
+  onOpenChat?: () => void;
 }
 
 interface AggregatorStat {
@@ -41,7 +44,16 @@ interface AggregatorStat {
   topUniMargin: number;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, onEditRate, readOnly = false, filters, onFiltersChange }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({
+  rates,
+  loading,
+  onEditRate,
+  readOnly = false,
+  filters,
+  onFiltersChange,
+  favoriteCount,
+  onOpenChat,
+}) => {
   // Active Filter states passed down to MasterTable
   const [activeSearchQuery, setActiveSearchQuery] = useState<string>('');
   const [activeGuidanceFilter, setActiveGuidanceFilter] = useState<SchoolGuidance | 'ALL'>('ALL');
@@ -155,6 +167,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
   return (
     <DashboardShell role="ADMIN">
     <div className="space-y-6 sm:space-y-8">
+      {/* "Jump Back In" Personal Workspace Widget */}
+      <PersonalWorkspaceWidget
+        favoriteCount={favoriteCount}
+        onOpenChat={onOpenChat}
+        onScrollToResults={scrollToTable}
+      />
+
       {/* Mobile Collapsible Header Bar Trigger (Shows on mobile only to toggle top summary) */}
       <div className="block sm:hidden">
         <button

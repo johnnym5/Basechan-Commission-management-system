@@ -6,6 +6,7 @@ import { applyDashboardFilters, createEmptyDashboardFilters } from '../services/
 import { getDashboardFilterOptions, getDashboardKpis } from '../services/dashboardData';
 import { DashboardShell } from './DashboardShell';
 import { MasterTable } from './MasterTable';
+import { PersonalWorkspaceWidget } from './PersonalWorkspaceWidget';
 
 interface RoleDashboardViewProps {
   role: 'STAFF' | 'AGENT';
@@ -13,11 +14,21 @@ interface RoleDashboardViewProps {
   loading: boolean;
   filters: DashboardFilters;
   onFiltersChange: (filters: DashboardFilters) => void;
+  favoriteCount?: number;
+  onOpenChat?: () => void;
 }
 
 const KPI_ICONS = [Route, Building2, Globe2, CheckCircle2];
 
-export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({ role, rates, loading, filters, onFiltersChange }) => {
+export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
+  role,
+  rates,
+  loading,
+  filters,
+  onFiltersChange,
+  favoriteCount,
+  onOpenChat,
+}) => {
   const options = useMemo(() => getDashboardFilterOptions(rates), [rates]);
   const visibleRates = useMemo(() => applyDashboardFilters(role, rates, filters), [role, rates, filters]);
   const kpis = useMemo(() => getDashboardKpis(visibleRates), [visibleRates]);
@@ -71,12 +82,26 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({ role, rate
 
   const analytics = ['FOCUS', 'ALLOWED', 'DO_NOT_USE'] as const;
 
+  const scrollToTable = () => {
+    const tableEl = document.getElementById('master-intelligence-table-container');
+    if (tableEl) {
+      tableEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   return (
     <DashboardShell
       role={role}
       title={isAgent ? 'Your commission dashboard' : 'Staff application dashboard'}
       description={isAgent ? 'Explore approved routes and your effective payout across available schools.' : 'Find authorized application routes and guidance for your school searches.'}
     >
+      {/* "Jump Back In" Personal Workspace Widget */}
+      <PersonalWorkspaceWidget
+        favoriteCount={favoriteCount}
+        onOpenChat={onOpenChat}
+        onScrollToResults={scrollToTable}
+      />
+
       {/* 4 KPI Cards side-by-side in 1 Horizontal Row (2x2 on mobile, 4x1 on tablet & desktop) */}
       <div className="dashboard-summary grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
         {metricData.map(([label, value], index) => {
