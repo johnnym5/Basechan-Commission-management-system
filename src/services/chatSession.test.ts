@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildNextFilterPrompt, createInitialChatState, getAvailableChatFacets, processChatTurn } from './chatSession';
+import { buildNextFilterPrompt, createInitialChatState, generatePersonalizedGreeting, getAvailableChatFacets, processChatTurn, buildContextualSuggestions } from './chatSession';
 import type { CommissionRate } from '../types';
 
 vi.mock('./chatPersistence', () => ({ MAX_QUERIES_PER_MINUTE: 10, MAX_QUERIES_PER_SESSION: 50, PREFERENCE_LEARNING_THRESHOLD: 10 }));
@@ -374,5 +374,48 @@ describe('chat dashboard filter handoff', () => {
     expect(result.matchingRates.every(rate => rate.country === 'UK')).toBe(true);
   });
 });
+
+describe('generatePersonalizedGreeting', () => {
+  it('generates good morning for hours before 12 with agent and organization name', () => {
+    const greeting = generatePersonalizedGreeting(
+      { displayName: 'Sarah Connor' },
+      'AGENT',
+      'SI-UK Ghana',
+      new Date('2026-10-09T09:00:00')
+    );
+    expect(greeting).toBe('Good morning, Sarah! What school or route can I find for SI-UK Ghana?');
+  });
+
+  it('generates good afternoon for hours between 12 and 16 with admin role', () => {
+    const greeting = generatePersonalizedGreeting(
+      { email: 'alex.smith@example.com' },
+      'ADMIN',
+      undefined,
+      new Date('2026-10-09T14:00:00')
+    );
+    expect(greeting).toBe('Good afternoon, alex.smith! What school or route can I find in Admin Intelligence?');
+  });
+
+  it('generates good evening for hours 17 and later with staff role and null user', () => {
+    const greeting = generatePersonalizedGreeting(
+      null,
+      'STAFF',
+      undefined,
+      new Date('2026-10-09T18:30:00')
+    );
+    expect(greeting).toBe('Good evening, there! What school or route can I find in Staff Workspace?');
+  });
+
+  it('generates greeting without context for agent without organization name', () => {
+    const greeting = generatePersonalizedGreeting(
+      { displayName: 'David' },
+      'AGENT',
+      undefined,
+      new Date('2026-10-09T10:00:00')
+    );
+    expect(greeting).toBe('Good morning, David! What school or route can I find?');
+  });
+});
+
 
 

@@ -1,8 +1,8 @@
-import type { AgentChatProfile, ChatConversation, ChatMessage, ChatPromptSuggestion, ChatSearchIntent, CommissionRate, FavoriteSchool, PendingChatClarification, StagedCommand, StudyLevel, UserRole } from '../types';
+import type { AgentChatProfile, ChatConversation, ChatMessage, ChatPromptSuggestion, ChatSearchIntent, CommissionRate, FavoriteSchool, NavigationAction, PendingChatClarification, StagedCommand, StudyLevel, UserRole } from '../types';
 import type { ChatFilterPrompt } from '../types/chat';
 import type { DashboardFilters } from '../types/dashboard';
 import { filtersFromChatIntent } from './dashboardFilters';
-import { buildClarifyingQuestions, filterRatesByIntent, getDefaultIntake, getIntakeDateKey, getIntakeStartYear, MAX_COMPARISON_SCHOOLS, parseChatIntent, sanitizeChatInput } from './chatQuery';
+import { buildClarifyingQuestions, detectNavigationQuery, detectPromptJailbreak, detectRBACViolation, detectSystemCapabilityQuery, filterRatesByIntent, getDefaultIntake, getIntakeDateKey, getIntakeStartYear, MAX_COMPARISON_SCHOOLS, parseChatIntent, sanitizeChatInput } from './chatQuery';
 import { MAX_QUERIES_PER_MINUTE, MAX_QUERIES_PER_SESSION, PREFERENCE_LEARNING_THRESHOLD } from './chatPersistence';
 
 export interface AvailableChatFacets {
@@ -112,6 +112,15 @@ export function buildContextualSuggestions(state: ChatSessionState, rates: Commi
   if (country && !intent?.level) suggestions.push({ label: `Undergraduate in ${country}`, prompt: `Show undergraduate schools in ${country}` });
   const level = intent?.level || Object.entries(state.profile.preferredLevels).sort((a, b) => b[1] - a[1])[0]?.[0];
   if (level && intent?.country) suggestions.push({ label: `Focus schools · ${intent.country}`, prompt: `Show Focus schools in ${intent.country} for ${level === 'PG' ? 'Postgraduate' : level === 'UG' ? 'Undergraduate' : 'Foundation'}` });
+  if (state.favorites && state.favorites.length > 0) {
+    const topFav = state.favorites[0];
+    if (topFav?.universityName) {
+      suggestions.push({
+        label: `PG routes · ${topFav.universityName}`,
+        prompt: `Show my PG routes for ${topFav.universityName}`,
+      });
+    }
+  }
   if (!suggestions.length) {
     suggestions.push({ label: 'Show Focus schools', prompt: 'Show me Focus schools' });
     suggestions.push({ label: 'Compare schools', prompt: 'Compare two schools' });
@@ -219,10 +228,12 @@ const createMessage = (
   resultIds?: string[],
   resultRates?: CommissionRate[],
   userRole: UserRole = 'AGENT',
-  stagedCommand?: StagedCommand
+  stagedCommand?: StagedCommand,
+  navigationAction?: NavigationAction
 ): ChatMessage => ({
   id: crypto.randomUUID(), role, text, createdAt: nowIso(), status, ...(resultIds ? { resultIds } : {}),
   ...(stagedCommand ? { stagedCommand } : {}),
+  ...(navigationAction ? { navigationAction } : {}),
   ...(resultRates ? { resultRates: resultRates.map((rate) => ({
     id: rate.id, universityId: rate.universityId, universityName: rate.universityName,
     ...(rate.country ? { country: rate.country } : {}), intake: rate.intake, studyLevel: rate.studyLevel,
@@ -231,6 +242,27 @@ const createMessage = (
     guidance: rate.guidance || 'ALLOWED', ...(rate.notes ? { notes: rate.notes } : {}),
   })) } : {}),
 });
+
+export function generatePersonalizedGreeting(
+  user: { displayName?: string | null; email?: string | null } | null,
+  role: 'ADMIN' | 'STAFF' | 'AGENT',
+  organizationName?: string,
+  now = new Date()
+): string {
+  const firstName = user?.displayName?.trim() ? user.displayName.trim().split(' ')[0] : undefined;
+  const emailLocal = user?.email?.trim() ? user.email.trim().split('@')[0] : undefined;
+  const name = firstName || emailLocal || 'there';
+  const hour = now.getHours();
+  const timePeriod = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const context = organizationName
+    ? ` for ${organizationName}`
+    : role === 'ADMIN'
+    ? ' in Admin Intelligence'
+    : role === 'STAFF'
+    ? ' in Staff Workspace'
+    : '';
+  return `${timePeriod}, ${name}! What school or route can I find${context}?`;
+}
 
 export function isGreetingInput(input: string): boolean {
   return /^(?:hi|hello|hey|hiya|howdy|good\s+(?:morning|afternoon|evening)|how\s+are\s+you)(?:\s+there)?[!.?,\s]*$/i.test(input.trim());

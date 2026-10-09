@@ -7,6 +7,7 @@ import {
   isGreetingInput,
   processGreeting,
   processChatTurn,
+  generatePersonalizedGreeting,
   buildContextualSuggestions,
   type ChatSessionState,
 } from '../services/chatSession';
@@ -91,7 +92,11 @@ export function canCompareSelectedRates(rates: CommissionRate[], role: 'STAFF' |
 }
 
 export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, role, initialPrompt, updates, onUpdatesChange, dataMayBeStale = false, dashboardFilters, onDashboardFiltersChange, onViewDashboard }) => {
-  const { user, access } = useAuth();
+  const { user, access, accessRequest } = useAuth();
+  const personalizedGreeting = useMemo(
+    () => generatePersonalizedGreeting(user, role, accessRequest?.requestedOrganizationName),
+    [user, role, accessRequest?.requestedOrganizationName]
+  );
   const [session, setSession] = useState<ChatSessionState>(() => createInitialChatState(user?.uid || ''));
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [profile, setProfile] = useState<AgentChatProfile | null>(null);
@@ -356,7 +361,7 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
   }, [user, updates, notice]);
 
   const unreadUpdates = updates.filter((item) => !item.isRead);
-  const contextualSuggestions = useMemo(() => buildContextualSuggestions(session, rates, role), [session, rates, role]);
+  const contextualSuggestions = useMemo(() => buildContextualSuggestions({ ...session, favorites }, rates, role), [session, favorites, rates, role]);
   const queryCompletions = useMemo(() => predictQueryCompletions(input, rates, role), [input, rates, role]);
   if (role === 'AGENT' && access.accessState !== 'approved') return <AgentAccessGate />;
 
@@ -615,7 +620,7 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
 
           {messages.length === 0 && activePanel === 'chat' && !startingOptions && (
             <div className="flex min-h-full flex-col items-center justify-center gap-3 px-3 text-center" aria-live="off">
-              <p className={`text-lg font-semibold text-slate-600 transition-opacity duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none dark:text-slate-300 ${welcomePromptVisible ? 'opacity-100' : 'opacity-0'}`}>{EMPTY_CHAT_PROMPTS[welcomePromptIndex]}</p>
+              <p className={`text-lg font-semibold text-slate-600 transition-opacity duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none dark:text-slate-300 ${welcomePromptVisible ? 'opacity-100' : 'opacity-0'}`}>{personalizedGreeting}</p>
               <p className="text-sm text-slate-500 dark:text-slate-400">{loading ? 'Loading your available routes…' : rates.length === 0 ? 'No routes are currently available for your account.' : `Choose from ${rates.length.toLocaleString()} routes across ${availableSchoolCount.toLocaleString()} schools.`}</p>
               <div className="mt-2 flex max-w-2xl flex-wrap justify-center gap-2">
                 {contextualSuggestions.map((suggestion) => <button key={suggestion.label} onClick={() => submitPrompt(suggestion.prompt)} className="chat-suggestion-button">{suggestion.label}</button>)}

@@ -330,6 +330,31 @@ describe('chat search results flow', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Activity' })).toBeNull());
     expect(screen.getByRole('button', { name: 'Compare selected' })).toBeTruthy();
   });
+
+  it('renders time-aware personalized greeting in empty chat view', async () => {
+    mocks.useAuth.mockReturnValue({
+      user: { uid: 'agent-1', displayName: 'Sarah Connor', email: 'sarah@example.com' },
+      access: { role: 'AGENT', accessState: 'approved' },
+      accessRequest: { requestedOrganizationName: 'SI-UK Ghana' },
+    });
+    render(React.createElement(ChatExperience, {
+      rates: [rate()], loading: false, role: 'AGENT', updates: [], onUpdatesChange: vi.fn(),
+    }));
+    expect(await screen.findByText(/Sarah! What school or route can I find for SI-UK Ghana\?/i)).toBeTruthy();
+  });
+
+  it('renders smart prompt chips derived from top favorited schools', async () => {
+    const favorite = { id: 'uni-leicester', universityId: 'uni-leicester', universityName: 'Leicester University', createdAt: '2026-10-09T10:00:00.000Z' };
+    mocks.getLocalFavorites.mockResolvedValue([favorite]);
+    render(React.createElement(ChatExperience, {
+      rates: [rate({ universityId: 'uni-leicester', universityName: 'Leicester University' })],
+      loading: false,
+      role: 'AGENT',
+      updates: [],
+      onUpdatesChange: vi.fn(),
+    }));
+    expect(await screen.findByRole('button', { name: 'PG routes · Leicester University' })).toBeTruthy();
+  });
 });
 
 describe('dashboard filter handoff', () => {
