@@ -1,6 +1,6 @@
 # Structured Local Chat Interpreter Design
 
-**Status:** Awaiting product-owner review  
+**Status:** Approved by product owner
 **Date:** 2026-10-09
 
 ## Purpose
@@ -83,4 +83,4 @@ Parsing, clarification resolution, search, comparison selection, and conversatio
 
 ## Implementation scope
 
-Expected touchpoints are `src/types/chat.ts`, `src/services/chatQuery.ts`, `src/services/chatSession.ts`, `src/components/ChatExperience.tsx`, `src/services/localRateDatabase.ts`, and their existing service tests. The implementation plan will define exact type changes and regression cases after this spec is approved.
+Expected touchpoints are `src/types/chat.ts`, `src/services/chatQuery.ts`, `src/services/chatSession.ts`, `src/components/ChatExperience.tsx`, and `src/services/localRateDatabase.ts`. No test files are included in this implementation; the production build is the recorded verification step.

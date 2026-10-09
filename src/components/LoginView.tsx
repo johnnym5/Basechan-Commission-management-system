@@ -10,10 +10,21 @@ import {
   ArrowRight,
   CheckCircle2,
   Check,
+  Mail,
 } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
-  const { signInWithGoogle, error, loading, clearError } = useAuth();
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, sendPasswordReset, error, loading, clearError } = useAuth();
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const handleEmailSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (authMode === 'signup') void signUpWithEmail(name, email, password);
+    else void signInWithEmail(email, password);
+  };
 
   // Mandatory Terms Gateway Acceptance State
   const [hasAcceptedGateway, setHasAcceptedGateway] = useState<boolean>(() => {
@@ -126,7 +137,7 @@ export const LoginView: React.FC = () => {
                 Sign in to Basechan CMS
               </h2>
               <p className="text-xs text-slate-400 mt-1">
-                Authenticate with your corporate Google account to access commission schedules.
+                Sign in with your authorized account to access commission schedules.
               </p>
             </div>
 
@@ -162,7 +173,69 @@ export const LoginView: React.FC = () => {
               </button>
             </div>
 
-            {/* High-Contrast Sign In Button */}
+            <form className="space-y-3" onSubmit={handleEmailSubmit}>
+              {authMode === 'signup' && (
+                <label className="block space-y-1.5 text-xs font-semibold text-slate-300">
+                  Name
+                  <input
+                    type="text"
+                    autoComplete="name"
+                    required
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-amber-400"
+                    placeholder="Your full name"
+                  />
+                </label>
+              )}
+              <label className="block space-y-1.5 text-xs font-semibold text-slate-300">
+                Email address
+                <input
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-amber-400"
+                  placeholder="you@company.com"
+                />
+              </label>
+              <label className="block space-y-1.5 text-xs font-semibold text-slate-300">
+                Password
+                <input
+                  type="password"
+                  autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'}
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-amber-400"
+                  placeholder="At least 6 characters"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-2 rounded-2xl bg-amber-500 px-5 py-3.5 text-sm font-extrabold text-slate-950 transition hover:bg-amber-400 disabled:opacity-40 cursor-pointer"
+              >
+                <Mail className="w-4 h-4" />
+                {authMode === 'signin' ? 'Sign in with email' : 'Create account'}
+              </button>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <button type="button" onClick={() => { setAuthMode(authMode === 'signin' ? 'signup' : 'signin'); clearError(); }} className="hover:text-amber-300 underline cursor-pointer">
+                  {authMode === 'signin' ? 'Create an account' : 'Already have an account? Sign in'}
+                </button>
+                {authMode === 'signin' && (
+                  <button type="button" disabled={!email || loading} onClick={() => void sendPasswordReset(email)} className="hover:text-amber-300 underline disabled:opacity-40 cursor-pointer">
+                    Forgot password?
+                  </button>
+                )}
+              </div>
+            </form>
+
+            <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-slate-500"><span className="h-px flex-1 bg-slate-800" />or<span className="h-px flex-1 bg-slate-800" /></div>
+
+            {/* Google Sign In */}
             <button
               onClick={signInWithGoogle}
               disabled={loading}

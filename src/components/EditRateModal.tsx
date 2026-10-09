@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { updateRate, deleteRates } from '../services/adminRateWriteService';
 import { useAuth } from '../context/AuthContext';
-import { logRateChange } from '../utils/auditLogger';
 import type { CommissionRate, StudyLevel, SchoolGuidance } from '../types';
+import { generateCompositeId } from '../utils/idGenerator';
 import { X, Save, Trash2, AlertCircle } from 'lucide-react';
 
 interface EditRateModalProps {
@@ -57,8 +56,8 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
     setError(null);
 
     try {
-      const rateRef = doc(db, 'rates', rate.id);
       const updatedFields = {
+        id: generateCompositeId(rate.universityName, intake, aggregator, studyLevel),
         masterRate,
         agentRate,
         diffMargin,
@@ -70,20 +69,7 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      await updateDoc(rateRef, updatedFields);
-
-      // Record Audit Log
-      await logRateChange(
-        user?.email || 'Admin',
-        'EDIT',
-        rate.id,
-        rate.universityName,
-        {
-          masterRate: { oldVal: rate.masterRate, newVal: masterRate },
-          agentRate: { oldVal: rate.agentRate, newVal: agentRate },
-          guidance: { oldVal: rate.guidance || 'ALLOWED', newVal: guidance },
-        }
-      );
+      await updateRate(rate, { ...rate, ...updatedFields }, user?.email || 'Admin');
 
       if (onSaved) {
         onSaved({
@@ -109,16 +95,7 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
     setError(null);
 
     try {
-      const rateRef = doc(db, 'rates', rate.id);
-      await deleteDoc(rateRef);
-
-      // Record Audit Log
-      await logRateChange(
-        user?.email || 'Admin',
-        'DELETE',
-        rate.id,
-        rate.universityName
-      );
+      await deleteRates([rate], user?.email || 'Admin');
 
       if (onDeleted) {
         onDeleted(rate.id);

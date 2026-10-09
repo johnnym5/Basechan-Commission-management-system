@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import type { CommissionRate } from '../types';
+import type { CommissionRate, UserRole } from '../types';
 import {
   Search,
   X,
@@ -19,6 +19,7 @@ interface CommandPaletteModalProps {
   isOpen: boolean;
   onClose: () => void;
   rates: CommissionRate[];
+  role: UserRole;
   setCurrentPage: (page: string) => void;
   onOpenUpload?: () => void;
   onOpenAddRate?: () => void;
@@ -28,6 +29,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
   isOpen,
   onClose,
   rates,
+  role,
   setCurrentPage,
   onOpenUpload,
   onOpenAddRate,
@@ -43,14 +45,15 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
 
   // Search Results
   const matchedRates = useMemo(() => {
-    if (!query.trim()) return [];
+    if (role !== 'ADMIN' || !query.trim()) return [];
     const q = query.toLowerCase().trim();
     return rates
       .filter((r) => `${r.universityName} ${r.aggregator} ${r.intake} ${r.studyLevel}`.toLowerCase().includes(q))
       .slice(0, 5);
-  }, [rates, query]);
+  }, [rates, query, role]);
 
   const navActions = useMemo(() => {
+    if (role !== 'ADMIN') return [{ name: 'Chat', icon: Briefcase, category: 'Pages' }];
     const pages = [
       { name: 'Dashboard', icon: LayoutDashboard, category: 'Pages' },
       { name: 'Compare Rates', icon: TrendingUp, category: 'Pages' },
@@ -63,7 +66,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
     if (!query.trim()) return pages;
     const q = query.toLowerCase().trim();
     return pages.filter((p) => p.name.toLowerCase().includes(q));
-  }, [query]);
+  }, [query, role]);
 
   if (!isOpen) return null;
 

@@ -1,5 +1,5 @@
 // Service Worker for Basechan CMS PWA
-const CACHE_NAME = 'basechan-cms-v1';
+const CACHE_NAME = 'basechan-cms-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -38,8 +38,26 @@ self.addEventListener('fetch', (event) => {
   if (
     event.request.method !== 'GET' ||
     event.request.url.includes('firestore.googleapis.com') ||
-    event.request.url.includes('identitytoolkit.googleapis.com')
+    event.request.url.includes('identitytoolkit.googleapis.com') ||
+    event.request.url.includes('securetoken.googleapis.com')
   ) {
+    return;
+  }
+
+  // Always check for a fresh app shell first so releases cannot remain hidden
+  // behind a cache-first index.html. Fall back to the saved shell offline.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse.ok) {
+            const responseCopy = networkResponse.clone();
+            void caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', responseCopy));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match('/index.html'))
+    );
     return;
   }
 

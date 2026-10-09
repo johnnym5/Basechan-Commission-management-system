@@ -3,6 +3,71 @@ export type NetOrGross = 'NET' | 'GROSS';
 export type UniversityStatus = 'ACTIVE' | 'TBC' | 'NIL';
 export type UserRole = 'ADMIN' | 'STAFF' | 'AGENT';
 export type SchoolGuidance = 'FOCUS' | 'ALLOWED' | 'DO_NOT_USE';
+export type AgentAccessStatus = 'pending' | 'approved' | 'rejected' | 'revoked';
+
+export type {
+  ChatPromptSuggestion,
+  ChatSearchIntent,
+  PendingChatClarification,
+} from './chat';
+
+export interface Organization {
+  id: string;
+  name: string;
+  normalizedName: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface AgentAccessRequest {
+  uid: string;
+  email: string;
+  displayName: string;
+  status: AgentAccessStatus;
+  organizationId?: string;
+  requestedOrganizationName?: string;
+  createdAt: string;
+  updatedAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  decisionNote?: string;
+}
+
+export interface UserAccess {
+  role: UserRole;
+  accessState: 'admin' | 'staff' | 'not_requested' | AgentAccessStatus;
+  organizationId?: string;
+}
+
+export interface StaffRateReadModel {
+  id: string;
+  universityId: string;
+  universityName: string;
+  country?: string;
+  intake: string;
+  studyLevel: StudyLevel;
+  aggregator: string;
+  guidance?: SchoolGuidance;
+  notes?: string;
+  updatedAt?: string;
+  sourceSheet?: string;
+}
+
+export interface AgentRateReadModel {
+  id: string;
+  universityId: string;
+  universityName: string;
+  country?: string;
+  intake: string;
+  studyLevel: StudyLevel;
+  agentRate: number;
+  isFlatFee: boolean;
+  netOrGross: NetOrGross;
+  guidance?: SchoolGuidance;
+  notes?: string;
+  updatedAt?: string;
+  sourceSheet?: string;
+}
 
 export interface University {
   id: string; // e.g. aberdeen_university
@@ -48,9 +113,11 @@ export interface UserRecord {
   email: string;
   displayName: string;
   photoURL?: string;
-  role: UserRole;
+  role?: UserRole;
   createdAt: string;
   lastLoginAt: string;
   isOnline: boolean;
   isDisabled?: boolean;
 }
+
+export type { ChatConversation, ChatMessage, AgentChatProfile, FavoriteSchool, UserUpdate } from './chat';

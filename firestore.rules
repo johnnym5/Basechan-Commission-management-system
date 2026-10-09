@@ -1,36 +1,385 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Check if user is an authenticated Admin (email ends with @basechaninternational.com)
-    function isAdmin() {
-      return request.auth != null 
-        && request.auth.token.email.matches('.*@basechaninternational[.]com$');
-    }
-
-    // Check if user is authenticated (Admin, Staff, or Agent)
-    function isAuthenticated() {
+    function signedIn() {
       return request.auth != null;
     }
 
-    // User management records
+    function hasEmail() {
+      return signedIn() && request.auth.token.email is string;
+    }
+
+    function isAdmin() {
+      return hasEmail()
+        && request.auth.token.email.lower().matches('.*@basechaninternational[.]com$');
+    }
+
+    function isStaff() {
+      return hasEmail()
+        && request.auth.token.email.lower().matches('.*[.]basechaninternational@gmail[.]com$');
+    }
+
+    function accessRequestExists(uid) {
+      return exists(/databases/$(database)/documents/agent_access_requests/$(uid));
+    }
+
+    function accessRequest(uid) {
+      return get(/databases/$(database)/documents/agent_access_requests/$(uid)).data;
+    }
+
+    function isApprovedAgent() {
+      return hasEmail()
+        && !isAdmin()
+        && !isStaff()
+        && accessRequestExists(request.auth.uid)
+        && accessRequest(request.auth.uid).status == 'approved'
+        && accessRequest(request.auth.uid).organizationId is string;
+    }
+
+    function isApprovedAgentFor(organizationId) {
+      return isApprovedAgent()
+        && accessRequest(request.auth.uid).organizationId == organizationId;
+    }
+
+    function canUseAssistant() {
+      return isAdmin() || isApprovedAgent() || isStaff();
+    }
+
+    function hasPendingOrApprovedAgentRequest() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/agent_access_requests/$(request.auth.uid))
+        && get(/databases/$(database)/documents/agent_access_requests/$(request.auth.uid)).data.status in ['pending', 'approved'];
+    }
+
+    function isSafeProfileCreate(userId) {
+      return isSafeProfileWrite(userId)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'photoURL', 'createdAt', 'lastLoginAt', 'isOnline'
+        ])
+        && request.resource.data.keys().hasAll(['createdAt', 'lastLoginAt', 'isOnline']);
+    }
+
+    function isSafeProfileWrite(userId) {
+      return signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email;
+    }
+
+    function isSafeProfileUpdate(userId) {
+      return isSafeProfileWrite(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'uid', 'email', 'displayName', 'photoURL', 'lastLoginAt', 'isOnline'
+        ]);
+    }
+
+    function usageSlotCanUpdate(slotKey) {
+      let previousSlot = resource.data.get(slotKey, null);
+      return previousSlot == null
+        || (previousSlot is timestamp && previousSlot + duration.value(60000, 'ms') <= request.time);
+    }
+
+    function validUsageSlotUpdate(slotKey, allowedKeys) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return changed.hasOnly(allowedKeys)
+        && changed.hasAny([slotKey])
+        && request.resource.data.get(slotKey, null) == request.time
+        && usageSlotCanUpdate(slotKey);
+    }
+
     match /users/{userId} {
-      // Users can manage their own profile record (login timestamp, online status)
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      // Admins can read and update any user record
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAdmin() || isSafeProfileCreate(userId);
+      allow update: if isAdmin() || isSafeProfileUpdate(userId);
+      allow delete: if isAdmin();
+
+      match /chat_conversations/{conversationId} {
+        allow read, write: if signedIn() && request.auth.uid == userId && canUseAssistant();
+        allow delete: if signedIn() && request.auth.uid == userId && canUseAssistant();
+      }
+
+      match /favorite_schools/{schoolId} {
+        allow read, write: if signedIn() && request.auth.uid == userId && canUseAssistant();
+        allow delete: if signedIn() && request.auth.uid == userId && canUseAssistant();
+      }
+
+      match /chat_private/usage {
+        allow read: if signedIn() && request.auth.uid == userId && canUseAssistant();
+        allow create: if signedIn()
+          && request.auth.uid == userId
+          && canUseAssistant()
+          && request.resource.data.keys().hasOnly([
+            'currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot1At'
+          ])
+          && request.resource.data.currentConversationId is string
+          && request.resource.data.currentConversationId.size() > 0
+          && request.resource.data.queriesThisSession == 1
+          && request.resource.data.queryTimestamps is list
+          && request.resource.data.queryTimestamps.size() == 1
+          && request.resource.data.updatedAt is string
+          && request.resource.data.querySlot1At == request.time;
+        allow update: if signedIn()
+          && request.auth.uid == userId
+          && canUseAssistant()
+          && request.resource.data.keys().hasOnly([
+            'currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt',
+            'querySlot1At', 'querySlot2At', 'querySlot3At', 'querySlot4At', 'querySlot5At',
+            'querySlot6At', 'querySlot7At', 'querySlot8At', 'querySlot9At', 'querySlot10At'
+          ])
+          && request.resource.data.currentConversationId is string
+          && request.resource.data.queryTimestamps is list
+          && request.resource.data.queryTimestamps.size() <= 10
+          && request.resource.data.updatedAt is string
+          && (
+            validUsageSlotUpdate('querySlot1At', ['currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot1At'])
+            || validUsageSlotUpdate('querySlot2At', ['currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot2At'])
+            || validUsageSlotUpdate('querySlot3At', ['currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot3At'])
+            || validUsageSlotUpdate('querySlot4At', ['currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot4At'])
+            || validUsageSlotUpdate('querySlot5At', ['currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot5At'])
+            || validUsageSlotUpdate('querySlot6At', ['currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot6At'])
+            || validUsageSlotUpdate('querySlot7At', ['currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot7At'])
+            || validUsageSlotUpdate('querySlot8At', ['currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot8At'])
+            || validUsageSlotUpdate('querySlot9At', ['currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot9At'])
+            || validUsageSlotUpdate('querySlot10At', ['currentConversationId', 'queriesThisSession', 'queryTimestamps', 'updatedAt', 'querySlot10At'])
+          )
+          && (
+            (request.resource.data.currentConversationId == resource.data.currentConversationId
+              && request.resource.data.queriesThisSession == resource.data.queriesThisSession + 1
+              && request.resource.data.queriesThisSession <= 50)
+            ||
+            (request.resource.data.currentConversationId != resource.data.currentConversationId
+              && request.resource.data.queriesThisSession == 1
+              && request.resource.data.queryTimestamps.size() == 1)
+          );
+        allow delete: if false;
+      }
+
+      match /chat_private/{documentId} {
+        allow read, write: if signedIn() && request.auth.uid == userId && canUseAssistant() && documentId != 'usage';
+      }
+
+      match /updates/{updateId} {
+        allow read: if signedIn() && request.auth.uid == userId && (isAdmin() || isApprovedAgent() || isStaff());
+        allow create, delete: if isAdmin();
+        allow update: if isAdmin() || (
+          signedIn()
+          && request.auth.uid == userId
+          && (isApprovedAgent() || isStaff())
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'readAt'])
+          && request.resource.data.isRead == true
+        );
+      }
+    }
+
+    match /organizations/{organizationId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /agent_access_requests/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasAll([
+          'uid', 'email', 'displayName', 'status', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'status', 'organizationId',
+          'requestedOrganizationName', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && !hasPendingOrApprovedAgentRequest()
+        && request.resource.data.status == 'pending'
+        && (!exists(/databases/$(database)/documents/agent_access_requests/$(userId))
+          || get(/databases/$(database)/documents/agent_access_requests/$(userId)).data.status in ['rejected', 'revoked'])
+        && (
+          (
+            request.resource.data.keys().hasAny(['organizationId'])
+            && !request.resource.data.keys().hasAny(['requestedOrganizationName'])
+            && request.resource.data.organizationId is string
+            && exists(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId))
+          )
+          ||
+          (
+            !request.resource.data.keys().hasAny(['organizationId'])
+            && request.resource.data.keys().hasAny(['requestedOrganizationName'])
+            && request.resource.data.requestedOrganizationName is string
+            && request.resource.data.requestedOrganizationName.size() > 1
+            && request.resource.data.requestedOrganizationName.size() <= 100
+          )
+        );
+      allow update: if signedIn()
+        && (
+          (
+            isAdmin()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'organizationId', 'decidedAt', 'decidedBy', 'decisionNote', 'updatedAt'
+            ])
+            && request.resource.data.status in ['approved', 'rejected', 'revoked']
+            && (
+              request.resource.data.status != 'approved'
+              || (
+                request.resource.data.organizationId is string
+                && exists(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId))
+              )
+            )
+          )
+          ||
+          (
+            isAdmin()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'organizationId', 'requestedOrganizationName', 'updatedAt', 'organizationChangedAt', 'organizationChangedBy'
+            ])
+            && request.resource.data.organizationId is string
+            && exists(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId))
+          )
+          ||
+          (
+            request.auth.uid == userId
+            && resource.data.status in ['rejected', 'revoked']
+            && request.resource.data.status == 'pending'
+            && request.resource.data.uid == userId
+            && request.resource.data.email == request.auth.token.email
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'uid', 'email', 'displayName', 'status', 'organizationId',
+              'requestedOrganizationName', 'createdAt', 'updatedAt', 'previousDecisionAt',
+              'decidedAt', 'decidedBy', 'decisionNote'
+            ])
+            && (
+              (request.resource.data.keys().hasAny(['organizationId'])
+                && !request.resource.data.keys().hasAny(['requestedOrganizationName'])
+                && exists(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)))
+              ||
+              (!request.resource.data.keys().hasAny(['organizationId'])
+                && request.resource.data.requestedOrganizationName is string
+                && request.resource.data.requestedOrganizationName.size() > 1
+                && request.resource.data.requestedOrganizationName.size() <= 100)
+            )
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /universities/{universityId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /rates/{rateId} {
       allow read, write: if isAdmin();
     }
 
-    // University entities
-    match /universities/{uniId} {
-      allow read: if isAuthenticated();
+    function isStaffSheetHidden(data) {
+      let sheet = data.keys().hasAny(['sourceSheet']) && data.sourceSheet is string
+        ? data.sourceSheet
+        : data.keys().hasAny(['intake']) && data.intake is string ? data.intake : '';
+      return exists(/databases/$(database)/documents/sheet_settings/$(sheet))
+        && get(/databases/$(database)/documents/sheet_settings/$(sheet)).data.disabledForStaff == true;
+    }
+
+    function isAgentSheetHidden(data) {
+      let sheet = data.keys().hasAny(['sourceSheet']) && data.sourceSheet is string
+        ? data.sourceSheet
+        : data.keys().hasAny(['intake']) && data.intake is string ? data.intake : '';
+      return exists(/databases/$(database)/documents/sheet_settings/$(sheet))
+        && get(/databases/$(database)/documents/sheet_settings/$(sheet)).data.disabledForAgents == true;
+    }
+
+    match /staff_rates/{rateId} {
+      allow read: if (isAdmin() || isStaff()) && !isStaffSheetHidden(resource.data);
       allow write: if isAdmin();
     }
-    
-    // Commission rates entities
-    match /rates/{rateId} {
-      allow read: if isAuthenticated();
+
+    match /agent_rates/{rateId} {
+      allow read: if (isAdmin() || isApprovedAgent()) && !isAgentSheetHidden(resource.data);
       allow write: if isAdmin();
+    }
+
+    match /organization_agent_rates/{organizationId}/rates/{rateId} {
+      allow read: if (isAdmin() || isApprovedAgentFor(organizationId)) && !isAgentSheetHidden(resource.data);
+      allow write: if isAdmin();
+    }
+
+    match /agent_rate_overrides/{userId}/rates/{rateId} {
+      allow read: if (isAdmin() || (isApprovedAgent() && request.auth.uid == userId))
+        && !isAgentSheetHidden(resource.data);
+      allow write: if isAdmin();
+    }
+
+    function canReadRateFeed(feedId) {
+      return isAdmin()
+        || (isStaff() && feedId == 'staff')
+        || (isApprovedAgent() && feedId == 'agent')
+        || (isApprovedAgent() && feedId == 'org_' + accessRequest(request.auth.uid).organizationId)
+        || (isApprovedAgent() && feedId == 'user_' + request.auth.uid);
+    }
+
+    function safeStaffFeedRecord(record) {
+      return record is map
+        && record.keys().hasOnly([
+          'id', 'universityId', 'universityName', 'country', 'intake', 'studyLevel',
+          'aggregator', 'guidance', 'notes', 'updatedAt', 'sourceSheet'
+        ])
+        && record.keys().hasAll(['id', 'universityId', 'universityName', 'intake', 'studyLevel', 'aggregator']);
+    }
+
+    function safeAgentFeedRecord(record) {
+      return record is map
+        && record.keys().hasOnly([
+          'id', 'universityId', 'universityName', 'country', 'intake', 'studyLevel',
+          'agentRate', 'isFlatFee', 'netOrGross', 'guidance', 'notes', 'updatedAt', 'sourceSheet'
+        ])
+        && record.keys().hasAll([
+          'id', 'universityId', 'universityName', 'intake', 'studyLevel',
+          'agentRate', 'isFlatFee', 'netOrGross'
+        ]);
+    }
+
+    function safeRateFeedChange(feedId, data) {
+      return isAdmin()
+        || !data.keys().hasAny(['record'])
+        || (feedId == 'staff' && safeStaffFeedRecord(data.record))
+        || (feedId != 'staff' && safeAgentFeedRecord(data.record));
+    }
+
+    match /rate_change_feeds/{feedId} {
+      allow read: if canReadRateFeed(feedId);
+      allow write: if isAdmin();
+
+      match /changes/{changeId} {
+        allow read: if canReadRateFeed(feedId) && safeRateFeedChange(feedId, resource.data);
+        allow write: if isAdmin();
+      }
+
+      match /operations/{operationId} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    match /rate_audit_logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /admin_rate_operations/{operationId} {
+      allow read, write: if isAdmin();
+
+      match /mutations/{mutationId} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    match /admin_migrations/{migrationId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /sheet_settings/{settingId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

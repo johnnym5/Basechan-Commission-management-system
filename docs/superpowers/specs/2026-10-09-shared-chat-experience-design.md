@@ -22,6 +22,8 @@ The main ChatExperience remains the shared owner of chat state and search result
 
 On desktop and tablet, History, Activity, and Favorites open in a right-side drawer over the conversation. On narrow mobile screens, they open in a bottom sheet, leaving the underlying chat recognizable. Both forms have a visible close control, close on Escape and backdrop activation, and return focus to their opening control. Opening a panel must not discard or reset the current transcript or draft.
 
+Activity also contains non-blocking chat notices, cache freshness, sync messages, and the current local-only reason. Quota exhaustion and loss of network connectivity must be described separately. For Chat, these notices belong in Activity rather than taking space above the conversation; the existing account status indicator can continue to signal online/offline/quota state.
+
 The Admin application shell keeps its existing administrative navigation and global controls. The chat surface inside Admin follows the same focused layout as Staff and Agent chat. Staff and Agent continue to land in their chat-only workspace and must not gain access to backend/admin pages through the redesign. Existing role gates and server-side security remain authoritative.
 
 ## Visual system

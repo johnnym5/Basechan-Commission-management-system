@@ -10,35 +10,48 @@ import {
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState, RowSelectionState } from '@tanstack/react-table';
 import type { CommissionRate, StudyLevel, SchoolGuidance } from '../types';
+import type {
+  GroupByMode,
+  GroupSortMode,
+  GroupedUniversity,
+} from '../utils/groupingUtils';
+import {
+  groupRatesByUniversity,
+  sortGroupedUniversities,
+} from '../utils/groupingUtils';
+import { getWatchlist, toggleWatchlist, isStarred } from '../utils/watchlistUtils';
+import type { CurrencyCode } from '../utils/currencyUtils';
+import { formatCurrencyValue } from '../utils/currencyUtils';
 import { BatchEditModal } from './BatchEditModal';
-import { doc, writeBatch, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { ShareRateCardModal } from './ShareRateCardModal';
+import { updateRate, updateRates, deleteRates } from '../services/adminRateWriteService';
+import { isQuotaOffline } from '../services/firestoreOfflineMode';
 import { useAuth } from '../context/AuthContext';
-import { exportToExcel, printSchedule } from '../utils/exportUtils';
 import {
   ArrowUpDown,
   Search,
   SlidersHorizontal,
   Pencil,
-  ChevronLeft,
-  ChevronRight,
-  TrendingUp,
   CheckCircle2,
   AlertTriangle,
   Check,
   ChevronDown,
   Trash2,
   X,
-  Download,
-  Printer,
   Globe,
+  Star,
+  Layers3,
   LayoutGrid,
   TableProperties,
+  Share2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 interface MasterTableProps {
   data: CommissionRate[];
   loading: boolean;
+  readOnly?: boolean;
   onEditRate: (rate: CommissionRate) => void;
   onBatchActionComplete?: (msg: string) => void;
   externalSearchQuery?: string;
@@ -49,9 +62,11 @@ interface MasterTableProps {
   onExternalAggregatorChange?: (agg: string) => void;
 }
 
+const COMMON_AGGREGATORS = ['SI-UK', 'EDVOY', 'UAP', 'CRIZAC', 'BASECHAN', 'Direct'];
+
 // Interactive School Status Cell for Admin Users
-const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
-  const { role } = useAuth();
+const SchoolStatusCell: React.FC<{ rate: CommissionRate; readOnly?: boolean }> = ({ rate, readOnly = false }) => {
+  const { role, user } = useAuth();
   const isAdmin = role === 'ADMIN';
   const [isOpen, setIsOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -63,8 +78,7 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
     if (newGuidance === g) return;
     try {
       setUpdating(true);
-      const rateRef = doc(db, 'rates', rate.id);
-      await updateDoc(rateRef, { guidance: newGuidance, updatedAt: new Date().toISOString() });
+      await updateRate(rate, { ...rate, guidance: newGuidance, updatedAt: new Date().toISOString() }, user?.email || 'Admin');
     } catch (err) {
       console.error('Failed to update guidance status:', err);
     } finally {
@@ -97,7 +111,7 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
     );
   };
 
-  if (!isAdmin) {
+  if (!isAdmin || readOnly) {
     return renderBadge();
   }
 
@@ -124,14 +138,14 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
 
           <button
             onClick={() => handleUpdateStatus('FOCUS')}
-            className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between font-semibold transition cursor-pointer text-[11px] ${
+            className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between font-semibold transition cursor-pointer text-xs ${
               g === 'FOCUS'
                 ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold'
                 : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
             <span className="flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               Focus (Green)
             </span>
             {g === 'FOCUS' && <span>✓</span>}
@@ -139,14 +153,14 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
 
           <button
             onClick={() => handleUpdateStatus('ALLOWED')}
-            className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between font-medium transition cursor-pointer text-[11px] ${
+            className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between font-medium transition cursor-pointer text-xs ${
               g === 'ALLOWED'
                 ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold'
                 : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
             <span className="flex items-center gap-1">
-              <Check className="w-3 h-3 text-slate-500 dark:text-slate-400" />
+              <Check className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               Allowed
             </span>
             {g === 'ALLOWED' && <span>✓</span>}
@@ -154,14 +168,14 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
 
           <button
             onClick={() => handleUpdateStatus('DO_NOT_USE')}
-            className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between font-semibold transition cursor-pointer text-[11px] ${
+            className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between font-semibold transition cursor-pointer text-xs ${
               g === 'DO_NOT_USE'
                 ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 font-bold'
                 : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
             <span className="flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
               Do Not Use
             </span>
             {g === 'DO_NOT_USE' && <span>✓</span>}
@@ -172,38 +186,71 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
   );
 };
 
-// Adaptive, Redesigned Viewport-Bound Pop-Up Modal using React Portal with Smooth Ease In/Out Animation
-const RateDetailModal: React.FC<{
-  rate: CommissionRate | null;
-  currentIndex: number | null;
-  totalCount: number;
-  onClose: () => void;
-  onPrev: () => void;
-  onNext: () => void;
-  onEdit: (rate: CommissionRate) => void;
-}> = ({ rate, currentIndex, totalCount, onClose, onPrev, onNext, onEdit }) => {
-  // Lock body scroll ONLY when modal is active with a valid rate
-  useEffect(() => {
-    if (!rate || currentIndex === null) return;
+// Interactive Aggregator Selector Dropdown for Admin
+const AggregatorRouteCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
+  const { role, user } = useAuth();
+  const isAdmin = role === 'ADMIN';
+  const [updating, setUpdating] = useState(false);
 
+  const handleUpdateAggregator = async (newAggregator: string) => {
+    if (!navigator.onLine || isQuotaOffline(user?.uid)) return;
+    if (newAggregator === rate.aggregator) return;
+    try {
+      setUpdating(true);
+      await updateRate(rate, { ...rate, aggregator: newAggregator, updatedAt: new Date().toISOString() }, user?.email || 'Admin');
+    } catch (err) {
+      console.error('Failed to update aggregator route:', err);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  if (!isAdmin || !navigator.onLine || isQuotaOffline(user?.uid)) {
+    return (
+      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+        Use {rate.aggregator}
+      </span>
+    );
+  }
+
+  return (
+    <select
+      value={rate.aggregator}
+      disabled={updating}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => handleUpdateAggregator(e.target.value)}
+      title="Admin: Click to change aggregator route"
+      className="px-2.5 py-1 rounded-xl border border-slate-300 dark:border-[#222F43] bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-extrabold text-xs focus:ring-2 focus:ring-blue-500 cursor-pointer"
+    >
+      {COMMON_AGGREGATORS.map((agg) => (
+        <option key={agg} value={agg}>
+          Use {agg}
+        </option>
+      ))}
+      {!COMMON_AGGREGATORS.includes(rate.aggregator) && (
+        <option value={rate.aggregator}>Use {rate.aggregator}</option>
+      )}
+    </select>
+  );
+};
+
+// Side-by-Side Grouped University Routes Comparison Modal
+const GroupRoutesModal: React.FC<{
+  group: GroupedUniversity | null;
+  currency: CurrencyCode;
+  onClose: () => void;
+  onEdit: (rate: CommissionRate) => void;
+  onShare: (rate: CommissionRate) => void;
+}> = ({ group, currency, onClose, onEdit, onShare }) => {
+  useEffect(() => {
+    if (!group) return;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = '';
     };
-  }, [rate, currentIndex]);
+  }, [group]);
 
-  // Keyboard Navigation: ArrowLeft (Prev), ArrowRight (Next), Escape (Close)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') onPrev();
-      if (e.key === 'ArrowRight') onNext();
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onPrev, onNext, onClose]);
-
-  if (!rate || currentIndex === null) return null;
+  if (!group) return null;
 
   return createPortal(
     <div
@@ -212,140 +259,104 @@ const RateDetailModal: React.FC<{
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative m-auto max-w-md sm:max-w-lg w-full max-h-[85vh] bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-[#222F43] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-modal-pop z-[10000]"
+        className="relative m-auto max-w-lg sm:max-w-2xl w-full max-h-[85vh] bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-[#222F43] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-modal-pop z-[10000]"
       >
-        {/* Sticky Header */}
+        {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-[#222F43] flex items-start justify-between bg-slate-50/90 dark:bg-[#18181B]/90 shrink-0">
-          <div className="space-y-1 pr-3 min-w-0">
-            <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 leading-snug break-words">
-              {rate.universityName}
+          <div>
+            <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-slate-100 leading-snug">
+              {group.displayName}
             </h3>
-            {rate.country && (
-              <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1">
-                <Globe className="w-3.5 h-3.5 shrink-0" />
-                <span>{rate.country}</span>
-              </p>
-            )}
+            <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1 mt-0.5">
+              <Globe className="w-3.5 h-3.5" />
+              <span>{group.country} • {group.totalRoutes} Available Routes</span>
+            </p>
           </div>
 
           <button
             onClick={onClose}
-            aria-label="Close rate details"
-            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer shrink-0"
+            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Scrollable Compact Body */}
-        <div className="p-4 sm:p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
-          {/* Status Row */}
-          <div className="p-3 bg-slate-50 dark:bg-[#18181B]/80 rounded-2xl border border-slate-200 dark:border-[#222F43] flex items-center justify-between">
-            <span className="font-semibold text-slate-500 dark:text-slate-400 text-xs">School Guidance Status:</span>
-            <SchoolStatusCell rate={rate} />
-          </div>
-
-          {/* Profit Margin Highlight Card */}
-          <div className="p-3.5 bg-emerald-50/80 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-800/80 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 block">
-                Profit Margin Yield (DIFF)
+        {/* Scrollable Routes List */}
+        <div className="p-4 sm:p-5 space-y-3 overflow-y-auto flex-1 text-xs">
+          {/* Best Route Banner */}
+          {group.bestRoute && (
+            <div className="p-3 bg-amber-500/15 border border-amber-400/40 rounded-2xl flex items-center justify-between text-amber-800 dark:text-amber-300">
+              <span className="font-extrabold text-xs">
+                Recommended Top Yield Route:
               </span>
-              <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80 mt-0.5 font-medium">
-                Calculated net yield after agent payout
-              </p>
+              <span className="font-mono font-black text-sm text-amber-600 dark:text-amber-400">
+                +{formatCurrencyValue(group.bestRoute.diffMargin, currency, group.bestRoute.isFlatFee)} via {group.bestRoute.aggregator}
+              </span>
             </div>
-            <span className="text-lg sm:text-xl font-black font-mono text-emerald-600 dark:text-amber-400 shrink-0">
-              +{rate.diffMargin}{rate.isFlatFee ? '£' : '%'}
+          )}
+
+          {/* List of side-by-side routes */}
+          <div className="space-y-2">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              All Submissions Routes ({group.rates.length}):
             </span>
+
+            {group.rates.map((rate) => {
+              const isBest = group.bestRoute?.id === rate.id;
+              return (
+                <div
+                  key={rate.id}
+                  className={`p-3.5 rounded-2xl border transition-all flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 ${
+                    isBest
+                      ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 shadow-xs'
+                      : 'bg-slate-50 dark:bg-[#18181B]/80 border-slate-200 dark:border-[#222F43]'
+                  }`}
+                >
+                  <div className="space-y-1.5 min-w-[160px]">
+                    <div className="flex items-center gap-2">
+                      <AggregatorRouteCell rate={rate} />
+                      {isBest && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400 text-slate-950">
+                          BEST ROUTE
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      Intake: {rate.intake} • Level: <strong className="text-indigo-600 dark:text-indigo-400">{rate.studyLevel}</strong>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <span className="text-[9px] font-bold uppercase text-slate-400 block">Profit Yield</span>
+                      <span className="font-mono font-black text-emerald-600 dark:text-amber-400 text-sm">
+                        +{formatCurrencyValue(rate.diffMargin, currency, rate.isFlatFee)}
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => onShare(rate)}
+                      className="p-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-400/30 rounded-xl transition cursor-pointer"
+                      title="Share Rate Card"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onEdit(rate);
+                      }}
+                      className="p-2 bg-white dark:bg-[#0E1526] hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#222F43] rounded-xl text-slate-600 dark:text-slate-200 transition cursor-pointer"
+                      title="Edit Rate"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-
-          {/* Key Metrics Grid */}
-          <div className="grid grid-cols-3 gap-2">
-            <div className="p-2.5 bg-slate-50 dark:bg-[#18181B]/80 rounded-2xl border border-slate-200 dark:border-[#222F43]">
-              <span className="text-slate-400 block font-bold text-[9px] uppercase tracking-wider">Intake</span>
-              <span className="font-extrabold text-slate-900 dark:text-slate-100 text-xs truncate block mt-0.5">{rate.intake}</span>
-            </div>
-
-            <div className="p-2.5 bg-slate-50 dark:bg-[#18181B]/80 rounded-2xl border border-slate-200 dark:border-[#222F43]">
-              <span className="text-slate-400 block font-bold text-[9px] uppercase tracking-wider">Level</span>
-              <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs block mt-0.5">{rate.studyLevel}</span>
-            </div>
-
-            <div className="p-2.5 bg-slate-50 dark:bg-[#18181B]/80 rounded-2xl border border-slate-200 dark:border-[#222F43]">
-              <span className="text-slate-400 block font-bold text-[9px] uppercase tracking-wider">Route</span>
-              <span className="font-extrabold text-slate-900 dark:text-slate-100 text-xs truncate block mt-0.5">{rate.aggregator}</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="p-2.5 bg-slate-50 dark:bg-[#18181B]/80 rounded-2xl border border-slate-200 dark:border-[#222F43]">
-              <span className="text-slate-400 block font-bold text-[9px] uppercase tracking-wider">Master Rate (Incoming)</span>
-              <span className="font-mono font-extrabold text-slate-900 dark:text-slate-100 text-xs sm:text-sm block mt-0.5">
-                {rate.isFlatFee ? `£${rate.masterRate.toLocaleString()}` : `${rate.masterRate}%`}
-              </span>
-            </div>
-
-            <div className="p-2.5 bg-slate-50 dark:bg-[#18181B]/80 rounded-2xl border border-slate-200 dark:border-[#222F43]">
-              <span className="text-slate-400 block font-bold text-[9px] uppercase tracking-wider">Agent Rate (Outgoing)</span>
-              <span className="font-mono font-extrabold text-slate-600 dark:text-slate-300 text-xs sm:text-sm block mt-0.5">
-                {rate.isFlatFee ? `£${rate.agentRate.toLocaleString()}` : `${rate.agentRate}%`}
-              </span>
-            </div>
-          </div>
-
-          {/* Notes & Sheet Source */}
-          {rate.notes && (
-            <div className="p-3 bg-slate-50 dark:bg-[#18181B]/80 rounded-2xl border border-slate-200 dark:border-[#222F43] space-y-1">
-              <span className="font-bold text-slate-500 dark:text-slate-400 text-[10px] uppercase tracking-wider">Notes:</span>
-              <p className="text-slate-800 dark:text-slate-200 text-xs leading-relaxed">{rate.notes}</p>
-            </div>
-          )}
-
-          {rate.sourceSheet && (
-            <div className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">
-              Source Sheet: {rate.sourceSheet} {rate.sourceRow ? `(Row ${rate.sourceRow})` : ''}
-            </div>
-          )}
-
-          {/* Edit Action Button */}
-          <div className="pt-1">
-            <button
-              onClick={() => {
-                onClose();
-                onEdit(rate);
-              }}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 dark:bg-amber-400 dark:hover:bg-amber-500 text-white dark:text-slate-950 font-extrabold text-xs sm:text-sm rounded-2xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-            >
-              <Pencil className="w-4 h-4" />
-              <span>Edit Full Rate Details</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Sticky Footer Navigation Bar with Previous & Next Buttons */}
-        <div className="p-3.5 sm:p-4 bg-slate-50/90 dark:bg-[#18181B]/90 border-t border-slate-100 dark:border-[#222F43] flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 shrink-0">
-          <button
-            onClick={onPrev}
-            disabled={currentIndex === 0}
-            className="px-3.5 py-2 bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] rounded-xl font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5 active:scale-95 text-xs text-slate-800 dark:text-slate-200"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span>Previous</span>
-          </button>
-
-          <span className="font-mono font-extrabold text-slate-700 dark:text-slate-200 text-xs">
-            {currentIndex + 1} of {totalCount}
-          </span>
-
-          <button
-            onClick={onNext}
-            disabled={currentIndex === totalCount - 1}
-            className="px-3.5 py-2 bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] rounded-xl font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5 active:scale-95 text-xs text-slate-800 dark:text-slate-200"
-          >
-            <span>Next</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
         </div>
       </div>
     </div>,
@@ -355,7 +366,7 @@ const RateDetailModal: React.FC<{
 
 export const MasterTable: React.FC<MasterTableProps> = ({
   data,
-  loading,
+  readOnly = false,
   onEditRate,
   onBatchActionComplete,
   externalSearchQuery,
@@ -365,20 +376,31 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   externalAggregatorFilter,
   onExternalAggregatorChange,
 }) => {
+  const { user } = useAuth();
   const [sorting, setSorting] = useState<SortingState>([
-    { id: 'diffMargin', desc: true }, // Default: sort highest margin first
+    { id: 'diffMargin', desc: true },
   ]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [isBatchEditOpen, setIsBatchEditOpen] = useState(false);
 
-  // View Mode State: 'grid' or 'table' (Default to 'grid', Mobile is locked on 'grid')
+  // View Mode: 'grid' or 'table'
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+
+  // QOL STATES & CARD PAGINATION
+  const [groupByMode, setGroupByMode] = useState<GroupByMode>('NONE');
+  const [groupSortMode, setGroupSortMode] = useState<GroupSortMode>('MOST_ROUTES');
+  const [activeCurrency, setActiveCurrency] = useState<CurrencyCode>('GBP');
+  const [watchlist, setWatchlist] = useState<string[]>(() => getWatchlist());
+  const [onlyShowStarred, setOnlyShowStarred] = useState<boolean>(false);
+  const [cardPage, setCardPage] = useState<number>(1);
+  const CARDS_PER_PAGE = 24;
 
   // Filter Popover Drawer State
   const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
 
-  // Active detail modal index for mobile cards view
-  const [activeDetailIndex, setActiveDetailIndex] = useState<number | null>(null);
+  // Modals
+  const [activeGroupRate, setActiveGroupRate] = useState<GroupedUniversity | null>(null);
+  const [sharingRate, setSharingRate] = useState<CommissionRate | null>(null);
 
   const [internalSearchQuery, setInternalSearchQuery] = useState<string>('');
   const [selectedIntake, setSelectedIntake] = useState<string>('ALL');
@@ -409,6 +431,29 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     if (onExternalAggregatorChange) onExternalAggregatorChange(agg);
   };
 
+  // Reset card page when filters change
+  useEffect(() => {
+    setCardPage(1);
+  }, [
+    internalSearchQuery,
+    externalSearchQuery,
+    selectedIntake,
+    selectedLevel,
+    selectedCountry,
+    selectedGuidance,
+    selectedAggregator,
+    groupByMode,
+    groupSortMode,
+    onlyShowStarred,
+  ]);
+
+  // Toggle Watchlist Star Handler
+  const handleToggleStar = (schoolName: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const updated = toggleWatchlist(schoolName);
+    setWatchlist(updated);
+  };
+
   // Active Filter Count Calculation
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -417,27 +462,9 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     if (selectedLevel !== 'ALL') count++;
     if (selectedCountry !== 'ALL') count++;
     if (selectedAggregator !== 'ALL') count++;
+    if (onlyShowStarred) count++;
     return count;
-  }, [selectedGuidance, selectedIntake, selectedLevel, selectedCountry, selectedAggregator]);
-
-  // Sync state if external props change
-  useEffect(() => {
-    if (externalSearchQuery !== undefined) {
-      setInternalSearchQuery(externalSearchQuery);
-    }
-  }, [externalSearchQuery]);
-
-  useEffect(() => {
-    if (externalGuidanceFilter !== undefined) {
-      setInternalGuidanceFilter(externalGuidanceFilter);
-    }
-  }, [externalGuidanceFilter]);
-
-  useEffect(() => {
-    if (externalAggregatorFilter !== undefined) {
-      setInternalAggregatorFilter(externalAggregatorFilter);
-    }
-  }, [externalAggregatorFilter]);
+  }, [selectedGuidance, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, onlyShowStarred]);
 
   // Extract unique options for filter dropdowns
   const intakes = useMemo(() => {
@@ -455,7 +482,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     return Array.from(set).sort();
   }, [data]);
 
-  // Multi-attribute fuzzy search helper
+  // Fuzzy match search helper
   const fuzzyMatch = (row: CommissionRate, query: string): boolean => {
     if (!query) return true;
     const q = query.toLowerCase().trim();
@@ -481,9 +508,13 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     return false;
   };
 
-  // Client-side filtering logic with fuzzy search
+  // Client-side filtering logic with fuzzy search & watchlist filter
   const filteredData = useMemo(() => {
     return data.filter((row) => {
+      if (onlyShowStarred && !isStarred(watchlist, row.universityName)) {
+        return false;
+      }
+
       if (searchQuery && !fuzzyMatch(row, searchQuery)) {
         return false;
       }
@@ -511,7 +542,27 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
       return true;
     });
-  }, [data, searchQuery, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, selectedGuidance]);
+  }, [data, searchQuery, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, selectedGuidance, watchlist, onlyShowStarred]);
+
+  // Grouped Data Calculations
+  const groupedUniversities = useMemo(() => {
+    if (groupByMode !== 'UNIVERSITY') return [];
+    const grouped = groupRatesByUniversity(filteredData);
+    return sortGroupedUniversities(grouped, groupSortMode);
+  }, [filteredData, groupByMode, groupSortMode]);
+
+  // CARD GRID PAGINATION SLICES
+  const totalGroupPages = Math.ceil(groupedUniversities.length / CARDS_PER_PAGE) || 1;
+  const paginatedGroups = useMemo(() => {
+    const start = (cardPage - 1) * CARDS_PER_PAGE;
+    return groupedUniversities.slice(start, start + CARDS_PER_PAGE);
+  }, [groupedUniversities, cardPage]);
+
+  const totalFlatPages = Math.ceil(filteredData.length / CARDS_PER_PAGE) || 1;
+  const paginatedFlatData = useMemo(() => {
+    const start = (cardPage - 1) * CARDS_PER_PAGE;
+    return filteredData.slice(start, start + CARDS_PER_PAGE);
+  }, [filteredData, cardPage]);
 
   // Selection states across ALL filtered rows
   const isAllFilteredSelected = useMemo(() => {
@@ -527,14 +578,12 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
   const handleToggleAllFiltered = () => {
     if (isAllFilteredSelected) {
-      // Deselect all filtered rows
       const newSelection = { ...rowSelection };
       filteredData.forEach((row) => {
         delete newSelection[row.id];
       });
       setRowSelection(newSelection);
     } else {
-      // Select ALL filtered rows
       const newSelection = { ...rowSelection };
       filteredData.forEach((row) => {
         newSelection[row.id] = true;
@@ -548,7 +597,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       {
         id: 'select',
         header: () => (
-          <div className="flex items-center justify-center" title={`Select all ${filteredData.length} filtered rows`}>
+          <div className="flex items-center justify-center">
             <input
               type="checkbox"
               className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
@@ -588,18 +637,19 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         ),
         cell: (info) => {
           const row = info.row.original;
-          const hasColor = row.rowColor && row.rowColor !== '-' && row.rowColor !== '#FFFFFF';
+          const starred = isStarred(watchlist, row.universityName);
           return (
             <div className="flex items-center gap-2">
-              {hasColor && (
-                <span
-                  className="w-2.5 h-2.5 rounded-full shrink-0 border border-slate-300 dark:border-slate-700 shadow-2xs"
-                  style={{ backgroundColor: row.rowColor }}
-                  title={`Row Color: ${row.rowColor}`}
-                />
-              )}
+              <button
+                type="button"
+                onClick={(e) => handleToggleStar(row.universityName, e)}
+                title={starred ? 'Remove from Watchlist' : 'Add to Watchlist'}
+                className="p-1 cursor-pointer"
+              >
+                <Star className={`w-4 h-4 ${starred ? 'fill-amber-400 text-amber-400' : 'text-slate-400 hover:text-amber-400'}`} />
+              </button>
               <div>
-                <div className="font-medium text-slate-900 dark:text-slate-100">
+                <div className="font-semibold text-slate-900 dark:text-slate-100">
                   {info.getValue() as string}
                 </div>
                 {row.country && row.country !== 'UK' && (
@@ -616,7 +666,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       {
         accessorKey: 'guidance',
         header: 'School Status',
-        cell: (info) => <SchoolStatusCell rate={info.row.original} />,
+        cell: (info) => <SchoolStatusCell rate={info.row.original} readOnly={readOnly} />,
       },
       {
         accessorKey: 'intake',
@@ -630,88 +680,52 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       {
         accessorKey: 'studyLevel',
         header: 'Level',
-        cell: (info) => {
-          const lvl = info.getValue() as string;
-          const badgeClass =
-            lvl === 'PG'
-              ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
-              : lvl === 'UG'
-              ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-              : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
-          return (
-            <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold border ${badgeClass}`}
-            >
-              {lvl}
-            </span>
-          );
-        },
-      },
-      {
-        accessorKey: 'aggregator',
-        header: 'Aggregator',
         cell: (info) => (
-          <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs tracking-wide">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold border bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800">
             {info.getValue() as string}
           </span>
         ),
       },
       {
+        accessorKey: 'aggregator',
+        header: 'Application Portal',
+        cell: (info) => <AggregatorRouteCell rate={info.row.original} />,
+      },
+      {
         accessorKey: 'masterRate',
-        header: 'Master Rate',
+        header: 'University Commission',
         cell: (info) => {
           const row = info.row.original;
           const val = info.getValue() as number;
           return (
             <span className="font-mono text-slate-800 dark:text-slate-200 text-sm font-semibold">
-              {row.isFlatFee ? `£${val.toLocaleString()}` : `${val}%`}
+              {formatCurrencyValue(val, activeCurrency, row.isFlatFee)}
             </span>
           );
         },
       },
       {
         accessorKey: 'agentRate',
-        header: 'Agent Rate',
+        header: 'Your Commission Payout',
         cell: (info) => {
           const row = info.row.original;
           const val = info.getValue() as number;
           return (
             <span className="font-mono text-slate-600 dark:text-slate-400 text-sm">
-              {row.isFlatFee ? `£${val.toLocaleString()}` : `${val}%`}
+              {formatCurrencyValue(val, activeCurrency, row.isFlatFee)}
             </span>
           );
         },
       },
       {
         accessorKey: 'diffMargin',
-        header: ({ column }) => (
-          <button
-            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-            className="flex items-center gap-1.5 font-bold text-emerald-800 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-emerald-100 cursor-pointer"
-          >
-            <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            Profit Margin
-            <ArrowUpDown className="w-3.5 h-3.5 text-emerald-500" />
-          </button>
-        ),
+        header: 'Net Profit',
         cell: (info) => {
           const row = info.row.original;
           const diff = info.getValue() as number;
-          const isPositive = diff > 0;
-          const isNegative = diff < 0;
-
           return (
-            <span
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold ${
-                isPositive
-                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                  : isNegative
-                  ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-              }`}
-            >
-              {isPositive ? '+' : ''}
-              {row.isFlatFee ? `£${diff.toLocaleString()}` : `${diff}%`}
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+              +{formatCurrencyValue(diff, activeCurrency, row.isFlatFee)}
             </span>
           );
         },
@@ -720,17 +734,27 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         id: 'actions',
         header: 'Actions',
         cell: (info) => (
-          <button
-            onClick={() => onEditRate(info.row.original)}
-            className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg transition cursor-pointer"
-            title="Edit Rate & Guidance"
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setSharingRate(info.row.original)}
+              className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/60 rounded-lg transition cursor-pointer"
+              title="Share Rate Card"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => onEditRate(info.row.original)}
+              disabled={readOnly}
+              className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+              title="Edit Rate & Guidance"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+          </div>
         ),
       },
     ],
-    [onEditRate, isAllFilteredSelected, isSomeFilteredSelected, handleToggleAllFiltered]
+    [onEditRate, isAllFilteredSelected, isSomeFilteredSelected, handleToggleAllFiltered, activeCurrency, watchlist]
   );
 
   const table = useReactTable({
@@ -750,127 +774,169 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     },
   });
 
-  // Selected rates across all selections
-  const selectedRates = useMemo(() => {
-    return data.filter((rate) => rowSelection[rate.id]);
-  }, [rowSelection, data]);
+  // Selected rates
+  const selectedRates = useMemo(() => data.filter((rate) => rowSelection[rate.id]), [rowSelection, data]);
 
-  // Detail Pop-up Navigation Helpers
-  const activeDetailRate = activeDetailIndex !== null && filteredData[activeDetailIndex]
-    ? filteredData[activeDetailIndex]
-    : null;
-
-  const handlePrevDetail = () => {
-    setActiveDetailIndex((prev) => (prev !== null ? Math.max(0, prev - 1) : null));
-  };
-
-  const handleNextDetail = () => {
-    setActiveDetailIndex((prev) => (prev !== null ? Math.min(filteredData.length - 1, prev + 1) : null));
-  };
-
-  // Batch delete handler
+  // Batch action handlers
   const handleDeleteSelected = async () => {
     if (selectedRates.length === 0) return;
     try {
       setBatchActionLoading(true);
-      const BATCH_SIZE = 200;
-      const totalBatches = Math.ceil(selectedRates.length / BATCH_SIZE);
-      for (let b = 0; b < totalBatches; b++) {
-        const chunk = selectedRates.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
-        const batch = writeBatch(db);
-        chunk.forEach((rate) => {
-          batch.delete(doc(db, 'rates', rate.id));
-        });
-        await batch.commit();
-      }
-      const count = selectedRates.length;
+      await deleteRates(selectedRates, user?.email || 'Admin');
       setRowSelection({});
-      if (onBatchActionComplete) {
-        onBatchActionComplete(`Successfully deleted ${count} selected rates.`);
-      }
+      if (onBatchActionComplete) onBatchActionComplete(`Successfully deleted ${selectedRates.length} selected rates.`);
     } catch (err) {
-      console.error('Batch delete error:', err);
+      console.error(err);
     } finally {
       setBatchActionLoading(false);
     }
   };
 
-  // Batch status guidance update handler (Focus, Do Not Use, Allowed)
   const handleBatchSetGuidance = async (guidance: SchoolGuidance) => {
     if (selectedRates.length === 0) return;
     try {
       setBatchActionLoading(true);
-      const BATCH_SIZE = 200;
-      const totalBatches = Math.ceil(selectedRates.length / BATCH_SIZE);
-      for (let b = 0; b < totalBatches; b++) {
-        const chunk = selectedRates.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
-        const batch = writeBatch(db);
-        chunk.forEach((rate) => {
-          const rateRef = doc(db, 'rates', rate.id);
-          batch.update(rateRef, { guidance, updatedAt: new Date().toISOString() });
-        });
-        await batch.commit();
-      }
-      const count = selectedRates.length;
+      await updateRates(selectedRates, (rate) => ({ ...rate, guidance, updatedAt: new Date().toISOString() }), user?.email || 'Admin', 'guidance');
       setRowSelection({});
-      if (onBatchActionComplete) {
-        const statusLabel =
-          guidance === 'FOCUS'
-            ? 'Focus / Preferred (In the Green)'
-            : guidance === 'DO_NOT_USE'
-            ? 'Do Not Use / Avoid (Reject)'
-            : 'Allowed (Standard)';
-        onBatchActionComplete(`Successfully set guidance status to "${statusLabel}" for ${count} selected items.`);
-      }
+      if (onBatchActionComplete) onBatchActionComplete(`Updated guidance status for ${selectedRates.length} selected items.`);
     } catch (err) {
-      console.error('Batch guidance update error:', err);
+      console.error(err);
     } finally {
       setBatchActionLoading(false);
     }
   };
 
-  const handleBatchUpdated = (count: number) => {
-    setRowSelection({});
-    if (onBatchActionComplete) {
-      onBatchActionComplete(`Successfully updated ${count} commission rates.`);
+  const handleBatchSetAggregator = async (targetAggregator: string) => {
+    if (selectedRates.length === 0 || !targetAggregator) return;
+    try {
+      setBatchActionLoading(true);
+      await updateRates(selectedRates, (rate) => ({ ...rate, aggregator: targetAggregator, updatedAt: new Date().toISOString() }), user?.email || 'Admin', 'routing');
+      setRowSelection({});
+      if (onBatchActionComplete) onBatchActionComplete(`Updated route to "${targetAggregator}" for ${selectedRates.length} selected items.`);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBatchActionLoading(false);
     }
+  };
+
+  // Render Mobile/Responsive Card Component with Multi-Select Checkbox TOP-RIGHT & Star BOTTOM-RIGHT
+  const renderRateCard = (rate: CommissionRate) => {
+    const isSelected = rowSelection[rate.id] || false;
+    const starred = isStarred(watchlist, rate.universityName);
+
+    return (
+      <div
+        key={rate.id}
+        onClick={() => { if (!readOnly) onEditRate(rate); }}
+        className={`p-3 sm:p-4 rounded-2xl border transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer'} relative flex flex-col justify-between gap-2.5 select-none ${
+          isSelected
+            ? 'bg-blue-50 dark:bg-amber-950/60 border-blue-500 dark:border-amber-400 shadow-md ring-1 ring-blue-500/30'
+            : 'bg-white dark:bg-[#0E1526] border-slate-200 dark:border-[#222F43] hover:border-slate-300 dark:hover:border-slate-600 shadow-xs hover:-translate-y-0.5'
+        }`}
+      >
+        {/* Top Row: Level Badge Left, Multi-Select Checkbox TOP-RIGHT */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+            {rate.studyLevel}
+          </span>
+
+          {/* Multi-Select Checkbox TOP-RIGHT */}
+          <div onClick={(e) => e.stopPropagation()} className="shrink-0 ml-auto">
+            <input
+              type="checkbox"
+              className="w-4 h-4 rounded border-slate-300 dark:border-[#222F43] text-blue-600 dark:text-amber-400 focus:ring-blue-500 cursor-pointer"
+              checked={isSelected}
+              onChange={(e) => {
+                const newSelection = { ...rowSelection };
+                if (e.target.checked) {
+                  newSelection[rate.id] = true;
+                } else {
+                  delete newSelection[rate.id];
+                }
+                setRowSelection(newSelection);
+              }}
+              aria-label={`Select ${rate.universityName}`}
+            />
+          </div>
+        </div>
+
+        {/* Main Title & Details */}
+        <div className="space-y-1">
+          <h3 className="font-extrabold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-snug break-words">
+            {rate.universityName}
+          </h3>
+
+          <div className="flex items-center justify-between text-xs pt-1 flex-wrap gap-1">
+            <AggregatorRouteCell rate={rate} />
+            <span className="text-slate-400 font-mono text-[11px]">{rate.intake}</span>
+          </div>
+        </div>
+
+        {/* Bottom Row: Status Badge & Actions (Share & Star) BOTTOM-RIGHT */}
+        <div className="pt-2 border-t border-slate-100 dark:border-[#222F43] flex items-center justify-between gap-2">
+          <SchoolStatusCell rate={rate} readOnly={readOnly} />
+
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto" onClick={(e) => e.stopPropagation()}>
+            <span className="font-mono font-black text-xs text-emerald-600 dark:text-amber-400 mr-1">
+              +{formatCurrencyValue(rate.diffMargin, activeCurrency, rate.isFlatFee)}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setSharingRate(rate)}
+              title="Share Rate Card"
+              className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/60 rounded-lg transition cursor-pointer"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => handleToggleStar(rate.universityName, e)}
+              title={starred ? 'Remove Star' : 'Add Star'}
+              className="p-1.5 cursor-pointer shrink-0"
+            >
+              <Star className={`w-4 h-4 ${starred ? 'fill-amber-400 text-amber-400' : 'text-slate-400 hover:text-amber-400'}`} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
     <div id="master-intelligence-table-container" className="space-y-4">
-      {/* Ultra-Slim Search & Filter Control Bar (44px height) */}
-      <div className="bg-white dark:bg-[#0E1526] p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-[#222F43] shadow-xs flex items-center gap-2 transition-colors relative">
-        {/* Unified Search Box with Embedded Filter Trigger */}
-        <div className="relative flex-1 flex items-center">
+      {/* Control Bar */}
+      <div className="bg-white dark:bg-[#0E1526] p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-[#222F43] shadow-xs flex flex-wrap items-center justify-between gap-2.5 transition-colors relative">
+        {/* Search Input */}
+        <div className="relative flex-1 min-w-[220px] flex items-center">
           <Search className="w-4 h-4 absolute left-3 text-slate-400 pointer-events-none" />
           <input
             type="text"
             placeholder="Search universities (e.g. Aberdeen)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-20 py-2 text-xs sm:text-sm border border-slate-200 dark:border-[#222F43] rounded-xl bg-slate-50 dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dark:focus:ring-amber-400 focus:bg-white dark:focus:bg-[#18181B] transition"
+            className="w-full pl-9 pr-20 py-2 text-xs sm:text-sm border border-slate-200 dark:border-[#222F43] rounded-xl bg-slate-50 dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 dark:focus:ring-amber-400 transition"
           />
 
           <div className="absolute right-2 flex items-center gap-1">
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold cursor-pointer"
-                title="Clear search"
+                className="p-1 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
               >
                 ✕
               </button>
             )}
 
-            {/* Embedded Filter Icon Button */}
             <button
               type="button"
               onClick={() => setIsFilterPopoverOpen(!isFilterPopoverOpen)}
-              title="Toggle Detailed Filters"
-              className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center gap-1 relative ${
+              className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center gap-1 ${
                 activeFilterCount > 0 || isFilterPopoverOpen
-                  ? 'bg-blue-600 dark:bg-amber-400 text-white dark:text-slate-950 border-blue-600 dark:border-amber-400 font-bold shadow-2xs'
-                  : 'bg-white dark:bg-[#0E1526] text-slate-600 dark:text-slate-300 border-slate-300 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800'
+                  ? 'bg-blue-600 dark:bg-amber-400 text-white dark:text-slate-950 font-bold'
+                  : 'bg-white dark:bg-[#0E1526] text-slate-600 dark:text-slate-300 border-slate-300 dark:border-[#222F43]'
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -883,9 +949,9 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           </div>
         </div>
 
-        {/* Icon-Only Quick Action Buttons (Export, Print, View Switcher) */}
-        <div className="flex items-center gap-1 shrink-0 border-l border-slate-100 dark:border-[#222F43] pl-1.5 sm:pl-2">
-          {/* Desktop View Switcher Icons */}
+        {/* Grouping, Sorting, Country Selector, Watchlist & Currency Controls */}
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+          {/* View Mode Switcher */}
           <div className="hidden md:flex items-center bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43]">
             <button
               type="button"
@@ -913,204 +979,112 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             </button>
           </div>
 
-          {/* Export Excel Icon */}
+          {/* Watchlist Filter Toggle Button */}
           <button
             type="button"
-            onClick={() => exportToExcel(filteredData, 'Basechan_Master_Rates.xlsx')}
-            title="Export Filtered Rates to Excel"
-            className="p-2 rounded-xl border border-slate-200 dark:border-[#222F43] bg-white dark:bg-[#0E1526] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition cursor-pointer"
+            onClick={() => setOnlyShowStarred(!onlyShowStarred)}
+            title={onlyShowStarred ? 'Show All Schools' : 'Show Starred Watchlist Only'}
+            className={`px-2.5 py-1.5 rounded-xl border text-xs font-extrabold flex items-center gap-1 transition cursor-pointer ${
+              onlyShowStarred
+                ? 'bg-amber-400 text-slate-950 border-amber-400 shadow-2xs'
+                : 'bg-white dark:bg-[#0E1526] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
           >
-            <Download className="w-4 h-4" />
-          </button>
-
-          {/* Print Icon */}
-          <button
-            type="button"
-            onClick={() => printSchedule(filteredData, 'Basechan Master Commission Schedule')}
-            title="Print Filtered Schedule"
-            className="p-2 rounded-xl border border-slate-200 dark:border-[#222F43] bg-white dark:bg-[#0E1526] text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-          >
-            <Printer className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Detailed Filters Popover Dropdown (Opens when clicking Filter button inside Search) */}
-        {isFilterPopoverOpen && (
-          <div className="absolute top-full left-0 right-0 mt-2 bg-[#F7F4EF] dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] rounded-2xl shadow-2xl z-50 p-4 space-y-3 animate-in fade-in zoom-in-95 text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-[#222F43]">
-              <span className="font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                <SlidersHorizontal className="w-4 h-4 text-blue-600 dark:text-amber-400" />
-                <span>Detailed Search Filters</span>
-                {activeFilterCount > 0 && (
-                  <span className="bg-blue-100 dark:bg-amber-950/80 text-blue-800 dark:text-amber-300 font-bold px-2 py-0.5 rounded-full text-[10px]">
-                    {activeFilterCount} Active
-                  </span>
-                )}
+            <Star className={`w-3.5 h-3.5 ${onlyShowStarred ? 'fill-slate-950' : 'text-amber-400'}`} />
+            <span className="hidden sm:inline">Watchlist</span>
+            {watchlist.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 ml-0.5">
+                {watchlist.length}
               </span>
+            )}
+          </button>
 
-              <button
-                type="button"
-                onClick={() => setIsFilterPopoverOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Quick Presets */}
-            <div className="space-y-1.5">
-              <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Quick Presets:</span>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedGuidance(selectedGuidance === 'FOCUS' ? 'ALL' : 'FOCUS')}
-                  className={`px-2.5 py-1 rounded-lg border transition cursor-pointer flex items-center gap-1 font-semibold ${
-                    selectedGuidance === 'FOCUS'
-                      ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-2xs'
-                      : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100'
-                  }`}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Focus Schools</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedLevel(selectedLevel === 'PG' ? 'ALL' : 'PG')}
-                  className={`px-2.5 py-1 rounded-lg border transition cursor-pointer flex items-center gap-1 font-semibold ${
-                    selectedLevel === 'PG'
-                      ? 'bg-purple-600 text-white border-purple-600 font-bold shadow-2xs'
-                      : 'bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border-purple-200 dark:border-purple-800 hover:bg-purple-100'
-                  }`}
-                >
-                  <span>PG Routes</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedLevel(selectedLevel === 'UG' ? 'ALL' : 'UG')}
-                  className={`px-2.5 py-1 rounded-lg border transition cursor-pointer flex items-center gap-1 font-semibold ${
-                    selectedLevel === 'UG'
-                      ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-2xs'
-                      : 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800 hover:bg-blue-100'
-                  }`}
-                >
-                  <span>UG Routes</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Filter Dropdowns Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-1">
-              {/* Guidance Status */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Guidance Status</label>
-                <select
-                  value={selectedGuidance}
-                  onChange={(e) => setSelectedGuidance(e.target.value as SchoolGuidance | 'ALL')}
-                  className="w-full px-2.5 py-2 text-xs font-semibold border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 dark:focus:ring-amber-400"
-                >
-                  <option value="ALL">All Guidance Statuses</option>
-                  <option value="FOCUS">🟢 Focus / Preferred</option>
-                  <option value="ALLOWED">🔵 Allowed (Standard)</option>
-                  <option value="DO_NOT_USE">🔴 Do Not Use / Avoid</option>
-                </select>
-              </div>
-
-              {/* Intake */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Intake</label>
-                <select
-                  value={selectedIntake}
-                  onChange={(e) => setSelectedIntake(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 font-medium"
-                >
-                  <option value="ALL">All Intakes</option>
-                  {intakes.map((i) => (
-                    <option key={i} value={i}>
-                      {i}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Level */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Study Level</label>
-                <select
-                  value={selectedLevel}
-                  onChange={(e) => setSelectedLevel(e.target.value as StudyLevel | 'ALL')}
-                  className="w-full px-2.5 py-2 text-xs border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 font-medium"
-                >
-                  <option value="ALL">All Levels</option>
-                  <option value="UG">Undergraduate (UG)</option>
-                  <option value="PG">Postgraduate (PG)</option>
-                  <option value="FD">Foundation (FD)</option>
-                </select>
-              </div>
-
-              {/* Country */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Country</label>
-                <select
-                  value={selectedCountry}
-                  onChange={(e) => setSelectedCountry(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 font-medium"
-                >
-                  <option value="ALL">All Countries</option>
-                  {countries.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Aggregator */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Aggregator</label>
-                <select
-                  value={selectedAggregator}
-                  onChange={(e) => setSelectedAggregator(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 font-medium"
-                >
-                  <option value="ALL">All Aggregators</option>
-                  {aggregators.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Reset & Done Footer Bar */}
-            <div className="pt-2 border-t border-slate-200 dark:border-[#222F43] flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery('');
-                  setSelectedIntake('ALL');
-                  setSelectedLevel('ALL');
-                  setSelectedCountry('ALL');
-                  setSelectedAggregator('ALL');
-                  setSelectedGuidance('ALL');
-                }}
-                className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-semibold hover:underline cursor-pointer"
-              >
-                Reset All Filters
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsFilterPopoverOpen(false)}
-                className="px-4 py-1.5 bg-blue-600 dark:bg-amber-400 hover:bg-blue-700 dark:hover:bg-amber-500 text-white dark:text-slate-950 font-bold rounded-xl transition shadow-2xs cursor-pointer"
-              >
-                Apply & Close
-              </button>
-            </div>
+          {/* Group By Selector */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43] text-xs">
+            <Layers3 className="w-3.5 h-3.5 text-slate-400 ml-1 hidden sm:inline" />
+            <select
+              value={groupByMode}
+              onChange={(e) => setGroupByMode(e.target.value as GroupByMode)}
+              className="bg-transparent font-bold text-slate-700 dark:text-slate-200 text-xs focus:outline-none cursor-pointer"
+            >
+              <option value="NONE">Group: None (Flat)</option>
+              <option value="UNIVERSITY">Group: University</option>
+              <option value="COUNTRY">Group: Country</option>
+              <option value="AGGREGATOR">Group: Portal</option>
+            </select>
           </div>
-        )}
+
+          {/* DYNAMIC COUNTRY SEARCH & SELECT DROPDOWN */}
+          {groupByMode === 'COUNTRY' && (
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43] text-xs animate-in fade-in">
+              <Globe className="w-3.5 h-3.5 text-indigo-500 dark:text-amber-400 ml-1 hidden sm:inline" />
+              <select
+                value={selectedCountry}
+                onChange={(e) => setSelectedCountry(e.target.value)}
+                className="bg-transparent font-bold text-slate-700 dark:text-slate-200 text-xs focus:outline-none cursor-pointer max-w-[150px] truncate"
+              >
+                <option value="ALL">All Countries ({countries.length})</option>
+                {countries.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* DYNAMIC AGGREGATOR PORTAL SELECTOR */}
+          {groupByMode === 'AGGREGATOR' && (
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43] text-xs animate-in fade-in">
+              <Layers3 className="w-3.5 h-3.5 text-blue-500 dark:text-amber-400 ml-1 hidden sm:inline" />
+              <select
+                value={selectedAggregator}
+                onChange={(e) => setSelectedAggregator(e.target.value)}
+                className="bg-transparent font-bold text-slate-700 dark:text-slate-200 text-xs focus:outline-none cursor-pointer max-w-[150px] truncate"
+              >
+                <option value="ALL">All Portals ({aggregators.length})</option>
+                {aggregators.map((a) => (
+                  <option key={a} value={a}>
+                    Use {a}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Group Sorting Selector */}
+          {groupByMode === 'UNIVERSITY' && (
+            <div className="hidden lg:flex items-center gap-1 bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43] text-xs">
+              <select
+                value={groupSortMode}
+                onChange={(e) => setGroupSortMode(e.target.value as GroupSortMode)}
+                className="bg-transparent font-bold text-slate-700 dark:text-slate-200 text-xs focus:outline-none cursor-pointer"
+              >
+                <option value="MOST_ROUTES">Sort: Most Routes</option>
+                <option value="HIGHEST_MARGIN">Sort: Highest Yield</option>
+                <option value="ALPHABETICAL">Sort: A - Z</option>
+              </select>
+            </div>
+          )}
+
+          {/* Live Currency Switcher Toggle */}
+          <div className="flex items-center bg-slate-100 dark:bg-[#18181B] p-0.5 rounded-xl border border-slate-200 dark:border-[#222F43] text-[10px] font-extrabold">
+            {(['GBP', 'USD', 'EUR', 'NGN'] as CurrencyCode[]).map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setActiveCurrency(code)}
+                className={`px-2 py-1 rounded-lg transition cursor-pointer ${
+                  activeCurrency === code
+                    ? 'bg-white dark:bg-[#0E1526] text-blue-600 dark:text-amber-400 shadow-2xs font-black'
+                    : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                }`}
+              >
+                {code}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* TOP SELECTION & BATCH ACTIONS BAR */}
@@ -1139,14 +1113,32 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           </span>
         </div>
 
-        {/* Right: Inline Batch Action Controls (Appears when items are selected) */}
+        {/* Right: Inline Bulk Update Controls */}
         {selectedRates.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {/* Set Focus (Green) */}
+            <select
+              defaultValue=""
+              disabled={readOnly}
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBatchSetAggregator(e.target.value);
+                  e.target.value = '';
+                }
+              }}
+              className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold transition cursor-pointer"
+            >
+              <option value="" disabled>Bulk Route...</option>
+              {COMMON_AGGREGATORS.map((agg) => (
+                <option key={agg} value={agg} className="text-slate-900 bg-white">
+                  Set to {agg}
+                </option>
+              ))}
+            </select>
+
             <button
               type="button"
               onClick={() => handleBatchSetGuidance('FOCUS')}
-              disabled={batchActionLoading}
+              disabled={readOnly || batchActionLoading}
               title="Set Guidance to Focus (Preferred)"
               className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
             >
@@ -1154,11 +1146,10 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               <span className="hidden sm:inline">Set Focus</span>
             </button>
 
-            {/* Set Do Not Use */}
             <button
               type="button"
               onClick={() => handleBatchSetGuidance('DO_NOT_USE')}
-              disabled={batchActionLoading}
+              disabled={readOnly || batchActionLoading}
               title="Set Guidance to Do Not Use (Avoid)"
               className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
             >
@@ -1166,11 +1157,10 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               <span className="hidden sm:inline">Set Do Not Use</span>
             </button>
 
-            {/* Set Allowed */}
             <button
               type="button"
               onClick={() => handleBatchSetGuidance('ALLOWED')}
-              disabled={batchActionLoading}
+              disabled={readOnly || batchActionLoading}
               title="Set Guidance to Allowed"
               className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
             >
@@ -1178,7 +1168,6 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               <span className="hidden sm:inline">Set Allowed</span>
             </button>
 
-            {/* Batch Edit */}
             <button
               type="button"
               onClick={() => {
@@ -1188,26 +1177,24 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                   setIsBatchEditOpen(true);
                 }
               }}
-              disabled={batchActionLoading}
-              title="Batch Edit Selected Records"
+              disabled={readOnly || batchActionLoading}
+              title="Bulk Edit Selected Records"
               className="px-2.5 py-1.5 bg-blue-600 dark:bg-amber-400 hover:bg-blue-700 dark:hover:bg-amber-500 text-white dark:text-slate-950 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
             >
               <Pencil className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Batch Edit</span>
+              <span className="hidden sm:inline">Bulk Edit</span>
             </button>
 
-            {/* Delete Selected */}
             <button
               type="button"
               onClick={handleDeleteSelected}
-              disabled={batchActionLoading}
+              disabled={readOnly || batchActionLoading}
               title="Delete Selected Records"
               className="p-1.5 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/60 rounded-xl transition cursor-pointer"
             >
               <Trash2 className="w-4 h-4" />
             </button>
 
-            {/* Clear Selection */}
             <button
               type="button"
               onClick={() => setRowSelection({})}
@@ -1219,94 +1206,229 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           </div>
         ) : (
           <span className="text-[11px] text-slate-400 dark:text-slate-400 font-medium hidden sm:inline">
-            Check any school card to trigger batch actions
+            Check any school card to trigger bulk updates
           </span>
         )}
       </div>
 
-      {/* GRID CARDS VIEW (3 Cards per row on ALL screens including mobile) */}
+      {/* Filter Popover */}
+      {isFilterPopoverOpen && (
+        <div className="p-4 bg-slate-100 dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] rounded-2xl space-y-3 text-xs">
+          <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
+            <span>Detailed Filters</span>
+            <button onClick={() => setIsFilterPopoverOpen(false)} className="text-slate-400 hover:text-slate-200">✕</button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label>
+              <select
+                value={selectedGuidance}
+                onChange={(e) => setSelectedGuidance(e.target.value as SchoolGuidance | 'ALL')}
+                className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
+              >
+                <option value="ALL">All Guidance</option>
+                <option value="FOCUS">Focus Schools</option>
+                <option value="ALLOWED">Allowed</option>
+                <option value="DO_NOT_USE">Do Not Use</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Intake</label>
+              <select
+                value={selectedIntake}
+                onChange={(e) => setSelectedIntake(e.target.value)}
+                className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
+              >
+                <option value="ALL">All Intakes</option>
+                {intakes.map((i) => <option key={i} value={i}>{i}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Level</label>
+              <select
+                value={selectedLevel}
+                onChange={(e) => setSelectedLevel(e.target.value as StudyLevel | 'ALL')}
+                className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
+              >
+                <option value="ALL">All Levels</option>
+                <option value="UG">Undergraduate (UG)</option>
+                <option value="PG">Postgraduate (PG)</option>
+                <option value="FD">Foundation (FD)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Country</label>
+              <select
+                value={selectedCountry}
+                onChange={(e) => setSelectedCountry(e.target.value)}
+                className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
+              >
+                <option value="ALL">All Countries</option>
+                {countries.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Application Portal</label>
+              <select
+                value={selectedAggregator}
+                onChange={(e) => setSelectedAggregator(e.target.value)}
+                className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
+              >
+                <option value="ALL">All Portals</option>
+                {aggregators.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GRID CARDS VIEW (WITH PAGINATION) */}
       {(viewMode === 'grid' || window.innerWidth < 768) && (
-        <div className="space-y-3">
-          {/* Grid Cards Container - EXACTLY 3 Cards Per Row on Mobile/Tablet (`grid-cols-3`) */}
-          {table.getRowModel().rows.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 dark:text-slate-400 bg-white dark:bg-[#0E1526] rounded-xl border border-slate-200 dark:border-[#222F43] text-xs">
-              No matching schools found.
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-1.5 sm:gap-2.5">
-              {table.getRowModel().rows.map((row) => {
-                const rate = row.original;
-                const isSelected = row.getIsSelected();
-                const globalIndex = filteredData.findIndex((r) => r.id === rate.id);
+        <div className="space-y-4">
+          {/* GROUP BY UNIVERSITY */}
+          {groupByMode === 'UNIVERSITY' ? (
+            groupedUniversities.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 bg-white dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] text-xs">
+                No matching universities found.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5 sm:gap-4">
+                  {paginatedGroups.map((group) => {
+                    const starred = isStarred(watchlist, group.displayName);
+                    const isFocus = group.guidance === 'FOCUS';
+                    const isDoNotUse = group.guidance === 'DO_NOT_USE';
 
-                return (
-                  <div
-                    key={rate.id}
-                    onClick={() => setActiveDetailIndex(globalIndex !== -1 ? globalIndex : 0)}
-                    className={`p-2 sm:p-3 rounded-xl border transition-all duration-150 cursor-pointer relative flex flex-col justify-between gap-1.5 select-none ${
-                      isSelected
-                        ? 'bg-blue-50 dark:bg-amber-950/60 border-blue-500 dark:border-amber-400 shadow-sm ring-1 ring-blue-500/30'
-                        : 'bg-white dark:bg-[#0E1526] border-slate-200 dark:border-[#222F43] hover:border-slate-300 dark:hover:border-slate-600 shadow-2xs'
-                    }`}
-                  >
-                    {/* Top Row: Checkbox & Color Dot */}
-                    <div className="flex items-center justify-between gap-1">
+                    return (
                       <div
-                        onClick={(e) => e.stopPropagation()}
-                        className="shrink-0"
+                        key={group.groupKey}
+                        onClick={() => setActiveGroupRate(group)}
+                        className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 cursor-pointer relative flex flex-col justify-between gap-2.5 select-none ${
+                          isFocus
+                            ? 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800'
+                            : isDoNotUse
+                            ? 'bg-rose-50/40 dark:bg-rose-950/20 border-rose-300 dark:border-rose-900/60'
+                            : 'bg-white dark:bg-[#0E1526] border-slate-200 dark:border-[#222F43] hover:border-slate-300 dark:hover:border-slate-600 shadow-xs hover:-translate-y-0.5'
+                        }`}
                       >
-                        <input
-                          type="checkbox"
-                          className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded border-slate-300 dark:border-[#222F43] text-blue-600 dark:text-amber-400 focus:ring-blue-500 cursor-pointer"
-                          checked={isSelected}
-                          onChange={row.getToggleSelectedHandler()}
-                          aria-label={`Select ${rate.universityName}`}
-                        />
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            {group.totalRoutes} {group.totalRoutes === 1 ? 'Route' : 'Routes'}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1">
+                          <h3 className="font-extrabold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-snug break-words">
+                            {group.displayName}
+                          </h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                            {group.country}
+                          </p>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-100 dark:border-[#222F43] flex items-center justify-between">
+                          <div className="flex flex-col">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase">Top Yield:</span>
+                            <span className="font-mono font-black text-xs text-emerald-600 dark:text-amber-400">
+                              +{formatCurrencyValue(group.maxMargin, activeCurrency, group.bestRoute?.isFlatFee)}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggleStar(group.displayName, e)}
+                            title={starred ? 'Remove Star' : 'Add Star'}
+                            className="p-1.5 cursor-pointer shrink-0 ml-auto"
+                          >
+                            <Star className={`w-4 h-4 ${starred ? 'fill-amber-400 text-amber-400' : 'text-slate-400 hover:text-amber-400'}`} />
+                          </button>
+                        </div>
                       </div>
+                    );
+                  })}
+                </div>
 
-                      {rate.rowColor && rate.rowColor !== '-' && rate.rowColor !== '#FFFFFF' && (
-                        <span
-                          className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full shrink-0 border border-slate-300 shadow-2xs"
-                          style={{ backgroundColor: rate.rowColor }}
-                        />
-                      )}
-                    </div>
-
-                    {/* Main School Content (Ultra-Compact for 3-card mobile layout) */}
-                    <div className="space-y-1">
-                      <h3 className="font-extrabold text-slate-900 dark:text-slate-100 text-[10px] sm:text-xs leading-snug line-clamp-2 break-words">
-                        {rate.universityName}
-                      </h3>
-
-                      {rate.country && (
-                        <p className="text-[9px] sm:text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-0.5 truncate">
-                          <Globe className="w-2.5 h-2.5 shrink-0" />
-                          <span className="truncate">{rate.country}</span>
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Bottom Row: Status Badge & Details Indicator */}
-                    <div className="pt-1 border-t border-slate-100 dark:border-[#222F43] flex flex-col gap-1">
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <SchoolStatusCell rate={rate} />
-                      </div>
-
-                      <span className="text-[9px] text-slate-400 dark:text-slate-400 font-medium text-right block">
-                        Details →
-                      </span>
-                    </div>
+                {/* Card Pagination Bar */}
+                <div className="px-5 py-3.5 bg-white dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] flex flex-wrap items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
+                  <div>
+                    Showing <strong className="text-slate-800 dark:text-slate-200">{(cardPage - 1) * CARDS_PER_PAGE + 1}</strong> -{' '}
+                    <strong className="text-slate-800 dark:text-slate-200">{Math.min(cardPage * CARDS_PER_PAGE, groupedUniversities.length)}</strong> of{' '}
+                    <strong className="text-slate-800 dark:text-slate-200">{groupedUniversities.length}</strong> university groups
                   </div>
-                );
-              })}
-            </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCardPage((p) => Math.max(p - 1, 1))}
+                      disabled={cardPage === 1}
+                      className="p-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span>
+                      Page <strong className="text-slate-700 dark:text-slate-300">{cardPage}</strong> of{' '}
+                      <strong className="text-slate-700 dark:text-slate-300">{totalGroupPages}</strong>
+                    </span>
+                    <button
+                      onClick={() => setCardPage((p) => Math.min(p + 1, totalGroupPages))}
+                      disabled={cardPage === totalGroupPages}
+                      className="p-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )
+          ) : (
+            /* FLAT LIST GRID VIEW WITH PAGINATION */
+            table.getRowModel().rows.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 bg-white dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] text-xs">
+                No matching schools found.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5 sm:gap-4">
+                  {paginatedFlatData.map((rate) => renderRateCard(rate))}
+                </div>
+
+                {/* Flat Card Pagination Bar */}
+                <div className="px-5 py-3.5 bg-white dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] flex flex-wrap items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
+                  <div>
+                    Showing <strong className="text-slate-800 dark:text-slate-200">{(cardPage - 1) * CARDS_PER_PAGE + 1}</strong> -{' '}
+                    <strong className="text-slate-800 dark:text-slate-200">{Math.min(cardPage * CARDS_PER_PAGE, filteredData.length)}</strong> of{' '}
+                    <strong className="text-slate-800 dark:text-slate-200">{filteredData.length}</strong> routes
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCardPage((p) => Math.max(p - 1, 1))}
+                      disabled={cardPage === 1}
+                      className="p-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span>
+                      Page <strong className="text-slate-700 dark:text-slate-300">{cardPage}</strong> of{' '}
+                      <strong className="text-slate-700 dark:text-slate-300">{totalFlatPages}</strong>
+                    </span>
+                    <button
+                      onClick={() => setCardPage((p) => Math.min(p + 1, totalFlatPages))}
+                      disabled={cardPage === totalFlatPages}
+                      className="p-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )
           )}
         </div>
       )}
 
-      {/* DESKTOP/TABLET TABLE VIEW (Visible when viewMode === 'table' on desktop/tablet) */}
+      {/* DESKTOP TABLE VIEW */}
       {viewMode === 'table' && (
-        <div className="hidden md:block bg-white dark:bg-[#0E1526] rounded-xl border border-slate-200 dark:border-[#222F43] shadow-xs overflow-hidden transition-colors">
+        <div className="hidden md:block bg-white dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-sm">
               <thead className="bg-[#F7F4EF] dark:bg-[#18181B] border-b border-slate-200 dark:border-[#222F43] text-xs text-slate-600 dark:text-slate-300 uppercase tracking-wider">
@@ -1314,106 +1436,43 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                   <tr key={headerGroup.id}>
                     {headerGroup.headers.map((header) => (
                       <th key={header.id} className="px-4 py-3.5">
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
+                        {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                       </th>
                     ))}
                   </tr>
                 ))}
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-[#222F43]">
-                {loading ? (
-                  <tr>
-                    <td colSpan={columns.length} className="px-5 py-12 text-center text-slate-500 dark:text-slate-400">
-                      <div className="flex flex-col items-center justify-center gap-2">
-                        <div className="w-6 h-6 border-2 border-blue-600 dark:border-amber-400 border-t-transparent rounded-full animate-spin" />
-                        <span className="text-xs">Loading commission data from Firestore...</span>
-                      </div>
-                    </td>
+                {table.getRowModel().rows.map((row) => (
+                  <tr key={row.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50">
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-4 py-3.5">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
                   </tr>
-                ) : table.getRowModel().rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={columns.length} className="px-5 py-12 text-center text-slate-500 dark:text-slate-400">
-                      <p className="font-medium text-slate-600 dark:text-slate-300">No matching commission rates</p>
-                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                        Try clearing filters or search query.
-                      </p>
-                    </td>
-                  </tr>
-                ) : (
-                  table.getRowModel().rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition duration-100 ${
-                        row.getIsSelected() ? 'bg-blue-50/40 dark:bg-amber-950/40' : ''
-                      }`}
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className="px-4 py-3.5">
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* Pagination & Status Footer */}
-      <div className="px-5 py-3.5 bg-white dark:bg-[#0E1526] rounded-xl border border-slate-200 dark:border-[#222F43] flex flex-wrap items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
-        <div>
-          Showing{' '}
-          <span className="font-semibold text-slate-800 dark:text-slate-200">
-            {filteredData.length}
-          </span>{' '}
-          out of{' '}
-          <span className="font-semibold text-slate-800 dark:text-slate-200">{data.length}</span>{' '}
-          {searchQuery || selectedIntake !== 'ALL' || selectedLevel !== 'ALL' || selectedCountry !== 'ALL' || selectedAggregator !== 'ALL' || selectedGuidance !== 'ALL'
-            ? `(filtered from ${data.length} total rows)`
-            : 'total rows'}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-            className="p-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span>
-            Page{' '}
-            <span className="font-semibold text-slate-700 dark:text-slate-300">
-              {table.getState().pagination.pageIndex + 1}
-            </span>{' '}
-            of{' '}
-            <span className="font-semibold text-slate-700 dark:text-slate-300">
-              {table.getPageCount() || 1}
-            </span>
-          </span>
-          <button
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-            className="p-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Full Rate Details Pop-Up Modal - Fixed & Non-Scrolling using React Portal */}
-      <RateDetailModal
-        rate={activeDetailRate}
-        currentIndex={activeDetailIndex}
-        totalCount={filteredData.length}
-        onClose={() => setActiveDetailIndex(null)}
-        onPrev={handlePrevDetail}
-        onNext={handleNextDetail}
+      {/* Grouped University Routes Pop-Up Modal */}
+      <GroupRoutesModal
+        group={activeGroupRate}
+        currency={activeCurrency}
+        onClose={() => setActiveGroupRate(null)}
         onEdit={onEditRate}
+        onShare={setSharingRate}
+      />
+
+      {/* Share Rate Card & PDF Quote Modal */}
+      <ShareRateCardModal
+        rate={sharingRate}
+        currency={activeCurrency}
+        isOpen={!!sharingRate}
+        onClose={() => setSharingRate(null)}
       />
 
       {/* Batch Edit Modal */}
@@ -1421,7 +1480,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         isOpen={isBatchEditOpen}
         onClose={() => setIsBatchEditOpen(false)}
         selectedRates={selectedRates}
-        onBatchUpdated={handleBatchUpdated}
+        onBatchUpdated={() => setRowSelection({})}
       />
     </div>
   );

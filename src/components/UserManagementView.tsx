@@ -3,7 +3,18 @@ import { createPortal } from 'react-dom';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import type { UserRecord, UserRole } from '../types';
+import type { AgentAccessRequest, Organization, UserRecord, UserRole } from '../types';
+import { resolveUserAccess } from '../services/accessPolicy';
+import {
+  createOrganization,
+  setAgentAccessStatus,
+  setAgentOrganization,
+  subscribeToAgentAccessRequests,
+  subscribeToOrganizations,
+} from '../services/accessRequestService';
+import { applyRatesToAgentTargets, clearAgentRateOverrides, ensureRoleRateModelMigration, resolveAgentTargets } from '../services/rateReadModels';
+import { discardUnstartedRateOperation, resumeRateOperation, subscribeToPendingRateOperations, type PendingRateOperation } from '../services/adminRateWriteService';
+import { useCommissionRates } from '../hooks/useCommissionRates';
 import {
   Users,
   Wifi,
@@ -32,7 +43,6 @@ const UserDetailModal: React.FC<{
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
-  onRoleChange: (uid: string, email: string, newRole: UserRole) => void;
   onToggleDisabled: (user: UserRecord) => void;
   onDeleteRequest: (user: UserRecord) => void;
   updatingUid: string | null;
@@ -44,7 +54,6 @@ const UserDetailModal: React.FC<{
   onClose,
   onPrev,
   onNext,
-  onRoleChange,
   onToggleDisabled,
   onDeleteRequest,
   updatingUid,
@@ -162,21 +171,6 @@ const UserDetailModal: React.FC<{
             )}
           </div>
 
-          {/* Role Control Selector */}
-          <div className="p-2 bg-slate-50 dark:bg-[#18181B]/60 rounded-xl border border-slate-200 dark:border-[#222F43] space-y-1">
-            <label className="block text-[10px] font-bold uppercase text-slate-400">Assigned System Role:</label>
-            <select
-              value={user.role}
-              disabled={updatingUid === user.uid || isSelf}
-              onChange={(e) => onRoleChange(user.uid, user.email, e.target.value as UserRole)}
-              className="w-full px-3 py-1.5 border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-bold text-xs focus:ring-2 focus:ring-blue-500 dark:focus:ring-amber-400 disabled:opacity-50 cursor-pointer"
-            >
-              <option value="ADMIN">ADMIN (Full Control)</option>
-              <option value="STAFF">STAFF (Internal Directory)</option>
-              <option value="AGENT">AGENT (External Partner)</option>
-            </select>
-          </div>
-
           {/* Key Timestamps Grid */}
           <div className="grid grid-cols-2 gap-2">
             <div className="p-2 bg-slate-50 dark:bg-[#18181B]/60 rounded-xl border border-slate-200 dark:border-[#222F43]">
@@ -263,9 +257,12 @@ const UserDetailModal: React.FC<{
 };
 
 export const UserManagementView: React.FC = () => {
-  const { updateUserRole, setUserDisabledStatus, deleteUserRecord, user: currentUser } = useAuth();
+  const { setUserDisabledStatus, deleteUserRecord, user: currentUser } = useAuth();
+  const { rates: masterRates, loading: masterRatesLoading } = useCommissionRates();
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [usersLoadAttempt, setUsersLoadAttempt] = useState(0);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'ALL'>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ONLINE' | 'OFFLINE' | 'DISABLED'>('ALL');
@@ -276,6 +273,22 @@ export const UserManagementView: React.FC = () => {
   // Action Loading states
   const [updatingUid, setUpdatingUid] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [accessRequests, setAccessRequests] = useState<AgentAccessRequest[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [newOrganizationName, setNewOrganizationName] = useState('');
+  const [selectedOrganizations, setSelectedOrganizations] = useState<Record<string, string>>({});
+  const [rateScope, setRateScope] = useState<'organization' | 'agents' | 'all'>('organization');
+  const [selectedRateId, setSelectedRateId] = useState('');
+  const [selectedRateIds, setSelectedRateIds] = useState<string[]>([]);
+  const [customPayoutAmount, setCustomPayoutAmount] = useState('');
+  const [customPayoutType, setCustomPayoutType] = useState<'percentage' | 'flat'>('percentage');
+  const [customPayoutBasis, setCustomPayoutBasis] = useState<'NET' | 'GROSS'>('GROSS');
+  const [selectedOrganizationIds, setSelectedOrganizationIds] = useState<string[]>([]);
+  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
+  const [replaceSpecificOverrides, setReplaceSpecificOverrides] = useState(false);
+  const [pendingRateOperations, setPendingRateOperations] = useState<PendingRateOperation[]>([]);
+  const [resumingOperationId, setResumingOperationId] = useState<string | null>(null);
+  const [rebuildingReadModels, setRebuildingReadModels] = useState(false);
 
   // Delete Modal State
   const [deletingUser, setDeletingUser] = useState<UserRecord | null>(null);
@@ -287,41 +300,180 @@ export const UserManagementView: React.FC = () => {
   // Subscribe to real-time users collection
   useEffect(() => {
     setLoading(true);
+    setUsersError(null);
     const q = query(collection(db, 'users'), orderBy('lastLoginAt', 'desc'));
+    const loadingTimer = window.setTimeout(() => {
+      setUsersError('The user list is taking longer than expected to connect. Check your connection or retry.');
+      setLoading(false);
+    }, 12000);
 
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
+        window.clearTimeout(loadingTimer);
         const records: UserRecord[] = [];
         snapshot.forEach((docSnap) => {
           records.push(docSnap.data() as UserRecord);
         });
-        setUsers(records);
+        setUsers(records.map((record) => ({ ...record, role: resolveUserAccess({ email: record.email }).role })));
+        setUsersError(null);
         setLoading(false);
       },
       (err) => {
+        window.clearTimeout(loadingTimer);
         console.error('Error listening to users collection:', err);
+        setUsersError(`Could not load user accounts: ${err.message}`);
         setLoading(false);
       }
     );
 
-    return () => unsubscribe();
+    return () => { window.clearTimeout(loadingTimer); unsubscribe(); };
+  }, [usersLoadAttempt]);
+
+  useEffect(() => {
+    const stopRequests = subscribeToAgentAccessRequests(setAccessRequests, (err) => setNotice(err.message));
+    const stopOrganizations = subscribeToOrganizations(setOrganizations, (err) => setNotice(err.message));
+    return () => { stopRequests(); stopOrganizations(); };
   }, []);
+
+  useEffect(() => {
+    return subscribeToPendingRateOperations(setPendingRateOperations, (err) => {
+      setNotice(`Could not load pending rate operations: ${err.message}`);
+    });
+  }, []);
+
 
   // Reset page when filters change
   useEffect(() => {
     setPage(1);
   }, [searchQuery, roleFilter, statusFilter]);
 
-  // Role modification handler
-  const handleRoleChange = async (targetUid: string, targetEmail: string, newRole: UserRole) => {
+  const handleAccessDecision = async (request: AgentAccessRequest, status: 'approved' | 'rejected' | 'revoked') => {
     try {
-      setUpdatingUid(targetUid);
-      await updateUserRole(targetUid, newRole);
-      setNotice(`Updated role for ${targetEmail} to ${newRole}`);
+      setUpdatingUid(request.uid);
+      let organizationId = selectedOrganizations[request.uid] || request.organizationId;
+      if (status === 'approved' && !organizationId && request.requestedOrganizationName) {
+        const created = await createOrganization({ name: request.requestedOrganizationName, adminUid: currentUser?.uid || '' });
+        organizationId = created.id;
+      }
+      await setAgentAccessStatus({
+        uid: request.uid,
+        status,
+        adminUid: currentUser?.uid || '',
+        ...(status === 'approved' ? { organizationId } : {}),
+      });
+      setNotice(`Agent access ${status} for ${request.email}.`);
       setTimeout(() => setNotice(null), 4000);
     } catch (err) {
-      console.error('Failed to change user role:', err);
+      setNotice(err instanceof Error ? err.message : 'Could not update Agent access.');
+    } finally {
+      setUpdatingUid(null);
+    }
+  };
+
+  const handleOrganizationChange = async (request: AgentAccessRequest, organizationId: string) => {
+    try {
+      setUpdatingUid(request.uid);
+      await setAgentOrganization(request.uid, organizationId, currentUser?.uid || '');
+      setNotice(`Organization updated for ${request.email}.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not update Agent organization.');
+    } finally {
+      setUpdatingUid(null);
+    }
+  };
+
+  const handleCreateOrganization = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      await createOrganization({ name: newOrganizationName, adminUid: currentUser?.uid || '' });
+      setNotice(`Organization added: ${newOrganizationName.trim()}`);
+      setNewOrganizationName('');
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not create organization.');
+    }
+  };
+
+  const handleResumeRateOperation = async (operation: PendingRateOperation) => {
+    try {
+      setResumingOperationId(operation.operationId);
+      const result = await resumeRateOperation(operation.operationId, currentUser?.email || 'Admin');
+      setNotice(`Rate operation ${result.operationId} completed for ${result.completed} rate records.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : `Could not resume rate operation ${operation.operationId}.`);
+    } finally {
+      setResumingOperationId(null);
+    }
+  };
+
+  const handleDiscardRateOperation = async (operation: PendingRateOperation) => {
+    try {
+      setResumingOperationId(operation.operationId);
+      await discardUnstartedRateOperation(operation.operationId);
+      setNotice('The interrupted operation was discarded before it changed canonical rates. Re-run the Admin change if it is still needed.');
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not discard the incomplete operation.');
+    } finally {
+      setResumingOperationId(null);
+    }
+  };
+
+  const handleRebuildRateReadModels = async () => {
+    if (!masterRates.length) return setNotice('No canonical rates are loaded. Confirm the Admin rate table is available, then retry.');
+    try {
+      setRebuildingReadModels(true);
+      const result = await ensureRoleRateModelMigration(masterRates, currentUser?.email || 'Admin', true);
+      setNotice(`Secure Staff and Agent rate views were rebuilt from ${masterRates.length} canonical rates. Removed ${result.prunedOrganizationDefaults} legacy organization copies of default rates.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not rebuild the secure rate views. Retry from this page.');
+    } finally {
+      setRebuildingReadModels(false);
+    }
+  };
+
+  const handleRateAssignment = async () => {
+    const selectedRates = masterRates.filter((item) => selectedRateIds.length ? selectedRateIds.includes(item.id) : item.id === selectedRateId).map((rate) => customPayoutAmount.trim()
+      ? { ...rate, agentRate: Number(customPayoutAmount), isFlatFee: customPayoutType === 'flat', netOrGross: customPayoutBasis }
+      : rate);
+    if (!selectedRates.length) return setNotice('Select at least one rate first.');
+    if (customPayoutAmount.trim() && (!Number.isFinite(Number(customPayoutAmount)) || Number(customPayoutAmount) < 0)) return setNotice('Enter a valid payout amount of zero or more.');
+    try {
+      setUpdatingUid('rate-assignment');
+      const agentTargets = await resolveAgentTargets();
+      const organizationIds = rateScope === 'organization' ? selectedOrganizationIds : rateScope === 'all' ? organizations.map((organization) => organization.id) : [];
+      const targets = rateScope === 'agents'
+        ? agentTargets.filter((item) => selectedAgentIds.includes(item.uid))
+        : [];
+      if (rateScope === 'organization' && !selectedOrganizationIds.length) throw new Error('Select at least one organization.');
+      if (rateScope === 'agents' && !selectedAgentIds.length) throw new Error('Select at least one Agent.');
+      if ((rateScope === 'all' && !organizationIds.length) || (rateScope === 'agents' && !targets.length)) throw new Error('There are no approved Agents or organizations in the selected scope.');
+      const assignmentTargets = rateScope === 'agents' ? targets : agentTargets.filter((item) => organizationIds.includes(item.organizationId));
+      await applyRatesToAgentTargets(selectedRates, assignmentTargets, {
+        applyOrganization: rateScope !== 'agents',
+        applyIndividual: rateScope === 'agents',
+        replaceOverrides: replaceSpecificOverrides,
+        notify: true,
+        organizationIds,
+      });
+      setNotice(`Rate assignment applied to ${rateScope === 'organization' || rateScope === 'all' ? organizationIds.length + ' organizations' : assignmentTargets.length + ' Agent accounts'}.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Rate assignment failed.');
+    } finally {
+      setUpdatingUid(null);
+    }
+  };
+
+  const handleClearAgentOverrides = async () => {
+    if (rateScope !== 'agents') return setNotice('Choose Selected Agents before clearing individual overrides.');
+    const selectedRates = masterRates.filter((item) => selectedRateIds.length ? selectedRateIds.includes(item.id) : item.id === selectedRateId);
+    if (!selectedRates.length || !selectedAgentIds.length) return setNotice('Select at least one Agent and one rate.');
+    try {
+      setUpdatingUid('rate-assignment');
+      const targets = (await resolveAgentTargets()).filter((item) => selectedAgentIds.includes(item.uid));
+      const cleared = await clearAgentRateOverrides(targets, selectedRates, currentUser?.email || 'Admin');
+      setNotice(cleared ? `Cleared ${cleared} individual overrides. Each selected rate now falls back to its organization rate or shared default.` : 'No individual overrides were found for the selected Agents and rates.');
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not clear the selected individual overrides.');
     } finally {
       setUpdatingUid(null);
     }
@@ -364,14 +516,15 @@ export const UserManagementView: React.FC = () => {
 
   // Metrics
   const onlineCount = useMemo(() => users.filter((u) => u.isOnline && !u.isDisabled).length, [users]);
-  const adminCount = useMemo(() => users.filter((u) => u.role === 'ADMIN').length, [users]);
-  const staffCount = useMemo(() => users.filter((u) => u.role === 'STAFF').length, [users]);
-  const agentCount = useMemo(() => users.filter((u) => u.role === 'AGENT').length, [users]);
+  const usersWithRoles = useMemo(() => users.map((u) => ({ ...u, role: resolveUserAccess({ email: u.email }).role })), [users]);
+  const adminCount = useMemo(() => usersWithRoles.filter((u) => u.role === 'ADMIN').length, [usersWithRoles]);
+  const staffCount = useMemo(() => usersWithRoles.filter((u) => u.role === 'STAFF').length, [usersWithRoles]);
+  const agentCount = useMemo(() => usersWithRoles.filter((u) => u.role === 'AGENT').length, [usersWithRoles]);
   const disabledCount = useMemo(() => users.filter((u) => u.isDisabled).length, [users]);
 
   // Filtering
   const filteredUsers = useMemo(() => {
-    return users.filter((u) => {
+    return usersWithRoles.filter((u) => {
       if (searchQuery) {
         const q = searchQuery.toLowerCase().trim();
         const corpus = `${u.displayName} ${u.email} ${u.role}`.toLowerCase();
@@ -388,7 +541,7 @@ export const UserManagementView: React.FC = () => {
 
       return true;
     });
-  }, [users, searchQuery, roleFilter, statusFilter]);
+  }, [usersWithRoles, searchQuery, roleFilter, statusFilter]);
 
   // Detail Pop-up Navigation Helpers
   const activeUser = activeUserIndex !== null && filteredUsers[activeUserIndex]
@@ -425,6 +578,8 @@ export const UserManagementView: React.FC = () => {
         </div>
       )}
 
+      {usersError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><span>{usersError}</span><button onClick={() => setUsersLoadAttempt((attempt) => attempt + 1)} className="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-bold hover:bg-rose-100 dark:border-rose-800 dark:hover:bg-rose-900/40">Retry</button></div>}
+
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -436,7 +591,73 @@ export const UserManagementView: React.FC = () => {
             View all users, check who is currently online, assign roles, and manage account access.
           </p>
         </div>
+        <button disabled={masterRatesLoading || rebuildingReadModels || masterRates.length === 0} onClick={() => void handleRebuildRateReadModels()} className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-bold text-indigo-800 disabled:opacity-50 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">{rebuildingReadModels ? 'Rebuilding secure rate views…' : 'Rebuild secure rate views'}</button>
       </div>
+
+      {pendingRateOperations.length > 0 && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+        <h2 className="text-sm font-extrabold text-amber-950 dark:text-amber-100">Rate updates needing attention</h2>
+        <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-200/80">Resume operations that reached rate writes. An operation still preparing has not changed canonical rates and can be discarded if its saved details are incomplete.</p>
+        <div className="mt-3 space-y-2">{pendingRateOperations.map((operation) => <div key={operation.operationId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-900 dark:bg-[#0E1526]">
+          <div><p className="text-xs font-bold">{operation.count} rate records · {operation.stage}</p><p className="mt-1 font-mono text-[10px] text-slate-500">{operation.operationId}</p><p className="text-[10px] text-slate-500">Started by {operation.adminEmail || 'Admin'} · {operation.updatedAt ? new Date(operation.updatedAt).toLocaleString() : 'time unavailable'}</p></div>
+          <div className="flex gap-2">{operation.stage === 'preparing' && <button disabled={resumingOperationId !== null} onClick={() => void handleDiscardRateOperation(operation)} className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-bold text-amber-900 disabled:opacity-50">Discard before writes</button>}<button disabled={resumingOperationId !== null} onClick={() => void handleResumeRateOperation(operation)} className="inline-flex items-center gap-2 rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><RefreshCcw className={`h-3.5 w-3.5 ${resumingOperationId === operation.operationId ? 'animate-spin' : ''}`} />{resumingOperationId === operation.operationId ? 'Resuming…' : 'Resume operation'}</button></div>
+        </div>)}</div>
+      </section>}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-[#222F43] dark:bg-[#0E1526]">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">Organization access requests</h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Approve Agents into an organization to grant access to their rate view.</p>
+          </div>
+          <form onSubmit={handleCreateOrganization} className="flex flex-wrap gap-2">
+            <input aria-label="New organization name" required minLength={2} maxLength={100} value={newOrganizationName} onChange={(event) => setNewOrganizationName(event.target.value)} placeholder="New organization name" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs dark:border-[#222F43] dark:bg-[#18181B]" />
+            <button className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700">Add organization</button>
+          </form>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {organizations.map((organization) => <span key={organization.id} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">{organization.name}</span>)}
+          {organizations.length === 0 && <span className="text-xs text-slate-400">No organizations created yet.</span>}
+        </div>
+        <div className="mt-4 space-y-2">
+          {accessRequests.map((request) => {
+            const agentRole = resolveUserAccess({ email: request.email }).role === 'AGENT';
+            const selectedOrg = selectedOrganizations[request.uid] || request.organizationId || '';
+            return <div key={request.uid} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-[#222F43]">
+              <div className="min-w-[200px]">
+                <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{request.displayName} <span className="font-normal text-slate-500">· {request.email}</span></p>
+                <p className="mt-0.5 text-xs text-slate-500">{request.requestedOrganizationName ? `Requested: ${request.requestedOrganizationName}` : `Organization: ${organizations.find((org) => org.id === request.organizationId)?.name || request.organizationId || 'Not selected'}`} · <span className="font-semibold uppercase">{request.status}</span></p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <select aria-label={`Organization for ${request.email}`} value={selectedOrg} onChange={(event) => setSelectedOrganizations((current) => ({ ...current, [request.uid]: event.target.value }))} className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs dark:border-[#222F43] dark:bg-[#18181B]">
+                  <option value="">Choose organization</option>
+                  {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+                </select>
+                {request.status === 'approved' && selectedOrg !== request.organizationId && selectedOrg && <button disabled={updatingUid === request.uid} onClick={() => void handleOrganizationChange(request, selectedOrg)} className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">Move Agent</button>}
+                {request.status === 'pending' ? <>
+                  <button disabled={(!selectedOrg && !request.requestedOrganizationName) || !agentRole || updatingUid === request.uid} onClick={() => void handleAccessDecision(request, 'approved')} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">Approve</button>
+                  <button disabled={updatingUid === request.uid} onClick={() => void handleAccessDecision(request, 'rejected')} className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">Reject</button>
+                </> : request.status === 'approved' ? <button disabled={updatingUid === request.uid} onClick={() => void handleAccessDecision(request, 'revoked')} className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">Revoke access</button> : <button disabled={(!selectedOrg && !request.requestedOrganizationName) || updatingUid === request.uid} onClick={() => void handleAccessDecision(request, 'approved')} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">Approve access</button>}
+              </div>
+            </div>;
+          })}
+          {accessRequests.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-center text-xs text-slate-500 dark:bg-[#18181B]">No Agent access requests yet.</p>}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-[#222F43] dark:bg-[#0E1526]">
+        <h2 className="text-base font-extrabold">Agent rate assignments</h2>
+        <p className="mt-1 text-xs text-slate-500">Assign selected rates to one or more organizations, selected Agents, or every approved Agent.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="space-y-1 text-xs font-semibold"><span>Rate</span><select aria-label="Rate to assign" value={selectedRateId} onChange={(event) => { setSelectedRateId(event.target.value); setSelectedRateIds(event.target.value ? [event.target.value] : []); }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-[#222F43] dark:bg-[#18181B]"><option value="">Select a school rate</option>{masterRates.map((rate) => <option key={rate.id} value={rate.id}>{rate.universityName} · {rate.intake} · {rate.studyLevel}</option>)}</select></label>
+          <label className="space-y-1 text-xs font-semibold"><span>Apply to</span><select value={rateScope} onChange={(event) => setRateScope(event.target.value as typeof rateScope)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-[#222F43] dark:bg-[#18181B]"><option value="organization">Selected organizations</option><option value="agents">Selected Agents</option><option value="all">All approved Agents</option></select></label>
+        </div>
+        <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-[#222F43]"><p className="text-xs font-bold">Optional custom payout</p><p className="mt-1 text-[11px] text-slate-500">Leave blank to use each selected school rate’s current payout. An entered amount applies to every selected rate.</p><div className="mt-2 grid gap-2 sm:grid-cols-3"><label className="text-xs font-semibold">Amount<input aria-label="Custom payout amount" inputMode="decimal" type="number" min="0" step="0.01" value={customPayoutAmount} onChange={(event) => setCustomPayoutAmount(event.target.value)} placeholder="Use selected rate" className="mt-1 w-full rounded-lg border bg-white px-3 py-2 dark:bg-[#18181B]" /></label><label className="text-xs font-semibold">Fee type<select aria-label="Custom payout fee type" value={customPayoutType} onChange={(event) => setCustomPayoutType(event.target.value as typeof customPayoutType)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 dark:bg-[#18181B]"><option value="percentage">Percentage</option><option value="flat">Flat fee</option></select></label><label className="text-xs font-semibold">Basis<select aria-label="Custom payout basis" value={customPayoutBasis} onChange={(event) => setCustomPayoutBasis(event.target.value as typeof customPayoutBasis)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 dark:bg-[#18181B]"><option value="GROSS">Gross</option><option value="NET">Net</option></select></label></div></div>
+        <details className="mt-3 rounded-xl border border-slate-200 p-3 text-xs dark:border-[#222F43]"><summary className="cursor-pointer font-bold">Select multiple school rates ({selectedRateIds.length})</summary><div className="mt-3 max-h-48 space-y-1 overflow-y-auto">{masterRates.map((rate) => <label key={rate.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800"><input type="checkbox" checked={selectedRateIds.includes(rate.id)} onChange={(event) => setSelectedRateIds((current) => event.target.checked ? [...current, rate.id] : current.filter((id) => id !== rate.id))} />{rate.universityName} · {rate.intake} · {rate.studyLevel}</label>)}</div></details>
+        {rateScope === 'organization' && <div className="mt-3 flex flex-wrap gap-2">{organizations.map((org) => <label key={org.id} className="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs dark:bg-slate-900"><input type="checkbox" checked={selectedOrganizationIds.includes(org.id)} onChange={(event) => setSelectedOrganizationIds((current) => event.target.checked ? [...current, org.id] : current.filter((id) => id !== org.id))} />{org.name}</label>)}</div>}
+        {rateScope === 'agents' && <div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto">{accessRequests.filter((item) => item.status === 'approved').map((agent) => <label key={agent.uid} className="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs dark:bg-slate-900"><input type="checkbox" checked={selectedAgentIds.includes(agent.uid)} onChange={(event) => setSelectedAgentIds((current) => event.target.checked ? [...current, agent.uid] : current.filter((id) => id !== agent.uid))} />{agent.displayName} · {agent.email}</label>)}</div>}
+        {rateScope !== 'agents' && <label className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs dark:bg-amber-950/20"><input type="checkbox" checked={replaceSpecificOverrides} onChange={(event) => setReplaceSpecificOverrides(event.target.checked)} /><span><strong>Replace matching Agent-specific overrides.</strong> Leave unchecked to preserve those individual rates. Cleared Agents will inherit the new organization rate.</span></label>}
+        <div className="mt-3 flex flex-wrap gap-2"><button onClick={() => void handleRateAssignment()} disabled={(!selectedRateId && selectedRateIds.length === 0) || updatingUid === 'rate-assignment'} className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{updatingUid === 'rate-assignment' ? 'Applying…' : 'Apply rate assignment'}</button>{rateScope === 'agents' && <button onClick={() => void handleClearAgentOverrides()} disabled={(!selectedRateId && selectedRateIds.length === 0) || selectedAgentIds.length === 0 || updatingUid === 'rate-assignment'} className="rounded-lg border border-amber-300 px-4 py-2 text-xs font-bold text-amber-900 disabled:opacity-40 dark:text-amber-200">Clear selected Agents’ individual override</button>}</div>
+      </section>
 
       {/* CLICKABLE METRIC CARDS ROW - Click card to filter table/grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
@@ -827,26 +1048,12 @@ export const UserManagementView: React.FC = () => {
                       </div>
                     </td>
 
-                    {/* Actions & Role Control */}
+                    {/* Account controls */}
                     <td className="px-5 py-3.5 text-right">
                       <div className="inline-flex items-center gap-2 justify-end">
                         {updatingUid === u.uid && (
                           <RefreshCcw className="w-4 h-4 animate-spin text-blue-600 dark:text-amber-400" />
                         )}
-
-                        {/* Role Selector */}
-                        <select
-                          value={u.role}
-                          disabled={updatingUid === u.uid || currentUser?.uid === u.uid}
-                          onChange={(e) =>
-                            handleRoleChange(u.uid, u.email, e.target.value as UserRole)
-                          }
-                          className="px-2.5 py-1 text-xs border border-slate-300 dark:border-[#222F43] rounded-lg bg-white dark:bg-[#18181B] font-medium text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 disabled:opacity-50 cursor-pointer"
-                        >
-                          <option value="ADMIN">ADMIN</option>
-                          <option value="STAFF">STAFF</option>
-                          <option value="AGENT">AGENT</option>
-                        </select>
 
                         {/* Revoke / Enable Toggle */}
                         {currentUser?.uid !== u.uid && (
@@ -924,7 +1131,6 @@ export const UserManagementView: React.FC = () => {
         onClose={() => setActiveUserIndex(null)}
         onPrev={handlePrevUser}
         onNext={handleNextUser}
-        onRoleChange={handleRoleChange}
         onToggleDisabled={handleToggleDisabled}
         onDeleteRequest={setDeletingUser}
         updatingUid={updatingUid}

@@ -1,6 +1,9 @@
-import { writeBatch, doc } from 'firebase/firestore';
+import { writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { CommissionRate } from '../types';
+import { deleteRates, writeRateOperation } from '../services/adminRateWriteService';
+import { publishRelevantUpdates } from '../services/userUpdates';
+import { assertFirestoreWritesAllowed } from '../services/firestoreWriteGuard';
 
 export interface BatchUploadProgress {
   total: number;
@@ -12,65 +15,40 @@ export interface BatchUploadProgress {
 }
 
 /**
- * Sanitizes an object by removing any properties with value `undefined`.
- * Firestore throws an error if any field is explicitly `undefined`.
- */
-function sanitizeForFirestore<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
-  const clean: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(obj)) {
-    if (val !== undefined) {
-      clean[key] = val;
-    }
-  }
-  return clean;
-}
-
-/**
  * Uploads an array of CommissionRate documents to Firestore in safe chunks.
  * Uses BATCH_SIZE = 200 because each rate creates 2 writes (rates + universities = 400 operations),
  * strictly below Firestore's 500 operation batch limit.
  */
 export async function uploadRatesInBatches(
   rates: CommissionRate[],
-  onProgress?: (progress: BatchUploadProgress) => void
+  onProgress?: (progress: BatchUploadProgress) => void,
+  adminEmail = 'Admin'
 ): Promise<{ success: boolean; uploadedCount: number; errors: string[] }> {
-  const BATCH_SIZE = 200;
+  assertFirestoreWritesAllowed('Rate import');
+  const BATCH_SIZE = 150;
   const total = rates.length;
   const totalBatches = Math.ceil(total / BATCH_SIZE);
   const errors: string[] = [];
   let completed = 0;
   let failedCount = 0;
+  const successfullyUploaded: CommissionRate[] = [];
+  const importOperationId = `import-${crypto.randomUUID()}`;
 
   for (let b = 0; b < totalBatches; b++) {
     const start = b * BATCH_SIZE;
     const end = Math.min(start + BATCH_SIZE, total);
     const chunk = rates.slice(start, end);
 
-    const batch = writeBatch(db);
-
-    for (const rate of chunk) {
-      // 1. Rates collection write (sanitized to remove any `undefined` values)
-      const rateRef = doc(db, 'rates', rate.id);
-      const cleanRateData = sanitizeForFirestore(rate as unknown as Record<string, unknown>);
-      batch.set(rateRef, cleanRateData, { merge: true });
-
-      // 2. Universities collection write
-      const uniRef = doc(db, 'universities', rate.universityId);
-      const uniData: Record<string, unknown> = {
-        id: rate.universityId,
-        name: rate.universityName,
-        lastUpdated: new Date().toISOString(),
-        status: 'ACTIVE',
-      };
-      if (rate.country && rate.country !== '-') {
-        uniData.country = rate.country;
-      }
-      batch.set(uniRef, uniData, { merge: true });
-    }
-
     try {
-      await batch.commit();
+      await writeRateOperation({
+        mutations: chunk.map((next) => ({ next })),
+        adminEmail,
+        operationId: `${importOperationId}-${b}`,
+        notify: false,
+        allowUpsert: true,
+      });
       completed += chunk.length;
+      successfullyUploaded.push(...chunk);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown Firestore batch error';
       errors.push(`Batch ${b + 1} failed: ${msg}`);
@@ -89,6 +67,16 @@ export async function uploadRatesInBatches(
     }
   }
 
+  if (completed > 0) {
+    await publishRelevantUpdates({
+      type: 'rates',
+      title: 'Commission rates imported',
+      summary: 'School commission information was updated.',
+      rates: successfullyUploaded,
+      operationId: `${importOperationId}-notice`,
+    });
+  }
+
   return {
     success: errors.length === 0,
     uploadedCount: completed,
@@ -100,9 +88,11 @@ export async function uploadRatesInBatches(
  * Deletes all documents from 'rates' and 'universities' collections in chunked batches.
  */
 export async function deleteAllRatesAndUniversities(
-  onProgress?: (progress: { completed: number; total: number; percentage: number }) => void
+  onProgress?: (progress: { completed: number; total: number; percentage: number }) => void,
+  adminEmail = 'Admin'
 ): Promise<{ success: boolean; deletedCount: number; error?: string }> {
   try {
+    assertFirestoreWritesAllowed('Database cleanup');
     const { getDocs, collection } = await import('firebase/firestore');
 
     // Fetch all rate IDs
@@ -110,25 +100,24 @@ export async function deleteAllRatesAndUniversities(
     // Fetch all university IDs
     const unisSnapshot = await getDocs(collection(db, 'universities'));
 
-    const allDocRefs = [
-      ...ratesSnapshot.docs.map((d) => d.ref),
-      ...unisSnapshot.docs.map((d) => d.ref),
-    ];
+    const allDocRefs = unisSnapshot.docs.map((d) => d.ref);
+    const ratesToDelete = ratesSnapshot.docs.map((d) => ({ ...d.data(), id: d.id } as CommissionRate));
 
-    const total = allDocRefs.length;
+    const total = allDocRefs.length + ratesToDelete.length;
     if (total === 0) {
-      return { success: true, deletedCount: 0 };
+      if (!ratesToDelete.length) return { success: true, deletedCount: 0 };
     }
 
+    if (ratesToDelete.length) await deleteRates(ratesToDelete, adminEmail);
+
     const BATCH_SIZE = 400; // Under Firestore's 500 operation limit
-    let completed = 0;
+    let completed = ratesToDelete.length;
 
     for (let i = 0; i < total; i += BATCH_SIZE) {
       const chunk = allDocRefs.slice(i, i + BATCH_SIZE);
       const batch = writeBatch(db);
       chunk.forEach((ref) => batch.delete(ref));
       await batch.commit();
-
       completed += chunk.length;
       if (onProgress) {
         onProgress({

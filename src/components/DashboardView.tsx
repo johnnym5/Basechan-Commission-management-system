@@ -22,6 +22,7 @@ import {
 interface DashboardViewProps {
   rates: CommissionRate[];
   loading: boolean;
+  readOnly?: boolean;
   onEditRate: (rate: CommissionRate) => void;
 }
 
@@ -33,7 +34,7 @@ interface AggregatorStat {
   topUniMargin: number;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, onEditRate }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, onEditRate, readOnly = false }) => {
   // Active Filter states passed down to MasterTable
   const [activeSearchQuery, setActiveSearchQuery] = useState<string>('');
   const [activeGuidanceFilter, setActiveGuidanceFilter] = useState<SchoolGuidance | 'ALL'>('ALL');
@@ -447,6 +448,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
         <MasterTable
           data={rates}
           loading={loading}
+          readOnly={readOnly}
           onEditRate={onEditRate}
           externalSearchQuery={activeSearchQuery}
           onExternalSearchChange={setActiveSearchQuery}
