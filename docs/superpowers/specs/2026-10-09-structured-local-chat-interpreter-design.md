@@ -7,6 +7,8 @@
 
 Make chat understand school-search requests and follow-up answers reliably while continuing to run locally against the authenticated user's cached, role-safe rate data. The interpreter remains deterministic and does not send chat text to a server or external model.
 
+Also make ranking language explicit and provide contextual prompt suggestions from the active search and local conversation history. Recommendations must use existing authorized rate fields and must not invent unavailable metrics.
+
 ## Current failure
 
 `parseChatIntent` parses each message as mostly independent text. `processChatTurn` tries to recover context by inspecting the last assistant message and recent user wording. This makes a short answer such as “Foundation” easy to misapply, causes broad country queries such as “schools in UK” to ask for a study level unnecessarily, and leaves phrases such as “compare all 4” without a stable link to the four routes previously shown. School matching uses substring and token checks that can mistake a partial word for a school or fail to distinguish an uncertain match from no match.
@@ -33,6 +35,14 @@ Classify a request that has no recognizable search/filter intent as unclear or o
 
 All parsed filters and result fields remain role-aware. Agent searches cannot inspect Staff-only routing fields; Staff searches cannot inspect Agent payouts. Admin chat continues to use the Admin-authorized local rates.
 
+### Subjective ranking and contextual suggestions
+
+Honor explicit ranking criteria that exist in the local role-safe data, such as highest or lowest Agent payout for roles allowed to read payout. “Focus” and “Restricted” refer to the existing guidance values and remain filters, not ranking meanings. Ask what the user means by vague terms such as “best,” “top,” or “recommended,” offering only criteria available to that role, such as highest payout when permitted, Focus guidance, or a country/intake filter. Do not silently interpret a vague quality word as guidance or payout.
+
+If the user asks for a metric absent from the current data, such as processing speed or conversion rate, say that the data is unavailable and offer supported alternatives. Do not add new data fields or Admin directive stores as part of this work.
+
+Generate optional prompt chips from the current search intent and locally saved recent conversations. Suggestions may offer an available next step such as choosing a level for a country search, narrowing to Focus/Restricted guidance, selecting an intake, or comparing the displayed schools. Apply a suggestion only after the user selects it; chips submit a complete local query or clarification value. Respect the current role's visible fields when generating suggestions.
+
 ### Local-only operation
 
 Parsing, clarification resolution, search, comparison selection, and conversation persistence use local code and the account-scoped IndexedDB cache. A chat turn must not issue Firestore reads or writes. The existing independent rate synchronization may refresh the cached dataset when available, but it does not participate in processing a sent message.
@@ -45,6 +55,8 @@ Parsing, clarification resolution, search, comparison selection, and conversatio
 - A likely school typo shows a “Did you mean …?” choice. Selecting a choice continues the saved search with that exact school.
 - An unclear phrase asks what the user means and offers concrete examples from supported search actions.
 - A zero-result search identifies its applied filters and offers ways to refine the request.
+- “Best/top/recommended” asks for a supported ranking criterion; “fastest processing” explains that processing-time data is unavailable and offers supported alternatives.
+- Prompt chips reflect the current search or local history, remain optional, and never apply a filter without selection.
 - All behavior works without internet once the authorized local rate snapshot exists.
 
 ## Boundaries
@@ -52,6 +64,7 @@ Parsing, clarification resolution, search, comparison selection, and conversatio
 - No external LLM, server-side parser, Cloud Function, or network query for chat text.
 - No chat-driven rate edits or changes to role authorization.
 - No silent application of inferred school suggestions or learned preferences.
+- No new Admin directive store, conversion-rate/processing-time/deadline data fields, alternate card/table views, or calculator/PDF action integration.
 - Keep the four-school comparison cap, 500-character input limit, 50-query conversation limit, and existing result-card presentation.
 
 ## Acceptance criteria
@@ -62,9 +75,11 @@ Parsing, clarification resolution, search, comparison selection, and conversatio
 4. “Compare all 4” resolves to the four schools in the immediately preceding displayed result set and enforces compatible records.
 5. A close typo or ambiguous school name produces selectable suggestions and does not search until confirmed.
 6. Unclear requests and recognized zero-result searches receive distinct, actionable responses.
-7. Search matching and outputs never read fields hidden from the current role.
-8. Submitting a chat message makes no Firestore request; it searches the in-memory/local cached rates and persists the conversation locally.
-9. Existing conversations without structured intent still load without data loss or runtime errors.
+7. Unsupported ranking metrics are reported as unavailable; ranking suggestions use only role-authorized fields.
+8. Contextual prompt chips are derived from active intent or local history, are optional, and run only after selection.
+9. Search matching and outputs never read fields hidden from the current role.
+10. Submitting a chat message makes no Firestore request; it searches the in-memory/local cached rates and persists the conversation locally.
+11. Existing conversations without structured intent still load without data loss or runtime errors.
 
 ## Implementation scope
 
