@@ -1,5 +1,10 @@
 import type { StudyLevel } from './index';
 
+export interface IntakeYearRange {
+  startYear: number;
+  endYear: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';

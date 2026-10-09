@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildClarifyingQuestions, filterRatesByIntent, getDefaultIntake, getIntakeDateKey, parseChatIntent, sanitizeChatInput } from './chatQuery';
+import { buildClarifyingQuestions, filterRatesByIntent, getDefaultIntake, getIntakeDateKey, getIntakeStartYear, parseChatIntent, sanitizeChatInput } from './chatQuery';
 import type { CommissionRate } from '../types';
 
 const rates: CommissionRate[] = [
@@ -199,5 +199,34 @@ describe('natural language chat query', () => {
     expect(keys[1]).toBeGreaterThan(keys[0]!);
     expect(keys[2]).toBeGreaterThan(keys[0]!);
     expect(getIntakeDateKey('Current intake')).toBeNull();
+  });
+
+  it('parses inclusive intake year ranges in common wording', () => {
+    for (const query of ['from 2021 to 2025', 'between 2021 and 2025', '2021-2025']) {
+      expect(parseChatIntent(query, []).intakeYearRange).toEqual({ startYear: 2021, endYear: 2025 });
+    }
+  });
+
+  it('uses the intake cycle start year for range filtering', () => {
+    const range = parseChatIntent('from 2021 to 2025', []);
+    const candidates: CommissionRate[] = [
+      { ...rates[0], id: 'academic', intake: '2021 - 2022' },
+      { ...rates[0], id: 'month', intake: 'September 2021' },
+      { ...rates[0], id: 'season', intake: 'Autumn 2021' },
+      { ...rates[0], id: 'outside', intake: '2020 - 2021' },
+      { ...rates[0], id: 'undated', intake: 'Current intake' },
+    ];
+    expect(getIntakeStartYear('2021 - 2022')).toBe(2021);
+    expect(getIntakeStartYear('September 2021')).toBe(2021);
+    expect(getIntakeStartYear('Autumn 2021')).toBe(2021);
+    expect(getIntakeStartYear('Current intake')).toBeNull();
+    expect(filterRatesByIntent(candidates, range).map((rate) => rate.id)).toEqual(['academic', 'month', 'season']);
+  });
+
+  it('flags reversed intake year ranges for clarification', () => {
+    const intent = parseChatIntent('from 2025 to 2021', []);
+    expect(intent.invalidIntakeYearRange).toBe(true);
+    expect(intent.intakeYearRange).toBeUndefined();
+    expect(buildClarifyingQuestions(intent).join(' ')).toMatch(/start year.*before.*end year/i);
   });
 });

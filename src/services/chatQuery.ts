@@ -1,4 +1,5 @@
 import type { CommissionRate, StudyLevel, UserRole } from '../types';
+import type { IntakeYearRange } from '../types/chat';
 import { normalizeChatVocabulary } from './chatVocabulary';
 
 export const MAX_CHAT_INPUT_LENGTH = 500;
@@ -12,6 +13,8 @@ export interface ChatIntent {
   guidance?: 'FOCUS' | 'ALLOWED' | 'DO_NOT_USE';
   guidances?: Array<'FOCUS' | 'ALLOWED' | 'DO_NOT_USE'>;
   intakeOrder?: 'latest' | 'earliest';
+  intakeYearRange?: IntakeYearRange;
+  invalidIntakeYearRange?: boolean;
   scopeSelection?: 'all' | 'intake' | 'level';
   needsLevel: boolean;
   needsSchool: boolean;
@@ -134,6 +137,11 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
   const schoolTerms = (exactSchoolTerms.length ? exactSchoolTerms : wordMatches).sort((a, b) => b.length - a.length).slice(0, MAX_COMPARISON_SCHOOLS);
   const ambiguousSchools = exactSchoolTerms.length > MAX_COMPARISON_SCHOOLS ? exactSchoolTerms : [];
   const intakeTerms = sanitizeChatInput(input).match(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/gi) || [];
+  const yearRangeMatch = text.match(/\b(?:from\s+|between\s+)?(20\d{2})\s*(?:[-–—]|to|through|and)\s*(20\d{2})\b/i);
+  const intakeYearRange: IntakeYearRange | undefined = yearRangeMatch && Number(yearRangeMatch[1]) <= Number(yearRangeMatch[2])
+    ? { startYear: Number(yearRangeMatch[1]), endYear: Number(yearRangeMatch[2]) }
+    : undefined;
+  const invalidIntakeYearRange = Boolean(yearRangeMatch && Number(yearRangeMatch[1]) > Number(yearRangeMatch[2]));
   const guidances = [
     ...( /\b(focus|preferred|priority)\b/i.test(text) ? ['FOCUS' as const] : []),
     ...( /\b(avoid|restricted|do not use)\b/i.test(text) ? ['DO_NOT_USE' as const] : []),
@@ -148,7 +156,7 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     .replace(/[^a-z0-9]+/g, ' ').trim();
     
   const unmatchedSchoolLikeTerms = scrubbed.split(/\s+/).filter((term) => term.length >= 4 && !normalizedSchools.some((name) => name.toLowerCase().split(/\s+/).some((word) => word === term)));
-  const hasNonSchoolFilter = countryTerms.length > 0 || aggregatorTerms.length > 0 || guidances.length > 0 || rateMinimum !== undefined || rateMaximum !== undefined || feeType !== undefined || sortBy !== undefined || rankingUnclear || intakeOrder !== undefined;
+  const hasNonSchoolFilter = countryTerms.length > 0 || aggregatorTerms.length > 0 || guidances.length > 0 || rateMinimum !== undefined || rateMaximum !== undefined || feeType !== undefined || sortBy !== undefined || rankingUnclear || intakeOrder !== undefined || intakeYearRange !== undefined || invalidIntakeYearRange;
   // A filter-only query such as “show focus postgraduate” is an intentional
   // search across matching routes; requiring a school name defeats that filter.
   const broadSearch = explicitBroadSearch || quantity !== undefined || intakeOrder !== undefined || (hasNonSchoolFilter && (Boolean(level) || intakeTerms.length > 0 || guidances.length > 0));
@@ -160,7 +168,7 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     const bestDistance = candidates[0]?.distance;
     return bestDistance === undefined ? [] : candidates.filter((candidate) => candidate.distance === bestDistance).slice(0, 4).map((candidate) => candidate.name);
   })));
-  const domainCue = /\b(search|show|find|list|school|schools|university|universities|institution|institutions|rate|rates|commission|route|routes|aggregator|compare|versus|vs|payout|focus|preferred|priority|avoid|restricted|do not use|allowed|permitted|foundation|undergraduate|postgraduate|bachelor|master|intake|level|best|top|recommended|fastest|conversion|how many|number of|count)\b/i.test(text);
+  const domainCue = /\b(search|show|find|list|school|schools|university|universities|institution|institutions|rate|rates|commission|route|routes|aggregator|compare|versus|vs|payout|focus|preferred|priority|avoid|restricted|do not use|allowed|permitted|foundation|undergraduate|postgraduate|bachelor|master|intake|level|best|top|recommended|fastest|conversion|how many|number of|count|from|between|to|through)\b/i.test(text);
   const outOfScope = !domainCue && !schoolTerms.length && !countryTerms.length && !aggregatorTerms.length && !guidance && rateMinimum === undefined && rateMaximum === undefined && !intakeTerms.length;
   return {
     schoolTerms,
@@ -190,12 +198,19 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     quantity,
     guidances,
     intakeOrder,
+    intakeYearRange,
+    invalidIntakeYearRange,
     scopeSelection,
   };
 }
 
 export function filterRatesByIntent(rates: CommissionRate[], intent: ChatIntent): CommissionRate[] {
   return rates.filter((rate) => {
+    if (intent.invalidIntakeYearRange) return false;
+    if (intent.intakeYearRange) {
+      const startYear = getIntakeStartYear(rate.intake);
+      if (startYear === null || startYear < intent.intakeYearRange.startYear || startYear > intent.intakeYearRange.endYear) return false;
+    }
     if (intent.schoolTerms.length && !intent.schoolTerms.some((school) => school.toLowerCase() === rate.universityName.toLowerCase())) return false;
     if (intent.intakeTerms.length && !intent.intakeTerms.some((intake) => rate.intake.toLowerCase().includes(intake.toLowerCase()))) return false;
     if (intent.level && rate.studyLevel !== intent.level && rate.studyLevel !== 'ALL') return false;
@@ -209,6 +224,13 @@ export function filterRatesByIntent(rates: CommissionRate[], intent: ChatIntent)
     if (intent.feeType === 'PERCENTAGE' && rate.isFlatFee) return false;
     return true;
   });
+}
+
+export function getIntakeStartYear(intake: string): number | null {
+  const academicYear = intake.match(/\b(20\d{2})\s*[-–—/]\s*20\d{2}\b/);
+  if (academicYear) return Number(academicYear[1]);
+  const datedLabel = intake.match(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?(20\d{2})\b/i);
+  return datedLabel ? Number(datedLabel[1]) : null;
 }
 
 export function getIntakeDateKey(intake: string): number | null {
@@ -248,6 +270,7 @@ export function getDefaultIntake(rates: CommissionRate[], now = new Date()): str
 export function buildClarifyingQuestions(intent: ChatIntent): string[] {
   if (intent.outOfScope) return ['I can help find and compare Basechan schools, guidance, intakes, and role-appropriate rates. What would you like to search?'];
   const questions: string[] = [];
+  if (intent.invalidIntakeYearRange) questions.push('The start year must be before the end year. Which intake year range should I use?');
   if (intent.unsupportedMetric) questions.push(intent.unsupportedMetric === 'payout ranking'
     ? 'Payout rankings aren’t available for your role. I can filter by country, level, intake, or Focus guidance. Which would help?'
     : `I can’t rank schools by ${intent.unsupportedMetric} because that information isn’t in the local database. I can filter by country, level, intake, Focus guidance${intent.unsupportedMetric === 'conversion rate' ? '' : ', or available rates'}. What would you like to use?`);
