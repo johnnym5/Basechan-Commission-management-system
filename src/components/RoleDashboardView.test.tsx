@@ -17,33 +17,41 @@ describe('RoleDashboardView', () => {
     expect(screen.queryByText(/payout/i)).not.toBeInTheDocument();
     expect(screen.getByText('Alpha University')).toBeInTheDocument();
   });
+
   it('Agent sees role-scoped payout routes without margin or aggregator UI', () => {
     renderView('AGENT', agent);
     expect(screen.getByText('Beta College')).toBeInTheDocument();
     expect(screen.getByText(/12%/)).toBeInTheDocument();
     expect(screen.queryByText(/margin|aggregator/i)).not.toBeInTheDocument();
   });
+
   it('empty role results name active filters and offer clear all', () => {
     const onChange = vi.fn();
     renderView('STAFF', [], { ...createEmptyDashboardFilters(), countries: ['UK'] }, onChange);
-    expect(screen.getByText(/No routes match/)).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: /clear all filters/i })[0]);
+    expect(screen.getByText(/No routes match/i)).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: /Clear all filters/i })[0]);
     expect(onChange).toHaveBeenCalledWith(createEmptyDashboardFilters());
   });
+
   it('Staff filter changes update the shared filter object', () => {
     const onChange = vi.fn();
     renderView('STAFF', staff, createEmptyDashboardFilters(), onChange);
+    // Open Detailed Filters popover in MasterTable
+    const filterBtn = screen.getByRole('button', { name: /Detailed Filters/i });
+    fireEvent.click(filterBtn);
     fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'UK' } });
     expect(onChange).toHaveBeenCalledWith({ ...createEmptyDashboardFilters(), countries: ['UK'] });
   });
+
   it('active filter chips reflect controlled state', () => {
     renderView('STAFF', staff, { ...createEmptyDashboardFilters(), countries: ['UK'] });
     expect(screen.getByText('Country: UK')).toBeInTheDocument();
   });
+
   it('clear all filters resets all role-specific fields', () => {
     const onChange = vi.fn();
     renderView('AGENT', agent, { ...createEmptyDashboardFilters(), countries: ['UK'], agentPayoutKind: 'FLAT_FEE', payoutMinimum: 100 }, onChange);
-    fireEvent.click(screen.getAllByRole('button', { name: /clear all filters/i })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Clear all filters/i })[0]);
     expect(onChange).toHaveBeenCalledWith(createEmptyDashboardFilters());
   });
 });

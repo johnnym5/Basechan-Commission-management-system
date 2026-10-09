@@ -1,8 +1,8 @@
-import type { AgentChatProfile, ChatConversation, ChatMessage, ChatPromptSuggestion, ChatSearchIntent, CommissionRate, FavoriteSchool, NavigationAction, PendingChatClarification, StagedCommand, StudyLevel, UserRole } from '../types';
-import type { ChatFilterPrompt } from '../types/chat';
+import type { AgentChatProfile, ChatConversation, ChatMessage, ChatPromptSuggestion, ChatSearchIntent, CommissionRate, FavoriteSchool, PendingChatClarification, StagedCommand, StudyLevel, UserRole } from '../types';
+import type { ChatFilterPrompt, NavigationAction } from '../types/chat';
 import type { DashboardFilters } from '../types/dashboard';
 import { filtersFromChatIntent } from './dashboardFilters';
-import { buildClarifyingQuestions, detectNavigationQuery, detectPromptJailbreak, detectRBACViolation, detectSystemCapabilityQuery, filterRatesByIntent, getDefaultIntake, getIntakeDateKey, getIntakeStartYear, MAX_COMPARISON_SCHOOLS, parseChatIntent, sanitizeChatInput } from './chatQuery';
+import { buildClarifyingQuestions, detectAggregatorYieldQuery, detectGlobalListQuery, detectNavigationQuery, detectPromptJailbreak, detectRBACViolation, detectSystemCapabilityQuery, detectUniversityFactQuery, filterRatesByIntent, getDefaultIntake, getIntakeDateKey, getIntakeStartYear, MAX_COMPARISON_SCHOOLS, parseChatIntent, sanitizeChatInput } from './chatQuery';
 import { MAX_QUERIES_PER_MINUTE, MAX_QUERIES_PER_SESSION, PREFERENCE_LEARNING_THRESHOLD } from './chatPersistence';
 
 export interface AvailableChatFacets {
@@ -315,6 +315,266 @@ export function processChatTurn(
   activeDashboardFilters?: DashboardFilters,
 ): ChatTurnResult {
   const submittedValue = sanitizeChatInput(rawInput);
+
+  // 1. Check for Prompt Injection / Jailbreak Attempt
+  if (detectPromptJailbreak(submittedValue)) {
+    const userMsg = createMessage('user', submittedValue, 'sent');
+    const assistantMsg = createMessage(
+      'assistant',
+      '🔒 Security Audit Alert: Prompt manipulation and system override requests are prohibited. System session activity is continuously logged under corporate governance guidelines.',
+      'sent'
+    );
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          messages: [...state.conversation.messages, userMsg, assistantMsg],
+          updatedAt: new Date(now).toISOString(),
+        },
+        queryTimestamps: [...state.queryTimestamps.filter((t) => now - t < 60_000), now],
+        queryCount: state.queryCount + 1,
+      },
+      matchingRates: [],
+      clarificationQuestions: [],
+    };
+  }
+
+  // 2. Check for Strict Role-Based Access Control (RBAC) Violation
+  const rbacCheck = detectRBACViolation(submittedValue, role);
+  if (rbacCheck.isViolation) {
+    const userMsg = createMessage('user', submittedValue, 'sent');
+    const assistantMsg = createMessage('assistant', rbacCheck.reason!, 'sent');
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          messages: [...state.conversation.messages, userMsg, assistantMsg],
+          updatedAt: new Date(now).toISOString(),
+        },
+        queryTimestamps: [...state.queryTimestamps.filter((t) => now - t < 60_000), now],
+        queryCount: state.queryCount + 1,
+      },
+      matchingRates: [],
+      clarificationQuestions: [],
+    };
+  }
+
+  // 3. Check for Navigation / Location Queries ("take me to...", "where can I calculate profit...")
+  const navMatch = detectNavigationQuery(submittedValue, role);
+  if (navMatch) {
+    const userMsg = createMessage('user', submittedValue, 'sent');
+    const navAction: NavigationAction = {
+      targetPage: navMatch.targetPage,
+      targetModal: navMatch.targetModal,
+      label: navMatch.label,
+    };
+    const assistantMsg = createMessage(
+      'assistant',
+      navMatch.description,
+      'results',
+      undefined,
+      undefined,
+      role,
+      undefined,
+      navAction
+    );
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          messages: [...state.conversation.messages, userMsg, assistantMsg],
+          updatedAt: new Date(now).toISOString(),
+        },
+        queryTimestamps: [...state.queryTimestamps.filter((t) => now - t < 60_000), now],
+        queryCount: state.queryCount + 1,
+      },
+      matchingRates: [],
+      clarificationQuestions: [],
+    };
+  }
+
+  // 4. Check for System Capability / Help Queries ("what can you do?", "can you assist me...")
+  const capabilityMatch = detectSystemCapabilityQuery(submittedValue);
+  if (capabilityMatch.isCapabilityQuery) {
+    const userMsg = createMessage('user', submittedValue, 'sent');
+    let responseText = '';
+    let primaryNavAction: NavigationAction | undefined;
+
+    if (role === 'ADMIN') {
+      responseText = `As a Basechan Admin Assistant, I can help you locate and manage all system tools:\n\n• Search & compare university master rates & DIFF profit margins\n• Model student deal revenue & agent payouts in the Deal Calculator\n• Batch upload Excel workbooks or migrate intake sheets in 1-click\n• Manage user accounts, role access, and view real-time audit logs`;
+      primaryNavAction = { targetPage: 'Dashboard', label: 'Go to Admin Dashboard' };
+    } else if (role === 'STAFF') {
+      responseText = `As a Basechan Staff Assistant, I can help you find application submission routes and counselor guidance:\n\n• Look up submission portals (EDVOY, SI-UK, UAP, CRIZAC) for any university\n• Check school guidance status (Focus Green, Allowed, Do Not Use)\n• Filter routes by country, intake, and study level`;
+      primaryNavAction = { targetPage: 'Application Directory', label: 'Go to Application Directory' };
+    } else {
+      responseText = `As a Basechan Partner Agent Assistant, I can help you search guaranteed commission rates:\n\n• Look up guaranteed agent payout rates across partner institutions\n• Convert payout values between GBP, USD, EUR, and NGN\n• Filter preferred Focus Green institutions\n• Generate and share official quote cards`;
+      primaryNavAction = { targetPage: 'Agent Commissions', label: 'Go to Agent Commissions' };
+    }
+
+    const assistantMsg = createMessage(
+      'assistant',
+      responseText,
+      'results',
+      undefined,
+      undefined,
+      role,
+      undefined,
+      primaryNavAction
+    );
+
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          messages: [...state.conversation.messages, userMsg, assistantMsg],
+          updatedAt: new Date(now).toISOString(),
+        },
+        queryTimestamps: [...state.queryTimestamps.filter((t) => now - t < 60_000), now],
+        queryCount: state.queryCount + 1,
+      },
+      matchingRates: [],
+      clarificationQuestions: [],
+    };
+  }
+
+  // 5. Check for Global System Listing Queries ("name all schools in the system")
+  const allKnownCountries = Array.from(new Set(rates.map((r) => r.country).filter((c): c is string => Boolean(c))));
+  if (detectGlobalListQuery(submittedValue, allKnownCountries)) {
+    const userMsg = createMessage('user', submittedValue, 'sent');
+    const uniqueSchoolCount = new Set(rates.map((r) => r.universityId)).size;
+    const uniqueCountries = new Set(rates.map((r) => r.country || 'UK')).size;
+    const focusSchools = Array.from(new Set(rates.filter((r) => r.guidance === 'FOCUS').map((r) => r.universityName))).slice(0, 5);
+
+    const text = `There are ${uniqueSchoolCount} partner universities listed in the system across ${uniqueCountries} countries (${rates.length} active route schedules).\n\nFeatured Focus Preferred Schools: ${focusSchools.join(', ')}...`;
+
+    const assistantMsg = createMessage(
+      'assistant',
+      text,
+      'results',
+      rates.map((r) => r.id),
+      rates,
+      role
+    );
+
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          messages: [...state.conversation.messages, userMsg, assistantMsg],
+          updatedAt: new Date(now).toISOString(),
+        },
+        queryTimestamps: [...state.queryTimestamps.filter((t) => now - t < 60_000), now],
+        queryCount: state.queryCount + 1,
+      },
+      matchingRates: rates,
+      clarificationQuestions: [],
+    };
+  }
+
+  // 6. Check for University Fact / Information Dossier Queries ("tell me about Aberdeen", "facts about Leicester")
+  const allSchoolNames = Array.from(new Set(rates.map((r) => r.universityName)));
+  const factMatch = detectUniversityFactQuery(submittedValue, allSchoolNames);
+  if (factMatch.isFactQuery && factMatch.matchedSchoolName) {
+    const userMsg = createMessage('user', submittedValue, 'sent');
+    const schoolName = factMatch.matchedSchoolName;
+    const schoolRates = rates.filter((r) => r.universityName.toLowerCase() === schoolName.toLowerCase());
+
+    const country = schoolRates[0]?.country || 'UK';
+    const guidance = schoolRates[0]?.guidance || 'ALLOWED';
+    const guidanceLabel = guidance === 'FOCUS' ? '🟢 Focus / Preferred' : guidance === 'DO_NOT_USE' ? '🔴 Do Not Use / Avoid' : '🔵 Allowed';
+    const intakes = Array.from(new Set(schoolRates.map((r) => r.intake))).join(', ');
+    const levels = Array.from(new Set(schoolRates.map((r) => r.studyLevel))).join(', ');
+    const portals = Array.from(new Set(schoolRates.map((r) => r.aggregator).filter(Boolean))).join(', ');
+    const notes = schoolRates.find((r) => r.notes)?.notes;
+
+    let payoutInfo = '';
+    if (role === 'ADMIN') {
+      const bestRate = schoolRates.reduce((prev, curr) => (curr.diffMargin > prev.diffMargin ? curr : prev), schoolRates[0]);
+      payoutInfo = `\n• Best Yield Route: ${bestRate?.aggregator} (+${bestRate?.diffMargin}% net margin)`;
+    } else if (role === 'AGENT') {
+      const topAgent = schoolRates.reduce((prev, curr) => (curr.agentRate > prev.agentRate ? curr : prev), schoolRates[0]);
+      payoutInfo = `\n• Guaranteed Commission: ${topAgent?.isFlatFee ? `£${topAgent?.agentRate}` : `${topAgent?.agentRate}%`}`;
+    }
+
+    const text = `📊 Institution Profile: ${schoolName}\n• Country: ${country}\n• Guidance Status: ${guidanceLabel}\n• Available Intakes: ${intakes}\n• Study Levels: ${levels}${portals ? `\n• Submission Portals: ${portals}` : ''}${payoutInfo}${notes ? `\n\n📌 Special Instructions: ${notes}` : ''}`;
+
+    const assistantMsg = createMessage(
+      'assistant',
+      text,
+      'results',
+      schoolRates.map((r) => r.id),
+      schoolRates,
+      role
+    );
+
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          messages: [...state.conversation.messages, userMsg, assistantMsg],
+          updatedAt: new Date(now).toISOString(),
+        },
+        queryTimestamps: [...state.queryTimestamps.filter((t) => now - t < 60_000), now],
+        queryCount: state.queryCount + 1,
+      },
+      matchingRates: schoolRates,
+      clarificationQuestions: [],
+    };
+  }
+
+  // 7. Check for Aggregator Yield Comparison Queries ("which aggregator is better for Leicester?")
+  const aggYieldMatch = detectAggregatorYieldQuery(submittedValue, allSchoolNames);
+  if (aggYieldMatch.isAggregatorYieldQuery && aggYieldMatch.matchedSchoolName) {
+    const userMsg = createMessage('user', submittedValue, 'sent');
+    const schoolName = aggYieldMatch.matchedSchoolName;
+    const schoolRates = rates.filter((r) => r.universityName.toLowerCase() === schoolName.toLowerCase());
+
+    const portalBreakdown = schoolRates.map((r) => {
+      if (role === 'ADMIN') {
+        return `• ${r.aggregator} (${r.intake} ${r.studyLevel}): Master ${r.masterRate}% - Agent ${r.agentRate}% = Net Margin +${r.diffMargin}%`;
+      } else if (role === 'STAFF') {
+        return `• ${r.aggregator} (${r.intake} ${r.studyLevel}): Portal Route [Status: ${r.guidance || 'ALLOWED'}]`;
+      } else {
+        return `• ${r.aggregator} (${r.intake} ${r.studyLevel}): Guaranteed Payout ${r.isFlatFee ? `£${r.agentRate}` : `${r.agentRate}%`}`;
+      }
+    }).join('\n');
+
+    const bestRoute = role === 'ADMIN'
+      ? schoolRates.reduce((prev, curr) => (curr.diffMargin > prev.diffMargin ? curr : prev), schoolRates[0])
+      : schoolRates[0];
+
+    const text = `🔀 Aggregator Portal Comparison for ${schoolName}:\n\n${portalBreakdown}\n\n💡 Recommendation: ${role === 'ADMIN' ? `Use ${bestRoute?.aggregator} for highest net margin (+${bestRoute?.diffMargin}%).` : `Refer to designated submission portals for active student applications.`}`;
+
+    const assistantMsg = createMessage(
+      'assistant',
+      text,
+      'results',
+      schoolRates.map((r) => r.id),
+      schoolRates,
+      role
+    );
+
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          messages: [...state.conversation.messages, userMsg, assistantMsg],
+          updatedAt: new Date(now).toISOString(),
+        },
+        queryTimestamps: [...state.queryTimestamps.filter((t) => now - t < 60_000), now],
+        queryCount: state.queryCount + 1,
+      },
+      matchingRates: schoolRates,
+      clarificationQuestions: [],
+    };
+  }
 
   // Handle Staged Command Confirmation or Cancellation
   if (submittedValue.startsWith('CONFIRM_STAGED_')) {

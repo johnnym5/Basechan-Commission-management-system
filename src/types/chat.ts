@@ -26,6 +26,12 @@ export interface ChatFilterPrompt {
   choices: Array<{ label: string; value: string }>;
 }
 
+export interface NavigationAction {
+  targetPage?: 'Dashboard' | 'Compare Rates' | 'Deal Calculator' | 'Users & Activity' | 'Application Directory' | 'Agent Commissions' | 'Settings';
+  targetModal?: 'upload' | 'addRate' | 'migrateIntake' | 'auditLog' | 'legal';
+  label: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -35,6 +41,7 @@ export interface ChatMessage {
   status?: 'sent' | 'clarifying' | 'results';
   followUpFilter?: ChatFilterPrompt;
   stagedCommand?: StagedCommand;
+  navigationAction?: NavigationAction;
   clarification?: {
     field: 'school' | 'country' | 'level' | 'intake' | 'intakeYearRange' | 'aggregator' | 'guidance' | 'scope' | 'intent' | 'ranking' | 'payout';
     choices: Array<{ label: string; value: string }>;

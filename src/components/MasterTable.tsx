@@ -976,6 +976,8 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
             <button
               type="button"
+              aria-label="Detailed Filters"
+              title="Detailed Filters"
               onClick={() => setIsFilterPopoverOpen(!isFilterPopoverOpen)}
               className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center gap-1 ${
                 activeFilterCount > 0 || isFilterPopoverOpen
@@ -1225,8 +1227,9 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label>
+              <label htmlFor="master-guidance-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label>
               <select
+                id="master-guidance-filter"
                 value={selectedGuidance}
                 onChange={(e) => setSelectedGuidance(e.target.value as SchoolGuidance | 'ALL')}
                 className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
@@ -1238,8 +1241,9 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Intake</label>
+              <label htmlFor="master-intake-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Intake</label>
               <select
+                id="master-intake-filter"
                 value={selectedIntake}
                 onChange={(e) => setSelectedIntake(e.target.value)}
                 className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
@@ -1253,8 +1257,9 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Level</label>
+              <label htmlFor="master-level-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Level</label>
               <select
+                id="master-level-filter"
                 value={selectedLevel}
                 onChange={(e) => setSelectedLevel(e.target.value as StudyLevel | 'ALL')}
                 className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
@@ -1266,8 +1271,9 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Country</label>
+              <label htmlFor="master-country-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Country</label>
               <select
+                id="master-country-filter"
                 value={selectedCountry}
                 onChange={(e) => setSelectedCountry(e.target.value)}
                 className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
@@ -1277,8 +1283,9 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Application Portal</label>
+              <label htmlFor="master-aggregator-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Application Portal</label>
               <select
+                id="master-aggregator-filter"
                 value={selectedAggregator}
                 onChange={(e) => setSelectedAggregator(e.target.value)}
                 className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"

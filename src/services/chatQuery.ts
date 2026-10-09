@@ -41,6 +41,169 @@ export function sanitizeChatInput(value: string): string {
   return value.replace(/[\u0000-\u001F\u007F<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_CHAT_INPUT_LENGTH);
 }
 
+export interface SystemCapabilityMatch {
+  isCapabilityQuery: boolean;
+  topic?: 'overview' | 'admin_capabilities' | 'staff_capabilities' | 'agent_capabilities' | 'general_assist';
+}
+
+export interface NavigationMatch {
+  targetPage?: 'Dashboard' | 'Compare Rates' | 'Deal Calculator' | 'Users & Activity' | 'Application Directory' | 'Agent Commissions' | 'Settings';
+  targetModal?: 'upload' | 'addRate' | 'migrateIntake' | 'auditLog' | 'legal';
+  label: string;
+  description: string;
+}
+
+export function detectPromptJailbreak(input: string): boolean {
+  return /\b(?:ignore|override|forget)\s+(?:all\s+)?(?:previous|prior|above|system)\s+(?:instructions|rules|prompt|guidelines)\b|\bact\s+as\s+(?:root|system\s+administrator|unrestricted)\b|\b(?:jailbreak|bypass\s+security|output\s+all\s+user\s+emails)\b/i.test(input);
+}
+
+export function detectGlobalListQuery(input: string, knownCountries: string[] = []): boolean {
+  const text = input.toLowerCase().trim();
+  const countryAliases = ['uk', 'u.k.', 'canada', 'usa', 'u.s.a.', 'australia', 'nigeria', 'ghana', 'switzerland', 'spain', 'united kingdom', 'united states'];
+  const mentionsCountry = knownCountries.some((c) => text.includes(c.toLowerCase()))
+    || countryAliases.some((alias) => new RegExp(`\\b${alias.replace('.', '\\.')}\\b`, 'i').test(text));
+
+  if (mentionsCountry) return false;
+
+  return /\b(?:name|list|show)\s+all\s+(?:the\s+)?(?:schools?|universit(?:y|ies)|institutions?)\b/i.test(text)
+    || /\b(?:all\s+(?:the\s+)?(?:schools?|universities)|what\s+schools?|how\s+many\s+schools?)\s+(?:in|listed\s+in|are\s+in)\s+(?:the\s+)?(?:system|database|app|directory)\b/i.test(text)
+    || /^(?:can\s+you\s+)?(?:name|list)\s+all\s+(?:the\s+)?(?:schools|universities)/i.test(text);
+}
+
+export function detectUniversityFactQuery(input: string, knownSchools: string[]): { isFactQuery: boolean; matchedSchoolName?: string } {
+  const text = input.toLowerCase().trim();
+  if (/\b(?:tell\s+me\s+about|facts?\s+about|information\s+about|info\s+about|look\s+up\s+info|overview\s+of|details?\s+for)\b/i.test(text)) {
+    const matched = knownSchools.find((school) => text.includes(school.toLowerCase()));
+    if (matched) return { isFactQuery: true, matchedSchoolName: matched };
+
+    // Fuzzy word match
+    const words = text.match(/[a-z0-9]+/g) || [];
+    const stopWords = new Set(['tell', 'me', 'about', 'facts', 'information', 'info', 'look', 'up', 'overview', 'details', 'for', 'the', 'this', 'school', 'university']);
+    const candidateWords = words.filter((w) => !stopWords.has(w) && w.length >= 4);
+    if (candidateWords.length > 0) {
+      const fuzzyMatch = knownSchools.find((school) =>
+        candidateWords.some((cw) => school.toLowerCase().includes(cw))
+      );
+      if (fuzzyMatch) return { isFactQuery: true, matchedSchoolName: fuzzyMatch };
+    }
+    return { isFactQuery: true };
+  }
+  return { isFactQuery: false };
+}
+
+export function detectAggregatorYieldQuery(input: string, knownSchools: string[]): { isAggregatorYieldQuery: boolean; matchedSchoolName?: string } {
+  const text = input.toLowerCase().trim();
+  if (/\b(?:which\s+aggregator|which\s+portal|better\s+aggregator|better\s+portal|best\s+aggregator|best\s+portal|compare\s+aggregators?|compare\s+portals?)\b/i.test(text)
+    || /\b(?:aggregator\s+vs\s+aggregator|portal\s+vs\s+portal)\b/i.test(text)) {
+    const matched = knownSchools.find((school) => text.includes(school.toLowerCase()));
+    return { isAggregatorYieldQuery: true, matchedSchoolName: matched };
+  }
+  return { isAggregatorYieldQuery: false };
+}
+
+export function detectRBACViolation(input: string, role: UserRole): { isViolation: boolean; reason?: string } {
+  if (role === 'AGENT') {
+    if (/\b(?:master\s+rates?|master\s+commissions?|basechan\s+profit|diff\s+margin|incoming\s+rate|how\s+much\s+does\s+basechan\s+make|admin\s+settings|user\s+management)\b/i.test(input)) {
+      return {
+        isViolation: true,
+        reason: '🔒 Master commission rates, internal company margins, and admin tools are restricted to Basechan Admin personnel. In your Agent Portal, you can search your guaranteed payout rates.',
+      };
+    }
+  }
+  if (role === 'STAFF') {
+    if (/\b(?:user\s+management|delete\s+users?|system\s+settings|revoke\s+access)\b/i.test(input)) {
+      return {
+        isViolation: true,
+        reason: '🔒 User access management and system settings are restricted to Basechan Admin personnel. In your Staff Portal, you can look up application submission routes and school guidance statuses.',
+      };
+    }
+  }
+  return { isViolation: false };
+}
+
+export function detectSystemCapabilityQuery(input: string): SystemCapabilityMatch {
+  const normalized = input.toLowerCase().trim();
+  if (/\b(?:what\s+can\s+(?:you|an?\s+admin|an?\s+agent|staff)\s+do|what\s+are\s+your\s+(?:capabilities|features)|how\s+can\s+you\s+help|what\s+can\s+i\s+do|what\s+does\s+this\s+system\s+do)\b/i.test(normalized)) {
+    if (/\badmin\b/i.test(normalized)) return { isCapabilityQuery: true, topic: 'admin_capabilities' };
+    if (/\bstaff\b/i.test(normalized)) return { isCapabilityQuery: true, topic: 'staff_capabilities' };
+    if (/\bagent\b/i.test(normalized)) return { isCapabilityQuery: true, topic: 'agent_capabilities' };
+    return { isCapabilityQuery: true, topic: 'overview' };
+  }
+  if (/\b(?:can\s+you\s+ass?ist|help\s+me\s+find|help\s+me\s+with|system\s+help|where\s+can\s+i\s+find)\b/i.test(normalized) && !/\b(?:school|university|intake|rate|payout|uk|canada|cost)\b/i.test(normalized)) {
+    return { isCapabilityQuery: true, topic: 'general_assist' };
+  }
+  return { isCapabilityQuery: false };
+}
+
+export function detectNavigationQuery(input: string, role: UserRole): NavigationMatch | null {
+  const text = input.toLowerCase().trim();
+
+  // Compare Rates
+  if (/\b(?:compare\s+rates|rate\s+comparison|where\s+can\s+i\s+compare)\b/i.test(text)) {
+    return {
+      targetPage: 'Compare Rates',
+      label: 'Go to Compare Rates',
+      description: 'You can compare side-by-side rates across multiple universities in the Compare Rates tool.',
+    };
+  }
+
+  // Deal Calculator
+  if (/\b(?:deal\s+calculator|calculate\s+profit|revenue\s+estimator|profit\s+calculator)\b/i.test(text)) {
+    return {
+      targetPage: 'Deal Calculator',
+      label: 'Open Deal Calculator',
+      description: 'Calculate total tuition, master income, agent payouts, and net profit for student enrollments.',
+    };
+  }
+
+  // Import Excel
+  if (role === 'ADMIN' && /\b(?:upload\s+excel|import\s+excel|import\s+sheet|upload\s+workbook)\b/i.test(text)) {
+    return {
+      targetModal: 'upload',
+      label: 'Open Excel Import',
+      description: 'Batch upload and sync Excel rate workbooks directly into Firestore.',
+    };
+  }
+
+  // Migrate Intake
+  if (role === 'ADMIN' && /\b(?:migrate\s+intake|clone\s+intake|copy\s+sheet|clone\s+sheet)\b/i.test(text)) {
+    return {
+      targetModal: 'migrateIntake',
+      label: 'Open Intake Migration',
+      description: 'Clone all rates from a previous intake (e.g. Sept 2026) to a new target intake (e.g. Jan 2027) in 1 click.',
+    };
+  }
+
+  // Users & Activity / Settings
+  if (role === 'ADMIN' && /\b(?:users?\s+and\s+activity|user\s+management|manage\s+users|settings|data\s+health|audit\s+log)\b/i.test(text)) {
+    return {
+      targetPage: 'Users & Activity',
+      label: 'Go to Settings & Users',
+      description: 'Manage user roles, access requests, system configuration, and audit trail history.',
+    };
+  }
+
+  // Staff Portal Guide
+  if (role !== 'AGENT' && /\b(?:application\s+directory|staff\s+guide|application\s+portal)\b/i.test(text)) {
+    return {
+      targetPage: 'Application Directory',
+      label: 'Go to Application Directory',
+      description: 'Look up submission portals (EDVOY, SI-UK, UAP, CRIZAC) and school guidance statuses for counselors.',
+    };
+  }
+
+  // Agent Portal
+  if (role === 'AGENT' && /\b(?:agent\s+commissions|agent\s+portal|agent\s+rates)\b/i.test(text)) {
+    return {
+      targetPage: 'Agent Commissions',
+      label: 'Go to Agent Commissions',
+      description: 'Browse guaranteed sub-agent payout rates and currency conversion tools.',
+    };
+  }
+
+  return null;
+}
+
 function findLevel(text: string): ChatIntent['level'] {
   if (/\b(post\s*grad|postgraduate|master'?s|msc|phd|doctoral)\b/i.test(text)) return 'PG';
   if (/\b(under\s*grad|undergraduate|bachelor'?s|bsc)\b/i.test(text)) return 'UG';

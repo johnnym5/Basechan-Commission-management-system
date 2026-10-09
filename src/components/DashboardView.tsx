@@ -223,7 +223,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
         </div>
 
         {/* Bento Grid KPI Section - Secondary Dark Blue Cards in Dark Mode */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
           {/* Total Rates Card */}
           <div className="bg-white dark:bg-[#0E1526] p-3.5 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-[#222F43] shadow-xs hover:shadow-xl hover:-translate-y-1 transition-all duration-300 ease-out flex flex-col justify-between space-y-2 sm:space-y-3 group">
             <div className="flex items-center justify-between">

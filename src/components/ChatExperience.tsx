@@ -40,16 +40,9 @@ import {
 } from '../services/localRateDatabase';
 import { isQuotaOffline, subscribeToFirestoreMode } from '../services/firestoreOfflineMode';
 import { AgentAccessGate } from './AgentAccessGate';
-import { Bell, Check, Heart, History, Loader2, Plus, Send, Star, X, AlertTriangle } from 'lucide-react';
+import { Bell, Check, Heart, History, Loader2, Plus, Send, Star, X, AlertTriangle, Compass } from 'lucide-react';
 import { ChatUtilityPanel, type ChatUtilityPanelKind } from './ChatUtilityPanel';
 import './ChatExperience.css';
-
-const EMPTY_CHAT_PROMPTS = [
-  'Ask me about any school.',
-  'Find schools by country, level, or intake.',
-  'Compare the routes available to you.',
-  'Explore schools marked Focus.',
-];
 
 export function selectSchoolResultRates(rates: CommissionRate[], schoolId: string): CommissionRate[] {
   return rates.filter((rate) => rate.universityId === schoolId);
@@ -68,6 +61,8 @@ interface ChatExperienceProps {
   dashboardFilters?: DashboardFilters;
   onDashboardFiltersChange?: (filters: DashboardFilters) => void;
   onViewDashboard?: () => void;
+  onNavigatePage?: (page: string) => void;
+  onOpenModal?: (modal: 'upload' | 'addRate' | 'migrateIntake' | 'auditLog' | 'legal') => void;
 }
 
 const shortDate = (value: string) => new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -102,7 +97,6 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
   const [profile, setProfile] = useState<AgentChatProfile | null>(null);
   const [favorites, setFavorites] = useState<FavoriteSchool[]>([]);
   const [input, setInput] = useState('');
-  const [welcomePromptIndex, setWelcomePromptIndex] = useState(0);
   const [welcomePromptVisible, setWelcomePromptVisible] = useState(true);
   const [activePanel, setActivePanel] = useState<'chat' | 'results'>('chat');
   const [utilityPanel, setUtilityPanel] = useState<ChatUtilityPanelKind | null>(null);
@@ -238,7 +232,6 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
       if (document.visibilityState === 'visible') {
         setWelcomePromptVisible(false);
         revealTimeout = window.setTimeout(() => {
-          setWelcomePromptIndex((current) => (current + 1) % EMPTY_CHAT_PROMPTS.length);
           setWelcomePromptVisible(true);
         }, 180);
       }
@@ -631,7 +624,10 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
 
           {messages.map((message) => (
             <React.Fragment key={message.id}>
-              <ChatBubble message={message} onContinue={submitPrompt} />
+              <ChatBubble
+                message={message}
+                onContinue={submitPrompt}
+              />
               {message.role === 'assistant' && Boolean(message.resultRates?.length) && (
                 <InlineResultPreview message={message} role={role} favorites={favorites} onFavorite={(rate) => void toggleFavorite(rate)} onOpen={() => openMessageResults(message)} onOpenSchool={(schoolId) => openMessageResults(message, schoolId)} onOpenSchools={() => openMessageSchoolResults(message)} onViewDashboard={onViewDashboard} />
               )}
@@ -695,9 +691,35 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
   );
 };
 
-const ChatBubble: React.FC<{ message: ChatMessage; onContinue: (reply: string) => void }> = ({ message, onContinue }) => (
+const ChatBubble: React.FC<{
+  message: ChatMessage;
+  onContinue: (reply: string) => void;
+  onNavigatePage?: (page: string) => void;
+  onOpenModal?: (modal: 'upload' | 'addRate' | 'migrateIntake' | 'auditLog' | 'legal') => void;
+}> = ({ message, onContinue, onNavigatePage, onOpenModal }) => (
   <div className={`chat-message ${message.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}`}>
     <p className="whitespace-pre-wrap">{message.text}</p>
+
+    {/* Navigation Action Button Trigger */}
+    {Boolean(message.role === 'assistant' && message.navigationAction) && (
+      <div className="mt-3 pt-2 border-t border-slate-700/60 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            if (message.navigationAction?.targetPage && onNavigatePage) {
+              onNavigatePage(message.navigationAction.targetPage);
+            }
+            if (message.navigationAction?.targetModal && onOpenModal) {
+              onOpenModal(message.navigationAction.targetModal);
+            }
+          }}
+          className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+        >
+          <Compass className="w-4 h-4 text-blue-200" />
+          <span>{message.navigationAction?.label}</span>
+        </button>
+      </div>
+    )}
 
     {/* Staged Command Confirmation Box */}
     {Boolean(message.role === 'assistant' && message.stagedCommand) && (

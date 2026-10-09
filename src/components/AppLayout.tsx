@@ -682,6 +682,18 @@ export const AppLayout: React.FC = () => {
             setCurrentPage('Dashboard');
             window.setTimeout(() => document.getElementById('dashboard-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
           }}
+          onNavigatePage={(page) => {
+            setIsChatOpen(false);
+            setCurrentPage(page);
+          }}
+          onOpenModal={(modal) => {
+            setIsChatOpen(false);
+            if (modal === 'upload') setIsUploadModalOpen(true);
+            if (modal === 'addRate') setIsAddRateModalOpen(true);
+            if (modal === 'migrateIntake') setIsMigrateModalOpen(true);
+            if (modal === 'auditLog') setIsAuditLogsOpen(true);
+            if (modal === 'legal') setIsLegalModalOpen(true);
+          }}
         />
       </ChatAssistantLauncher>
 

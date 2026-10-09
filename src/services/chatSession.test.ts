@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildNextFilterPrompt, createInitialChatState, generatePersonalizedGreeting, getAvailableChatFacets, processChatTurn, buildContextualSuggestions } from './chatSession';
+import { buildNextFilterPrompt, createInitialChatState, generatePersonalizedGreeting, getAvailableChatFacets, processChatTurn } from './chatSession';
 import type { CommissionRate } from '../types';
 
 vi.mock('./chatPersistence', () => ({ MAX_QUERIES_PER_MINUTE: 10, MAX_QUERIES_PER_SESSION: 50, PREFERENCE_LEARNING_THRESHOLD: 10 }));
