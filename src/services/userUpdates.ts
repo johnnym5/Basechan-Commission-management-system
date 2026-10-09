@@ -105,6 +105,24 @@ export function buildUserUpdateNotice(
   };
 }
 
+export function getFavoriteSchoolUpdates(updates: UserUpdate[], favoriteSchoolIds: string[]): UserUpdate[] {
+  if (!updates.length || !favoriteSchoolIds.length) return [];
+  const normalizedFavs = favoriteSchoolIds.map((id) => id.trim().toLowerCase()).filter(Boolean);
+  if (!normalizedFavs.length) return [];
+
+  return updates.filter((update) => {
+    if (update.affectedSchoolIds?.length) {
+      const hasAffectedMatch = update.affectedSchoolIds.some((id) =>
+        favoriteSchoolIds.includes(id) || normalizedFavs.includes(id.trim().toLowerCase())
+      );
+      if (hasAffectedMatch) return true;
+    }
+    const titleLower = (update.title || '').toLowerCase();
+    const summaryLower = (update.summary || '').toLowerCase();
+    return normalizedFavs.some((favId) => titleLower.includes(favId) || summaryLower.includes(favId));
+  });
+}
+
 export async function publishRelevantUpdates(change: UpdateChange): Promise<PublishUpdateResult> {
   assertFirestoreWritesAllowed('Activity updates');
   const [requestSnapshot, usersSnapshot] = await Promise.all([

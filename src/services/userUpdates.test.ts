@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CommissionRate } from '../types';
-import { buildUserUpdateNotice, filterUpdateRatesForRole, selectUpdateRecipients } from './userUpdates';
+import type { CommissionRate, UserUpdate } from '../types';
+import { buildUserUpdateNotice, filterUpdateRatesForRole, getFavoriteSchoolUpdates, selectUpdateRecipients } from './userUpdates';
 
 const rates: CommissionRate[] = [
   { id: 'visible', universityId: 'school-1', universityName: 'Visible School', intake: 'Sept 2027', sourceSheet: 'Public', studyLevel: 'PG', aggregator: 'Route', masterRate: 20, agentRate: 12, diffMargin: 8, isFlatFee: false, netOrGross: 'GROSS' },
@@ -51,5 +51,48 @@ describe('role-safe update fanout', () => {
     expect(staff).toMatchObject({ id: 'op-safe-staff', affectedSchoolIds: ['school-1', 'school-2'], changedSchoolCount: 2 });
     expect(JSON.stringify(agent)).not.toMatch(/agentRate|masterRate|diffMargin|aggregator|Private Route/);
     expect(JSON.stringify(staff)).not.toMatch(/agentRate|masterRate|diffMargin|aggregator|Private Route/);
+  });
+});
+
+describe('getFavoriteSchoolUpdates', () => {
+  const sampleUpdates: UserUpdate[] = [
+    {
+      id: 'update-1',
+      title: 'Leicester rates updated',
+      summary: 'Commission rate updated for Leicester.',
+      type: 'rates',
+      createdAt: '2026-10-09T10:00:00.000Z',
+      isRead: false,
+      affectedSchoolIds: ['uni-leicester'],
+    },
+    {
+      id: 'update-2',
+      title: 'Coventry University update',
+      summary: 'Intake guidance updated.',
+      type: 'guidance',
+      createdAt: '2026-10-09T11:00:00.000Z',
+      isRead: false,
+      affectedSchoolIds: [],
+    },
+    {
+      id: 'update-3',
+      title: 'Oxford rates updated',
+      summary: 'Oxford rate change.',
+      type: 'rates',
+      createdAt: '2026-10-09T12:00:00.000Z',
+      isRead: false,
+      affectedSchoolIds: ['uni-oxford'],
+    },
+  ];
+
+  it('filters updates matching favorited school IDs via affectedSchoolIds or title/summary', () => {
+    const result = getFavoriteSchoolUpdates(sampleUpdates, ['uni-leicester', 'Coventry']);
+    expect(result.map((u) => u.id)).toEqual(['update-1', 'update-2']);
+  });
+
+  it('returns empty array when no favorites match or inputs are empty', () => {
+    expect(getFavoriteSchoolUpdates(sampleUpdates, ['uni-cambridge'])).toEqual([]);
+    expect(getFavoriteSchoolUpdates([], ['uni-leicester'])).toEqual([]);
+    expect(getFavoriteSchoolUpdates(sampleUpdates, [])).toEqual([]);
   });
 });

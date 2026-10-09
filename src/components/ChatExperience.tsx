@@ -39,6 +39,7 @@ import {
   saveLocalFavorite,
 } from '../services/localRateDatabase';
 import { isQuotaOffline, subscribeToFirestoreMode } from '../services/firestoreOfflineMode';
+import { getFavoriteSchoolUpdates } from '../services/userUpdates';
 import { AgentAccessGate } from './AgentAccessGate';
 import { Bell, Check, Heart, History, Loader2, Plus, Send, Star, X, AlertTriangle, Compass } from 'lucide-react';
 import { ChatUtilityPanel, type ChatUtilityPanelKind } from './ChatUtilityPanel';
@@ -347,11 +348,57 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
     return () => { mounted = false; };
   }, [user?.uid, cloudSyncRevision, cloudUsageRevision, localOnly]);
 
+  const favoriteSchoolIds = useMemo(() => favorites.map((f) => f.universityId), [favorites]);
+  const favoriteSchoolUpdates = useMemo(
+    () => getFavoriteSchoolUpdates(updates, favoriteSchoolIds),
+    [updates, favoriteSchoolIds]
+  );
+  const unreadFavoriteUpdates = useMemo(
+    () => favoriteSchoolUpdates.filter((item) => !item.isRead),
+    [favoriteSchoolUpdates]
+  );
+
+  const favSchoolAlertName = useMemo(() => {
+    if (!unreadFavoriteUpdates.length) return '';
+    const firstUpdate = unreadFavoriteUpdates[0];
+    const matchedFav = favorites.find(
+      (f) =>
+        firstUpdate.affectedSchoolIds?.includes(f.universityId) ||
+        firstUpdate.title.toLowerCase().includes(f.universityId.toLowerCase()) ||
+        firstUpdate.summary.toLowerCase().includes(f.universityId.toLowerCase()) ||
+        (f.universityName &&
+          (firstUpdate.title.toLowerCase().includes(f.universityName.toLowerCase()) ||
+            firstUpdate.summary.toLowerCase().includes(f.universityName.toLowerCase())))
+    );
+    if (matchedFav?.universityName) return matchedFav.universityName;
+    const rateMatch = rates.find((r) => firstUpdate.affectedSchoolIds?.includes(r.universityId));
+    if (rateMatch?.universityName) return rateMatch.universityName;
+    return 'your favorited school';
+  }, [unreadFavoriteUpdates, favorites, rates]);
+
   useEffect(() => {
     if (!user || updates.length === 0 || notice) return;
+    if (unreadFavoriteUpdates.length > 0) {
+      const firstUpdate = unreadFavoriteUpdates[0];
+      const matchedFav = favorites.find(
+        (f) =>
+          firstUpdate.affectedSchoolIds?.includes(f.universityId) ||
+          firstUpdate.title.toLowerCase().includes(f.universityId.toLowerCase()) ||
+          firstUpdate.summary.toLowerCase().includes(f.universityId.toLowerCase()) ||
+          (f.universityName &&
+            (firstUpdate.title.toLowerCase().includes(f.universityName.toLowerCase()) ||
+              firstUpdate.summary.toLowerCase().includes(f.universityName.toLowerCase())))
+      );
+      const name = matchedFav?.universityName || rates.find((r) => firstUpdate.affectedSchoolIds?.includes(r.universityId))?.universityName;
+      setNotice(name ? `Rates for your favorited school (${name}) were updated!` : 'Rates for your favorited school were updated!');
+      return;
+    }
     const unread = updates.filter((item) => !item.isRead);
-    if (unread.length > 0) setNotice(`${unread.length} update${unread.length === 1 ? '' : 's'} since your last visit: ${unread.slice(0, 3).map((item) => item.title).join('; ')}`);
-  }, [user, updates, notice]);
+    if (unread.length > 0)
+      setNotice(
+        `${unread.length} update${unread.length === 1 ? '' : 's'} since your last visit: ${unread.slice(0, 3).map((item) => item.title).join('; ')}`
+      );
+  }, [user, updates, unreadFavoriteUpdates, favorites, rates, notice]);
 
   const unreadUpdates = updates.filter((item) => !item.isRead);
   const contextualSuggestions = useMemo(() => buildContextualSuggestions({ ...session, favorites }, rates, role), [session, favorites, rates, role]);
@@ -486,13 +533,29 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
 
   const openUpdate = async (update: UserUpdate) => {
     setActivePanel('results');
-    setSelectedResults(rates.filter((rate) => update.affectedSchoolIds?.includes(rate.universityId)));
+    let matched = rates.filter((rate) => update.affectedSchoolIds?.includes(rate.universityId));
+    if (!matched.length) {
+      const matchedFavIds = favorites
+        .filter(
+          (f) =>
+            update.title.toLowerCase().includes(f.universityId.toLowerCase()) ||
+            update.summary.toLowerCase().includes(f.universityId.toLowerCase()) ||
+            (f.universityName &&
+              (update.title.toLowerCase().includes(f.universityName.toLowerCase()) ||
+                update.summary.toLowerCase().includes(f.universityName.toLowerCase())))
+        )
+        .map((f) => f.universityId);
+      if (matchedFavIds.length) {
+        matched = rates.filter((rate) => matchedFavIds.includes(rate.universityId));
+      }
+    }
+    setSelectedResults(matched);
     setVisibleResultCount(24);
     if (localOnly) return;
     if (!user || update.isRead) return;
     try {
       await markUpdateRead(user.uid, update.id);
-      onUpdatesChange((current) => current.map((item) => item.id === update.id ? { ...item, isRead: true } : item));
+      onUpdatesChange((current) => current.map((item) => (item.id === update.id ? { ...item, isRead: true } : item)));
       setNotice('');
     } catch (readError) {
       setError(readError instanceof Error ? `This update is still unread: ${readError.message}` : 'This update is still unread because it could not be marked read.');
@@ -584,6 +647,29 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
 
         <div className="chat-transcript">
           {error && <div role="alert" className="chat-error">{error}</div>}
+          {unreadFavoriteUpdates.length > 0 && (
+            <div
+              role="region"
+              aria-label="Favorite school update alert"
+              className="chat-favorite-alert mb-3 p-3.5 rounded-2xl bg-amber-500/15 border border-amber-400/40 text-amber-900 dark:text-amber-200 text-xs flex flex-wrap items-center justify-between gap-2 shadow-xs"
+            >
+              <div className="flex items-center gap-2 font-semibold">
+                <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
+                <span>
+                  {favSchoolAlertName === 'your favorited school'
+                    ? 'Rates for your favorited school were updated!'
+                    : `Rates for your favorited school (${favSchoolAlertName}) were updated!`}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void openUpdate(unreadFavoriteUpdates[0])}
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold rounded-xl transition cursor-pointer shrink-0"
+              >
+                View updated school
+              </button>
+            </div>
+          )}
           {startingOptions && activePanel === 'chat' && messages.length === 0 && (
             <section className="chat-resume-card">
               <p className="font-bold">Welcome back. Continue where you stopped?</p>

@@ -355,6 +355,37 @@ describe('chat search results flow', () => {
     }));
     expect(await screen.findByRole('button', { name: 'PG routes · Leicester University' })).toBeTruthy();
   });
+
+  it('renders a highlight alert for unread favorite school rate changes and views the school in 1 click', async () => {
+    const favorite = { id: 'fav-1', universityId: 'uni-leicester', universityName: 'Leicester University', createdAt: '2026-10-09T10:00:00.000Z' };
+    mocks.getLocalFavorites.mockResolvedValue([favorite]);
+    const favoriteUpdate = {
+      id: 'update-fav',
+      title: 'Rates updated for Leicester University',
+      summary: 'Commission rate updated for Leicester.',
+      type: 'rates' as const,
+      createdAt: '2026-10-09T12:00:00.000Z',
+      isRead: false,
+      affectedSchoolIds: ['uni-leicester'],
+    };
+    const onUpdatesChange = vi.fn();
+
+    render(React.createElement(ChatExperience, {
+      rates: [rate({ universityId: 'uni-leicester', universityName: 'Leicester University' })],
+      loading: false,
+      role: 'AGENT',
+      updates: [favoriteUpdate],
+      onUpdatesChange,
+    }));
+
+    expect(await screen.findByText(/Rates for your favorited school \(Leicester University\) were updated!/i)).toBeTruthy();
+
+    const viewButton = screen.getByRole('button', { name: /View updated school/i });
+    fireEvent.click(viewButton);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Compare selected' })).toBeTruthy());
+    expect(onUpdatesChange).toHaveBeenCalled();
+  });
 });
 
 describe('dashboard filter handoff', () => {
