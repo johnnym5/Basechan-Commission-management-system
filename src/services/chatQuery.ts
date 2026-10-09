@@ -151,7 +151,8 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
   const aggregatorTerms = aggregatorMatches.exact;
   const suggestedAggregators = aggregatorMatches.suggested;
   const exactIntakeTerms = sanitizeChatInput(input).match(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/gi) || [];
-  const intakeMatches = exactIntakeTerms.length ? { exact: [], suggested: [] } : matchLocalNames(text, knownIntakes);
+  const containsYearRangeText = /\b20\d{2}\s*(?:[-–—]|to|through|and)\s*20\d{2}\b/i.test(text);
+  const intakeMatches = exactIntakeTerms.length || containsYearRangeText ? { exact: [], suggested: [] } : matchLocalNames(text, knownIntakes);
   const intakeSuggestions = intakeMatches.suggested;
   const minimumMatch = canReadPayout ? text.match(/\b(?:at least|minimum|min|over|above|more than|greater than|>=?)\s*[£$]?\s*(\d+(?:\.\d+)?)\s*(%|percent)?/i) : null;
   const maximumMatch = canReadPayout ? text.match(/\b(?:up to|maximum|max|under|below|less than|fewer than|<=?)\s*[£$]?\s*(\d+(?:\.\d+)?)\s*(%|percent)?/i) : null;
@@ -334,13 +335,17 @@ export function buildClarifyingQuestions(intent: ChatIntent): string[] {
   if (intent.outOfScope) return ['I can help find and compare Basechan schools, guidance, intakes, and role-appropriate rates. What would you like to search?'];
   const questions: string[] = [];
   if (intent.invalidIntakeYearRange) questions.push('The start year must be before the end year. Which intake year range should I use?');
+  if (intent.suggestedAggregators.length) questions.push(intent.suggestedAggregators.length === 1
+    ? `Did you mean ${intent.suggestedAggregators[0]}? Choose it to apply the aggregator filter.`
+    : `Which aggregator did you mean: ${intent.suggestedAggregators.join(', ')}?`);
+  if (intent.intakeSuggestions.length) questions.push(intent.intakeSuggestions.length === 1
+    ? `Did you mean the ${intent.intakeSuggestions[0]} intake? Choose it to apply the intake filter.`
+    : `Which intake did you mean: ${intent.intakeSuggestions.join(', ')}?`);
   if (intent.unsupportedMetric) questions.push(intent.unsupportedMetric === 'payout ranking'
     ? 'Payout rankings aren’t available for your role. I can filter by country, level, intake, or Focus guidance. Which would help?'
     : `I can’t rank schools by ${intent.unsupportedMetric} because that information isn’t in the local database. I can filter by country, level, intake, Focus guidance${intent.unsupportedMetric === 'conversion rate' ? '' : ', or available rates'}. What would you like to use?`);
   if (intent.rankingUnclear) questions.push('What should “best” mean for this search? Choose a supported option such as Focus schools, highest available payout, or a specific country, level, or intake.');
-  if (intent.quantity === 'schools' && intent.countryTerms.length > 0 && !intent.level && !intent.intakeTerms.length && !intent.scopeSelection) {
-    questions.push('Should I count schools across all available intakes and study levels, or narrow the count to a specific intake or level?');
-  } else if (intent.quantity === 'schools' && intent.scopeSelection === 'intake' && !intent.intakeTerms.length) {
+  if (intent.quantity === 'schools' && intent.scopeSelection === 'intake' && !intent.intakeTerms.length) {
     questions.push('Which available intake should I use?');
   } else if (intent.quantity === 'schools' && intent.scopeSelection === 'level' && !intent.level) {
     questions.push('Which study level should I use: Foundation, Undergraduate, or Postgraduate?');
