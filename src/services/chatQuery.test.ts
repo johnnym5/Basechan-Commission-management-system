@@ -92,6 +92,14 @@ describe('natural language chat query', () => {
     expect(filterRatesByIntent(rates.map((rate) => ({ ...rate, country: 'UK' })), intent).map((rate) => rate.id)).toEqual(['1']);
   });
 
+  it('expands UK country aliases to constituent country labels in the local data', () => {
+    const countryLabels = ['England', 'Scotland', 'Wales', 'Northern Ireland'];
+    const intent = parseChatIntent('how many schools are in UK?', [], countryLabels);
+    const ukRates = countryLabels.map((country, index) => ({ ...rates[0], id: `uk-${index}`, universityId: `uk-${index}`, country }));
+    expect(intent.countryTerms).toEqual(countryLabels);
+    expect(filterRatesByIntent(ukRates, intent)).toHaveLength(4);
+  });
+
   it('filters by agent payout, fee type, and descending or ascending payout', () => {
     const intent = parseChatIntent('show schools paying at least 11 percent, highest paying', rates.map((rate) => rate.universityName));
     expect(intent).toMatchObject({ rateMinimum: 11, feeType: 'PERCENTAGE', sortBy: 'rate_desc', needsSchool: false });
@@ -161,6 +169,14 @@ describe('natural language chat query', () => {
     const schools = rates.map((rate) => rate.universityName);
     expect(parseChatIntent('how many schools are in UK?', schools, ['UK'])).toMatchObject({ quantity: 'schools', countryTerms: ['UK'], needsSchool: false, outOfScope: false });
     expect(parseChatIntent('how many routes dey for UK?', schools, ['UK'])).toMatchObject({ quantity: 'routes', countryTerms: ['UK'], needsSchool: false, outOfScope: false });
+  });
+
+  it('asks for intake and level scope before counting an unqualified country query', () => {
+    const intent = parseChatIntent('how many schools are in UK?', rates.map((rate) => rate.universityName), ['UK']);
+    expect(buildClarifyingQuestions(intent).join(' ')).toMatch(/all available intakes and study levels/i);
+    expect(parseChatIntent('how many schools in UK across all available intakes and levels', [], ['UK'])).toMatchObject({ scopeSelection: 'all' });
+    expect(parseChatIntent('how many schools in UK choose an intake', [], ['UK'])).toMatchObject({ scopeSelection: 'intake' });
+    expect(parseChatIntent('how many schools in UK general', [], ['UK'])).toMatchObject({ scopeSelection: 'all' });
   });
 
   it('recognizes latest and earliest intake ranking requests', () => {

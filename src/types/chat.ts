@@ -8,7 +8,7 @@ export interface ChatMessage {
   resultIds?: string[];
   status?: 'sent' | 'clarifying' | 'results';
   clarification?: {
-    field: 'school' | 'country' | 'level' | 'intake' | 'intent' | 'ranking';
+    field: 'school' | 'country' | 'level' | 'intake' | 'scope' | 'intent' | 'ranking';
     choices: Array<{ label: string; value: string }>;
   };
   resultRates?: Array<{
@@ -34,6 +34,8 @@ export interface ChatSearchIntent {
   guidance?: 'FOCUS' | 'ALLOWED' | 'DO_NOT_USE';
   guidances?: Array<'FOCUS' | 'ALLOWED' | 'DO_NOT_USE'>;
   intakeOrder?: 'latest' | 'earliest';
+  quantity?: 'schools' | 'routes';
+  scopeSelection?: 'all' | 'intake' | 'level';
   aggregatorTerms: string[];
   rateMinimum?: number;
   rateMaximum?: number;
@@ -44,7 +46,7 @@ export interface ChatSearchIntent {
 }
 
 export interface PendingChatClarification {
-  field: 'school' | 'country' | 'level' | 'intake' | 'intent' | 'ranking';
+  field: 'school' | 'country' | 'level' | 'intake' | 'scope' | 'intent' | 'ranking';
   prompt: string;
   choices: Array<{ label: string; value: string }>;
 }

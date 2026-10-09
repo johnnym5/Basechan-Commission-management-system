@@ -66,6 +66,58 @@ describe('chat session query policy', () => {
     expect(result.matchingRates.map((rate) => rate.intake)).toEqual(['Jan 2027']);
   });
 
+  it('clarifies the count scope and counts distinct schools across every intake and level when selected', () => {
+    const countryRates = [
+      { ...rates[0], country: 'UK' },
+      { ...rates[1], country: 'UK' },
+      { ...rates[0], id: 'a-pg-sept', intake: 'Sept 2027', country: 'UK' },
+      { ...rates[0], id: 'b-pg', universityId: 'b', universityName: 'Bristol University', country: 'UK' },
+    ];
+    const first = processChatTurn(createInitialChatState('u1'), 'How many schools are in UK?', countryRates, 1_000);
+    expect(first.clarificationQuestions.join(' ')).toMatch(/all available intakes and study levels/i);
+    expect(first.matchingRates).toEqual([]);
+    expect(first.state.conversation.pendingClarification?.choices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'All available intakes and levels' }),
+      expect.objectContaining({ label: 'Choose an intake' }),
+      expect.objectContaining({ label: 'Choose a study level' }),
+    ]));
+
+    const answer = processChatTurn(first.state, 'all available intakes and levels', countryRates, 2_000);
+    expect(answer.matchingRates).toHaveLength(4);
+    expect(answer.state.conversation.messages.at(-1)?.text).toMatch(/2 schools in your available UK data across all available intakes and all study levels/i);
+  });
+
+  it('offers available intake choices and counts unique schools after the user narrows the scope', () => {
+    const countryRates = [
+      { ...rates[0], country: 'UK' },
+      { ...rates[1], country: 'UK' },
+      { ...rates[0], id: 'a-pg-sept', intake: 'Sept 2027', country: 'UK' },
+      { ...rates[0], id: 'b-pg', universityId: 'b', universityName: 'Bristol University', country: 'UK' },
+    ];
+    const first = processChatTurn(createInitialChatState('u1'), 'How many schools are in UK?', countryRates, 1_000);
+    const chooseIntake = processChatTurn(first.state, 'choose an intake', countryRates, 2_000);
+    expect(chooseIntake.state.conversation.pendingClarification?.choices.map(({ label }) => label)).toContain('Jan 2027');
+
+    const answer = processChatTurn(chooseIntake.state, 'Jan 2027', countryRates, 3_000);
+    expect(new Set(answer.matchingRates.map((rate) => rate.universityId))).toEqual(new Set(['a', 'b']));
+    expect(answer.state.conversation.messages.at(-1)?.text).toMatch(/2 schools in your available UK data for Jan 2027/i);
+  });
+
+  it('asks for a study level when the user narrows a country count by level', () => {
+    const countryRates = [
+      { ...rates[0], country: 'UK' },
+      { ...rates[1], country: 'UK' },
+      { ...rates[0], id: 'b-ug', universityId: 'b', universityName: 'Bristol University', studyLevel: 'UG' as const, country: 'UK' },
+    ];
+    const first = processChatTurn(createInitialChatState('u1'), 'How many schools are in UK?', countryRates, 1_000);
+    const chooseLevel = processChatTurn(first.state, 'choose a study level', countryRates, 2_000);
+    expect(chooseLevel.state.conversation.pendingClarification?.choices.map(({ label }) => label)).toEqual(['Foundation', 'Undergraduate', 'Postgraduate']);
+
+    const answer = processChatTurn(chooseLevel.state, 'Undergraduate', countryRates, 3_000);
+    expect(new Set(answer.matchingRates.map((rate) => rate.universityId))).toEqual(new Set(['a', 'b']));
+    expect(answer.state.conversation.messages.at(-1)?.text).toMatch(/2 schools in your available UK data at UG level/i);
+  });
+
   it('limits comparison results to a shared intake and level', () => {
     const comparable = [rates[0], { ...rates[0], id: 'b-pg', universityId: 'b', universityName: 'Bristol University', agentRate: 20 }];
     const result = processChatTurn(createInitialChatState('u1'), 'Compare Aberdeen University and Bristol University postgraduate', comparable, new Date('2026-10-01T00:00:00.000Z').getTime());
@@ -121,9 +173,8 @@ describe('chat session query policy', () => {
       { ...rates[1], id: 'b-ug', universityId: 'b', universityName: 'Bristol University', country: 'UK' },
     ];
     const result = processChatTurn(createInitialChatState('u1'), 'how many schools are in UK?', UKRates, 1_000, 'AGENT');
-    expect(result.matchingRates).toHaveLength(3);
-    expect(result.state.conversation.messages[1].text).toMatch(/2 schools in UK/i);
-    expect(result.clarificationQuestions).toEqual([]);
+    expect(result.matchingRates).toHaveLength(0);
+    expect(result.clarificationQuestions.join(' ')).toMatch(/all available intakes and study levels/i);
   });
 
   it('counts routes rather than unique schools when asked how many routes match', () => {

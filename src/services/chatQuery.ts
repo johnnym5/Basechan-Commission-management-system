@@ -12,6 +12,7 @@ export interface ChatIntent {
   guidance?: 'FOCUS' | 'ALLOWED' | 'DO_NOT_USE';
   guidances?: Array<'FOCUS' | 'ALLOWED' | 'DO_NOT_USE'>;
   intakeOrder?: 'latest' | 'earliest';
+  scopeSelection?: 'all' | 'intake' | 'level';
   needsLevel: boolean;
   needsSchool: boolean;
   ambiguousSchools: string[];
@@ -83,8 +84,13 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
   const normalizedCountries = Array.from(new Set(knownCountries.filter(Boolean)));
   const directCountries = normalizedCountries.filter((country) => includesPhrase(text, country));
   const aliasCountries = normalizedCountries.filter((country) => (countryAliases[country.toLowerCase()] || []).some((alias) => includesPhrase(text, alias)));
-  const countryTerms = Array.from(new Set(directCountries.length ? directCountries : aliasCountries));
-  const countryMentions = normalizedCountries.flatMap((country) => [country, ...(countryAliases[country.toLowerCase()] || [])]).filter((term) => includesPhrase(text, term));
+  const requestsUnitedKingdom = ['united kingdom', 'uk', 'u.k.', 'britain', 'great britain'].some((alias) => includesPhrase(text, alias));
+  const unitedKingdomLabels = ['united kingdom', 'uk', 'u.k.', 'britain', 'great britain', 'england', 'scotland', 'wales', 'northern ireland'];
+  const countryTerms = Array.from(new Set(requestsUnitedKingdom
+    ? [...directCountries, ...aliasCountries, ...normalizedCountries.filter((country) => unitedKingdomLabels.includes(country.toLowerCase()))]
+    : directCountries.length ? directCountries : aliasCountries));
+  const countryMentions = [...normalizedCountries.flatMap((country) => [country, ...(countryAliases[country.toLowerCase()] || [])]).filter((term) => includesPhrase(text, term)),
+    ...(requestsUnitedKingdom ? ['united kingdom', 'uk', 'u.k.', 'britain', 'great britain'] : [])];
   const canReadPayout = role !== 'STAFF';
   const canReadRouting = role !== 'AGENT';
   const aggregatorTerms = canReadRouting ? Array.from(new Set(knownAggregators.filter((aggregator) => aggregator && includesPhrase(text, aggregator)))) : [];
@@ -108,6 +114,13 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     : /\b(?:lowest|earliest|oldest|first)\b.{0,32}\bintakes?\b|\bintakes?\b.{0,32}\b(?:lowest|earliest|oldest|first)\b/i.test(text)
       ? 'earliest'
       : undefined;
+  const scopeSelection: ChatIntent['scopeSelection'] = /\b(?:general|overall|everything|all of them|all available)\b|\b(?:all|every)\s+(?:available\s+)?(?:intakes?\s+and\s+(?:study\s+)?levels?|routes?|schools?)\b|\b(?:all|every)\s+(?:study\s+)?levels?\s+and\s+(?:available\s+)?intakes?\b/i.test(text)
+    ? 'all'
+    : /\b(?:choose\s+(?:(?:a|an)\s+)?(?:specific\s+)?intake|specific\s+intake|particular\s+intake)\b/i.test(text)
+      ? 'intake'
+      : /\b(?:choose\s+(?:(?:a|an)\s+)?(?:specific\s+)?(?:study\s+)?level|specific\s+(?:study\s+)?level|particular\s+(?:study\s+)?level)\b/i.test(text)
+        ? 'level'
+        : undefined;
   const rankingUnclear = !intakeOrder && /\b(best|top|recommended|recommend|highest|lowest|largest|smallest)\b/i.test(text)
     && !/\b(highest payout|highest paying|lowest payout|lowest paying|top paying|best paying|largest payout|smallest payout)\b/i.test(text);
   const unsupportedMetric = !canReadPayout && /\b(highest|lowest|top|best)\b.{0,24}\b(payout|paying|commission|rate)\b/i.test(text)
@@ -130,7 +143,7 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
   const level = findLevel(text);
   const explicitBroadSearch = /\b(?:all|any|every|available|active|listed|partner)\s+(?:available\s+|active\s+|listed\s+|partner\s+)?(?:schools?|universit(?:y|ies)|institutions?|routes?)\b|\b(?:show|list|find)\s+(?:me\s+)?everything\b/i.test(text);
   const scrubbed = schoolText
-    .replace(/\b(?:how|many|number|count|which|what|do|does|they|their|is|are|have|currently|current|presently|compare|versus|vs|difference|between|show|find|list|search|school|schools|university|universities|institution|institutions|route|routes|record|records|entry|entries|rate|rates|commission|commissions|payout|paying|paid|flat|fee|fixed|percentage|percent|highest|lowest|latest|earliest|newest|oldest|last|first|largest|smallest|top|bottom|best|fastest|processing|time|conversion|success|minimum|min|maximum|max|least|more|less|greater|than|above|below|over|under|at|up|to|from|with|without|same|also|instead|this|that|these|those|it|sort|by|for|me|please|want|need|help|check|all|any|every|available|active|listed|partner|name|two|three|four|the|a|an|and|in|on|of|focus|preferred|priority|avoid|restricted|do not use|allowed|permitted|foundation|fd|undergrad(?:uate)?|bachelor'?s|bsc|post\s*grad(?:uate)?|master'?s|msc|phd|doctoral|level|intake|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter|20\d{2})\b/gi, ' ')
+    .replace(/\b(?:how|many|number|count|which|what|do|does|they|their|is|are|have|currently|current|presently|compare|versus|vs|difference|between|show|find|list|search|school|schools|university|universities|institution|institutions|route|routes|record|records|entry|entries|rate|rates|commission|commissions|payout|paying|paid|flat|fee|fixed|percentage|percent|highest|lowest|latest|earliest|newest|oldest|last|first|largest|smallest|top|bottom|best|fastest|processing|time|conversion|success|minimum|min|maximum|max|least|more|less|greater|than|above|below|over|under|at|up|to|from|with|without|same|also|instead|this|that|these|those|it|sort|by|for|me|please|want|need|help|check|choose|specific|particular|general|overall|everything|them|all|any|every|available|active|listed|partner|name|two|three|four|the|a|an|and|in|on|of|study|focus|preferred|priority|avoid|restricted|do not use|allowed|permitted|foundation|fd|undergrad(?:uate)?|bachelor'?s|bsc|post\s*grad(?:uate)?|master'?s|msc|phd|doctoral|levels?|intakes?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter|20\d{2})\b/gi, ' ')
     .replace(/\b\d+(?:\.\d+)?\b|[£$%>=]+/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ').trim();
     
@@ -177,6 +190,7 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     quantity,
     guidances,
     intakeOrder,
+    scopeSelection,
   };
 }
 
@@ -238,6 +252,13 @@ export function buildClarifyingQuestions(intent: ChatIntent): string[] {
     ? 'Payout rankings aren’t available for your role. I can filter by country, level, intake, or Focus guidance. Which would help?'
     : `I can’t rank schools by ${intent.unsupportedMetric} because that information isn’t in the local database. I can filter by country, level, intake, Focus guidance${intent.unsupportedMetric === 'conversion rate' ? '' : ', or available rates'}. What would you like to use?`);
   if (intent.rankingUnclear) questions.push('What should “best” mean for this search? Choose a supported option such as Focus schools, highest available payout, or a specific country, level, or intake.');
+  if (intent.quantity === 'schools' && intent.countryTerms.length > 0 && !intent.level && !intent.intakeTerms.length && !intent.scopeSelection) {
+    questions.push('Should I count schools across all available intakes and study levels, or narrow the count to a specific intake or level?');
+  } else if (intent.quantity === 'schools' && intent.scopeSelection === 'intake' && !intent.intakeTerms.length) {
+    questions.push('Which available intake should I use?');
+  } else if (intent.quantity === 'schools' && intent.scopeSelection === 'level' && !intent.level) {
+    questions.push('Which study level should I use: Foundation, Undergraduate, or Postgraduate?');
+  }
   if (intent.needsLevel) questions.push('Which study level should I use: Foundation, Undergraduate, or Postgraduate?');
   if (intent.ambiguousSchools.length) questions.push(`I found ${intent.ambiguousSchools.length} schools; which four or fewer should I include: ${intent.ambiguousSchools.join(', ')}?`);
   if (intent.unmatchedSchoolLikeTerms.length) questions.push(intent.suggestedSchools.length
