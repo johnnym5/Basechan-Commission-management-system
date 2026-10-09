@@ -60,6 +60,12 @@ interface MasterTableProps {
   onExternalGuidanceChange?: (g: SchoolGuidance | 'ALL') => void;
   externalAggregatorFilter?: string;
   onExternalAggregatorChange?: (agg: string) => void;
+  externalCountryFilter?: string;
+  onExternalCountryChange?: (country: string) => void;
+  externalLevelFilter?: StudyLevel | 'ALL';
+  onExternalLevelChange?: (level: StudyLevel | 'ALL') => void;
+  externalIntakeFilter?: string;
+  onExternalIntakeChange?: (intake: string) => void;
 }
 
 const COMMON_AGGREGATORS = ['SI-UK', 'EDVOY', 'UAP', 'CRIZAC', 'BASECHAN', 'Direct'];
@@ -375,6 +381,12 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   onExternalGuidanceChange,
   externalAggregatorFilter,
   onExternalAggregatorChange,
+  externalCountryFilter,
+  onExternalCountryChange,
+  externalLevelFilter,
+  onExternalLevelChange,
+  externalIntakeFilter,
+  onExternalIntakeChange,
 }) => {
   const { user } = useAuth();
   const [sorting, setSorting] = useState<SortingState>([
@@ -403,11 +415,17 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const [sharingRate, setSharingRate] = useState<CommissionRate | null>(null);
 
   const [internalSearchQuery, setInternalSearchQuery] = useState<string>('');
-  const [selectedIntake, setSelectedIntake] = useState<string>('ALL');
-  const [selectedLevel, setSelectedLevel] = useState<StudyLevel | 'ALL'>('ALL');
-  const [selectedCountry, setSelectedCountry] = useState<string>('ALL');
+  const [internalIntake, setInternalIntake] = useState<string>('ALL');
+  const [internalLevel, setInternalLevel] = useState<StudyLevel | 'ALL'>('ALL');
+  const [internalCountry, setInternalCountry] = useState<string>('ALL');
   const [internalGuidanceFilter, setInternalGuidanceFilter] = useState<SchoolGuidance | 'ALL'>('ALL');
   const [internalAggregatorFilter, setInternalAggregatorFilter] = useState<string>('ALL');
+  const selectedIntake = externalIntakeFilter ?? internalIntake;
+  const selectedLevel = externalLevelFilter ?? internalLevel;
+  const selectedCountry = externalCountryFilter ?? internalCountry;
+  const setSelectedIntake = (value: string) => { setInternalIntake(value); onExternalIntakeChange?.(value); };
+  const setSelectedLevel = (value: StudyLevel | 'ALL') => { setInternalLevel(value); onExternalLevelChange?.(value); };
+  const setSelectedCountry = (value: string) => { setInternalCountry(value); onExternalCountryChange?.(value); };
   const [batchActionLoading, setBatchActionLoading] = useState(false);
 
   // Sync external search query when passed

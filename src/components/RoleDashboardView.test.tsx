@@ -30,5 +30,20 @@ describe('RoleDashboardView', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /clear all filters/i })[0]);
     expect(onChange).toHaveBeenCalledWith(createEmptyDashboardFilters());
   });
+  it('Staff filter changes update the shared filter object', () => {
+    const onChange = vi.fn();
+    renderView('STAFF', staff, createEmptyDashboardFilters(), onChange);
+    fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'UK' } });
+    expect(onChange).toHaveBeenCalledWith({ ...createEmptyDashboardFilters(), countries: ['UK'] });
+  });
+  it('active filter chips reflect controlled state', () => {
+    renderView('STAFF', staff, { ...createEmptyDashboardFilters(), countries: ['UK'] });
+    expect(screen.getByText('Country: UK')).toBeInTheDocument();
+  });
+  it('clear all filters resets all role-specific fields', () => {
+    const onChange = vi.fn();
+    renderView('AGENT', agent, { ...createEmptyDashboardFilters(), countries: ['UK'], agentPayoutKind: 'FLAT_FEE', payoutMinimum: 100 }, onChange);
+    fireEvent.click(screen.getAllByRole('button', { name: /clear all filters/i })[0]);
+    expect(onChange).toHaveBeenCalledWith(createEmptyDashboardFilters());
+  });
 });
-

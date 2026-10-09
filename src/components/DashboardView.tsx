@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { CommissionRate, SchoolGuidance } from '../types';
+import type { DashboardFilters } from '../types/dashboard';
+import { createEmptyDashboardFilters } from '../services/dashboardFilters';
 import { MasterTable } from './MasterTable';
 import { DashboardShell } from './DashboardShell';
 import {
@@ -25,6 +27,8 @@ interface DashboardViewProps {
   loading: boolean;
   readOnly?: boolean;
   onEditRate: (rate: CommissionRate) => void;
+  filters?: DashboardFilters;
+  onFiltersChange?: (filters: DashboardFilters) => void;
 }
 
 interface AggregatorStat {
@@ -35,11 +39,20 @@ interface AggregatorStat {
   topUniMargin: number;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, onEditRate, readOnly = false }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, onEditRate, readOnly = false, filters, onFiltersChange }) => {
   // Active Filter states passed down to MasterTable
   const [activeSearchQuery, setActiveSearchQuery] = useState<string>('');
   const [activeGuidanceFilter, setActiveGuidanceFilter] = useState<SchoolGuidance | 'ALL'>('ALL');
   const [activeAggregatorFilter, setActiveAggregatorFilter] = useState<string>('ALL');
+  const controlledFilters = filters ?? {
+    ...createEmptyDashboardFilters(), query: activeSearchQuery,
+    guidances: activeGuidanceFilter === 'ALL' ? [] : [activeGuidanceFilter],
+    aggregators: activeAggregatorFilter === 'ALL' ? [] : [activeAggregatorFilter],
+  };
+  const changeFilters = (patch: Partial<DashboardFilters>) => onFiltersChange?.({ ...controlledFilters, ...patch });
+  const changeSearch = (value: string) => { setActiveSearchQuery(value); changeFilters({ query: value }); };
+  const changeGuidance = (value: SchoolGuidance | 'ALL') => { setActiveGuidanceFilter(value); changeFilters({ guidances: value === 'ALL' ? [] : [value] }); };
+  const changeAggregator = (value: string) => { setActiveAggregatorFilter(value); changeFilters({ aggregators: value === 'ALL' ? [] : [value] }); };
 
   // Mobile Collapsible Summary Accordion (Closed by default on mobile so user accesses Master Table without scrolling)
   const [isSummaryOpenMobile, setIsSummaryOpenMobile] = useState<boolean>(false);
@@ -54,24 +67,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
 
   const handleFilterBySchool = (schoolName: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    setActiveSearchQuery(schoolName);
+    changeSearch(schoolName);
     scrollToTable();
   };
 
   const handleFilterByGuidance = (guidance: SchoolGuidance) => {
     if (activeGuidanceFilter === guidance) {
-      setActiveGuidanceFilter('ALL');
+      changeGuidance('ALL');
     } else {
-      setActiveGuidanceFilter(guidance);
+      changeGuidance(guidance);
       scrollToTable();
     }
   };
 
   const handleFilterByAggregator = (aggName: string) => {
     if (activeAggregatorFilter === aggName) {
-      setActiveAggregatorFilter('ALL');
+      changeAggregator('ALL');
     } else {
-      setActiveAggregatorFilter(aggName);
+      changeAggregator(aggName);
       scrollToTable();
     }
   };
@@ -80,6 +93,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
     setActiveSearchQuery('');
     setActiveGuidanceFilter('ALL');
     setActiveAggregatorFilter('ALL');
+    onFiltersChange?.(createEmptyDashboardFilters());
   };
 
   // KPI Calculations
@@ -452,12 +466,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
           loading={loading}
           readOnly={readOnly}
           onEditRate={onEditRate}
-          externalSearchQuery={activeSearchQuery}
-          onExternalSearchChange={setActiveSearchQuery}
-          externalGuidanceFilter={activeGuidanceFilter}
-          onExternalGuidanceChange={setActiveGuidanceFilter}
-          externalAggregatorFilter={activeAggregatorFilter}
-          onExternalAggregatorChange={setActiveAggregatorFilter}
+          externalSearchQuery={controlledFilters.query}
+          onExternalSearchChange={changeSearch}
+          externalGuidanceFilter={controlledFilters.guidances[0] as SchoolGuidance | undefined || 'ALL'}
+          onExternalGuidanceChange={changeGuidance}
+          externalAggregatorFilter={controlledFilters.aggregators[0] || 'ALL'}
+          onExternalAggregatorChange={changeAggregator}
+          externalCountryFilter={controlledFilters.countries[0] || 'ALL'}
+          onExternalCountryChange={value => changeFilters({ countries: value === 'ALL' ? [] : [value] })}
+          externalLevelFilter={controlledFilters.levels[0] as CommissionRate['studyLevel'] | undefined || 'ALL'}
+          onExternalLevelChange={value => changeFilters({ levels: value === 'ALL' ? [] : [value] })}
+          externalIntakeFilter={controlledFilters.intakes[0] || 'ALL'}
+          onExternalIntakeChange={value => changeFilters({ intakes: value === 'ALL' ? [] : [value] })}
         />
       </section>
     </div>
