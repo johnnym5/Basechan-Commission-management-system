@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { updateRate, deleteRates } from '../services/adminRateWriteService';
 import { useAuth } from '../context/AuthContext';
 import type { CommissionRate, StudyLevel, SchoolGuidance } from '../types';
 import { generateCompositeId } from '../utils/idGenerator';
 import { X, Save, Trash2, AlertCircle } from 'lucide-react';
+import { PredictiveInput } from './PredictiveInput';
+import { COMMON_AGGREGATORS } from '../constants/aggregators';
 
 interface EditRateModalProps {
   rate: CommissionRate | null;
+  existingRates: CommissionRate[];
   isOpen: boolean;
   onClose: () => void;
   onSaved?: (updatedRate: CommissionRate) => void;
@@ -15,6 +18,7 @@ interface EditRateModalProps {
 
 export const EditRateModal: React.FC<EditRateModalProps> = ({
   rate,
+  existingRates,
   isOpen,
   onClose,
   onSaved,
@@ -31,6 +35,10 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
   const [loading, setLoading] = useState<boolean>(false);
   const [deleting, setDeleting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const { aggregatorOptions, intakeOptions } = useMemo(() => ({
+    aggregatorOptions: Array.from(new Set([...COMMON_AGGREGATORS, ...existingRates.map((item) => item.aggregator), rate?.aggregator || ''].filter(Boolean))).sort(),
+    intakeOptions: Array.from(new Set([...existingRates.map((item) => item.intake), rate?.intake || ''].filter(Boolean))).sort(),
+  }), [existingRates, rate]);
 
   useEffect(() => {
     if (rate) {
@@ -156,31 +164,8 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Aggregator / Route
-              </label>
-              <input
-                type="text"
-                value={aggregator}
-                onChange={(e) => setAggregator(e.target.value)}
-                className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 font-semibold"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Intake
-              </label>
-              <input
-                type="text"
-                value={intake}
-                onChange={(e) => setIntake(e.target.value)}
-                className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 dark:border-[#222F43] rounded-xl bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 font-semibold"
-                required
-              />
-            </div>
+            <PredictiveInput label="Aggregator / Route" required value={aggregator} onChange={setAggregator} options={aggregatorOptions} placeholder="Search or enter an aggregator..." />
+            <PredictiveInput label="Intake" required value={intake} onChange={setIntake} options={intakeOptions} placeholder="Search or enter an intake..." />
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4">

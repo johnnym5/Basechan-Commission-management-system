@@ -727,6 +727,7 @@ export const AppLayout: React.FC = () => {
         <>
           <EditRateModal
             rate={editingRate}
+            existingRates={rates}
             isOpen={isEditModalOpen}
             onClose={() => {
               setIsEditModalOpen(false);
