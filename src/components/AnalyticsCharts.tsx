@@ -145,7 +145,7 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({ rates }) => {
                     <span className="font-bold text-slate-800 dark:text-slate-200">{agg.name}</span>
                     <div className="flex items-center gap-3">
                       <span className="text-slate-400 font-mono text-[11px]">{agg.count} rates</span>
-                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">+{agg.avgDiff}% avg</span>
+                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{agg.avgDiff}% avg</span>
                     </div>
                   </div>
                   <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden flex items-center">
@@ -233,7 +233,7 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({ rates }) => {
                 <div className="shrink-0 text-right">
                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                     <TrendingUp className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                    +{rate.diffMargin}{rate.isFlatFee ? '£' : '%'}
+                    {rate.diffMargin}{rate.isFlatFee ? '£' : '%'}
                   </span>
                 </div>
               </div>

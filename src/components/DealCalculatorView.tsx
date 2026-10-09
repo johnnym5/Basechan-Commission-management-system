@@ -129,7 +129,7 @@ export const DealCalculatorView: React.FC<DealCalculatorViewProps> = ({ rates })
                 >
                   {availableRatesForUni.map((r) => (
                     <option key={r.id} value={r.id}>
-                      {r.aggregator} • {r.intake} • {r.studyLevel} (Margin: +{r.diffMargin}{r.isFlatFee ? '£' : '%'})
+                      {r.aggregator} • {r.intake} • {r.studyLevel} (Margin: {r.diffMargin}{r.isFlatFee ? '£' : '%'})
                     </option>
                   ))}
                 </select>
@@ -207,7 +207,7 @@ export const DealCalculatorView: React.FC<DealCalculatorViewProps> = ({ rates })
                     <p className="font-bold">Higher Margin Route Available!</p>
                     <p>
                       Submitting via <strong className="underline">{betterRoute.aggregator}</strong> yields a profit margin of{' '}
-                      <strong className="text-emerald-700 dark:text-emerald-400 font-mono">+{betterRoute.diffMargin}{betterRoute.isFlatFee ? '£' : '%'}</strong> compared to active route (+{activeRate.diffMargin}{activeRate.isFlatFee ? '£' : '%'}).
+                      <strong className="text-emerald-700 dark:text-emerald-400 font-mono">{betterRoute.diffMargin}{betterRoute.isFlatFee ? '£' : '%'}</strong> compared to active route ({activeRate.diffMargin}{activeRate.isFlatFee ? '£' : '%'}).
                     </p>
                     <button
                       onClick={() => setSelectedRateId(betterRoute.id)}
@@ -254,7 +254,7 @@ export const DealCalculatorView: React.FC<DealCalculatorViewProps> = ({ rates })
                     £{totalNetProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </p>
                   <p className="text-[11px] text-emerald-800 dark:text-emerald-400 font-mono font-bold">
-                    +{activeRate.diffMargin}{activeRate.isFlatFee ? '£' : '%'} margin
+                    {activeRate.diffMargin}{activeRate.isFlatFee ? '£' : '%'} margin
                   </p>
                 </div>
               </div>

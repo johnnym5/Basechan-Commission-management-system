@@ -30,6 +30,13 @@ export const GRAMMAR_LEXICON = {
     'focus', 'preferred', 'priority', 'green', 'allowed', 'permitted',
     'restricted', 'avoid', 'do not use', 'red'
   ]),
+
+  // Filter Reset & Chat Clearing Commands
+  FILTER_RESET_VERBS: new Set([
+    'remove filter', 'clear filter', 'reset filter', 'drop filter',
+    'clear all filters', 'reset all filters', 'remove all filters',
+    'reset chat', 'clear chat', 'clear messages', 'start fresh', 'restart chat'
+  ]),
 };
 
 const phraseAliases: Array<[RegExp, string]> = [

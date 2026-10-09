@@ -3,6 +3,7 @@ import type { CommissionRate } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { ensureRoleRateModelMigration } from '../../services/rateReadModels';
 import { AuditLogsDrawer } from '../AuditLogsDrawer';
+import { DatabaseExplorer } from './DatabaseExplorer';
 import {
   ShieldCheck,
   RefreshCw,
@@ -58,6 +59,29 @@ export const DataHealthTab: React.FC<DataHealthTabProps> = ({ rates, onRefreshRa
           </button>
         </div>
       )}
+
+      {/* Database Explorer Section */}
+      <div className="space-y-4">
+        <div className="p-5 rounded-3xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] shadow-sm space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-blue-600 dark:text-amber-400" />
+              <h3 className="font-extrabold text-base text-slate-900 dark:text-slate-100">
+                Interactive Database Explorer
+              </h3>
+            </div>
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-blue-100 dark:bg-amber-950 text-blue-800 dark:text-amber-300">
+              CRUD & BATCH MANAGEMENT
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            Inspect, search, and manage all database collections in real-time. Select document cards to perform batch guidance marking, field edits, bulk deletions, or inspect raw JSON payloads.
+          </p>
+        </div>
+
+        <DatabaseExplorer rates={rates} onRefreshRates={onRefreshRates} />
+      </div>
 
       {/* Role Projection Rebuild Card */}
       <div className="p-5 rounded-3xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] shadow-sm space-y-4">

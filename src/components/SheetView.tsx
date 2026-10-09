@@ -81,7 +81,7 @@ export const SheetView: React.FC<SheetViewProps> = ({ sheetName, rates, loading,
               Top Margin
             </p>
             <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-mono">
-              +{bestMargin > 0 ? `${bestMargin}%` : '0%'}
+              {bestMargin > 0 ? `${bestMargin}%` : '0%'}
             </p>
           </div>
           <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-xl">
@@ -95,7 +95,7 @@ export const SheetView: React.FC<SheetViewProps> = ({ sheetName, rates, loading,
               Avg % Margin
             </p>
             <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1 font-mono">
-              +{averageMargin}%
+              {averageMargin}%
             </p>
           </div>
           <div className="p-3 bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 rounded-xl">

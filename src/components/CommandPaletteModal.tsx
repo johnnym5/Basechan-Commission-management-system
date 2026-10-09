@@ -186,7 +186,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
                   </div>
 
                   <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
-                    +{r.diffMargin}{r.isFlatFee ? '£' : '%'}
+                    {r.diffMargin}{r.isFlatFee ? '£' : '%'}
                   </span>
                 </button>
               ))}

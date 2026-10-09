@@ -243,7 +243,6 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
                   : 'text-slate-600 dark:text-slate-400'
               }`}
             >
-              {diffMargin > 0 ? '+' : ''}
               {isFlatFee ? `£${diffMargin.toLocaleString()}` : `${diffMargin}%`}
             </span>
           </div>

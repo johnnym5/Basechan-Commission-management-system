@@ -329,6 +329,163 @@ export function processChatTurn(
     };
   }
 
+  // Handle Chat Reset / Restart Command
+  if (/\b(?:reset|clear|restart)\s+(?:chat|messages|transcript)\b|\bstart\s+fresh\b/i.test(submittedValue)) {
+    const userMsg = createMessage('user', submittedValue, 'sent');
+    const assistantMsg = createMessage(
+      'assistant',
+      'Chat transcript reset. What can I help you find today? I can search schools, compare routes, and check intakes or agent rates.',
+      'sent'
+    );
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          title: 'New chat',
+          updatedAt: new Date(now).toISOString(),
+          messages: [userMsg, assistantMsg],
+          activeIntake: undefined,
+          activeLevel: undefined,
+          activeSchoolIds: undefined,
+          searchIntent: undefined,
+          pendingClarification: undefined,
+        },
+        queryTimestamps: [...state.queryTimestamps.filter((t) => now - t < 60_000), now],
+        queryCount: state.queryCount + 1,
+      },
+      matchingRates: [],
+      clarificationQuestions: [],
+    };
+  }
+
+  // Handle Global Filter Reset Command
+  if (/\b(?:reset|clear|remove|drop)\s+(?:all\s+)?filters\b/i.test(submittedValue) && !/\b(?:for|on)\s+[a-z]+/i.test(submittedValue)) {
+    const userMsg = createMessage('user', submittedValue, 'sent');
+    const assistantMsg = createMessage(
+      'assistant',
+      '✓ All active search filters cleared. What would you like to search?',
+      'sent'
+    );
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          activeIntake: undefined,
+          activeLevel: undefined,
+          activeSchoolIds: undefined,
+          searchIntent: undefined,
+          pendingClarification: undefined,
+          messages: [...state.conversation.messages, userMsg, assistantMsg],
+          updatedAt: new Date(now).toISOString(),
+        },
+        queryTimestamps: [...state.queryTimestamps.filter((t) => now - t < 60_000), now],
+        queryCount: state.queryCount + 1,
+      },
+      matchingRates: [],
+      clarificationQuestions: [],
+    };
+  }
+
+  // Handle Selective Filter Removal Command
+  const removeFilterMatch = submittedValue.match(/\b(?:remove|clear|drop)\s+(?:all\s+)?filters?\s+(?:for\s+)?([^]+)\b/i)
+    || submittedValue.match(/\b(?:remove|clear|drop)\s+([^]+?)\s+filters?\b/i);
+
+  if (removeFilterMatch) {
+    const targetText = removeFilterMatch[1].toLowerCase();
+    const previousIntent = state.conversation.searchIntent || { schoolIds: [], compare: false, compareSchoolIds: [] };
+    const removedDimensions: string[] = [];
+
+    const newIntent = { ...previousIntent };
+    let newActiveLevel = state.conversation.activeLevel;
+    let newActiveIntake = state.conversation.activeIntake;
+    let newActiveSchoolIds = state.conversation.activeSchoolIds;
+
+    if (/\b(level|study\s+level|undergraduate|postgraduate|foundation)\b/.test(targetText)) {
+      delete newIntent.level;
+      newActiveLevel = undefined;
+      removedDimensions.push('study level');
+    }
+    if (/\b(intake|year|intake\s+year)\b/.test(targetText)) {
+      delete newIntent.intake;
+      delete newIntent.intakeYearRange;
+      newActiveIntake = undefined;
+      removedDimensions.push('intake');
+    }
+    if (/\b(country|countries|location)\b/.test(targetText)) {
+      delete newIntent.country;
+      newIntent.countryTerms = [];
+      removedDimensions.push('country');
+    }
+    if (/\b(aggregator|aggregators|portal|portals)\b/.test(targetText)) {
+      newIntent.aggregatorTerms = [];
+      removedDimensions.push('aggregator');
+    }
+    if (/\b(guidance|status)\b/.test(targetText)) {
+      delete newIntent.guidance;
+      newIntent.guidances = [];
+      removedDimensions.push('guidance');
+    }
+    if (/\b(school|schools|university|universities)\b/.test(targetText)) {
+      newIntent.schoolIds = [];
+      newActiveSchoolIds = undefined;
+      removedDimensions.push('school');
+    }
+
+    const removedStr = removedDimensions.length > 0 ? removedDimensions.join(' and ') : 'specified';
+    const remainingRates = filterRatesByIntent(rates, {
+      schoolTerms: (newIntent.schoolIds || []).flatMap(id => rates.filter(r => r.universityId === id).map(r => r.universityName)),
+      intakeTerms: newIntent.intake ? [newIntent.intake] : [],
+      level: newIntent.level,
+      compare: newIntent.compare,
+      guidance: newIntent.guidance,
+      guidances: newIntent.guidances,
+      countryTerms: newIntent.countryTerms || (newIntent.country ? [newIntent.country] : []),
+      aggregatorTerms: newIntent.aggregatorTerms || [],
+      needsLevel: false,
+      needsSchool: false,
+      ambiguousSchools: [],
+      unmatchedSchoolLikeTerms: [],
+      suggestedSchools: [],
+      outOfScope: false,
+      suggestedAggregators: [],
+      intakeSuggestions: [],
+      broadSearch: true,
+      rankingUnclear: false,
+      feeTypeUnclear: false,
+    });
+
+    const userMessage = createMessage('user', submittedValue, 'sent');
+    const assistantMessage = createMessage(
+      'assistant',
+      `✓ Removed ${removedStr} filter. Showing ${remainingRates.length} matching routes.`,
+      'results',
+      remainingRates.map(r => r.id),
+      remainingRates,
+      role
+    );
+
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          activeLevel: newActiveLevel,
+          activeIntake: newActiveIntake,
+          activeSchoolIds: newActiveSchoolIds,
+          searchIntent: newIntent,
+          messages: [...state.conversation.messages, userMessage, assistantMessage],
+          updatedAt: new Date(now).toISOString(),
+        },
+        queryTimestamps: [...state.queryTimestamps.filter((t) => now - t < 60_000), now],
+        queryCount: state.queryCount + 1,
+      },
+      matchingRates: remainingRates,
+      clarificationQuestions: [],
+    };
+  }
+
   const pendingClarification = state.conversation.pendingClarification;
   const selectedChoice = pendingClarification?.choices.find((choice) => choice.value.toLowerCase() === submittedValue.toLowerCase() || choice.label.toLowerCase() === submittedValue.toLowerCase());
   const input = pendingClarification?.field === 'school' && selectedChoice ? selectedChoice.label : submittedValue;

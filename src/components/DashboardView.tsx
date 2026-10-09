@@ -205,7 +205,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
                     <Award className="w-3.5 h-3.5" /> Best Profit Route
                   </span>
                   <span className="font-mono text-amber-400 font-bold">
-                    +{bestRate.diffMargin}{bestRate.isFlatFee ? '£' : '%'}
+                    {bestRate.diffMargin}{bestRate.isFlatFee ? '£' : '%'}
                   </span>
                 </div>
                 <div>
@@ -277,7 +277,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
             </div>
             <div>
               <p className="text-xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
-                +{bestRate ? `${bestRate.diffMargin}${bestRate.isFlatFee ? '£' : '%'}` : '0%'}
+                {bestRate ? `${bestRate.diffMargin}${bestRate.isFlatFee ? '£' : '%'}` : '0%'}
               </p>
               <p className="text-[10px] sm:text-[11px] text-slate-400 dark:text-slate-400 mt-0.5 sm:mt-1 flex items-center gap-1 font-medium truncate">
                 <ArrowUpRight className="w-3 h-3 text-emerald-500 dark:text-emerald-400 shrink-0" />
@@ -298,7 +298,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
             </div>
             <div>
               <p className="text-xl sm:text-3xl font-extrabold text-slate-900 dark:text-slate-100 font-mono tracking-tight">
-                +{averageMargin}%
+                {averageMargin}%
               </p>
               <p className="text-[10px] sm:text-[11px] text-slate-400 dark:text-slate-400 mt-0.5 sm:mt-1 flex items-center gap-1 font-medium truncate">
                 <span>Percent rates</span>
@@ -392,7 +392,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
                     <div>
                       <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">Avg Margin</p>
                       <p className="text-lg sm:text-xl font-extrabold font-mono text-emerald-600 dark:text-amber-400 mt-0.5">
-                        +{agg.avgDiff}%
+                        {agg.avgDiff}%
                       </p>
                     </div>
 
@@ -404,7 +404,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
                       className="pt-1.5 sm:pt-2 border-t border-slate-200/80 dark:border-[#222F43] text-[10px] sm:text-[11px] text-slate-600 dark:text-slate-400 truncate text-left hover:text-blue-600 dark:hover:text-amber-400 transition cursor-pointer flex items-center justify-between gap-1"
                     >
                       <span className="truncate">Top: <strong className="text-slate-800 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-amber-400">{agg.topUni}</strong></span>
-                      <span className="font-mono text-slate-400 dark:text-slate-500 shrink-0">(+{agg.topUniMargin})</span>
+                      <span className="font-mono text-slate-400 dark:text-slate-500 shrink-0">({agg.topUniMargin})</span>
                     </button>
 
                     {isSelected && (

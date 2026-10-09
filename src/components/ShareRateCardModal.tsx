@@ -57,7 +57,7 @@ export const ShareRateCardModal: React.FC<ShareRateCardModalProps> = ({
 
     if (isAdmin && includeMaster) {
       text += `Incoming Master Rate: ${masterRateFormatted}\n`;
-      text += `Net Profit Margin: +${marginFormatted}\n`;
+      text += `Net Profit Margin: ${marginFormatted}\n`;
     }
 
     text += `--------------------------------------\n`;
@@ -158,7 +158,7 @@ export const ShareRateCardModal: React.FC<ShareRateCardModalProps> = ({
       context.fillText('PROFIT MARGIN', 620, 520);
       context.fillStyle = '#34d399';
       context.font = '700 24px ui-monospace, monospace';
-      context.fillText(`+${marginFormatted}`, 620, 564);
+      context.fillText(`${marginFormatted}`, 620, 564);
     }
 
     context.strokeStyle = '#28354a';
@@ -350,7 +350,7 @@ export const ShareRateCardModal: React.FC<ShareRateCardModalProps> = ({
                 </div>
                 <div className="p-2 bg-emerald-950/60 rounded-xl border border-emerald-800">
                   <span className="text-emerald-300 block font-bold uppercase">Profit Margin</span>
-                  <span className="font-mono font-bold text-emerald-400 text-xs">+{marginFormatted}</span>
+                  <span className="font-mono font-bold text-emerald-400 text-xs">{marginFormatted}</span>
                 </div>
               </div>
             )}

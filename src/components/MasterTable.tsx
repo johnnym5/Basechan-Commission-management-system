@@ -299,7 +299,7 @@ const GroupRoutesModal: React.FC<{
                 Recommended Top Yield Route:
               </span>
               <span className="font-mono font-black text-sm text-amber-600 dark:text-amber-400">
-                +{formatCurrencyValue(group.bestRoute.diffMargin, currency, group.bestRoute.isFlatFee)} via {group.bestRoute.aggregator}
+                {formatCurrencyValue(group.bestRoute.diffMargin, currency, group.bestRoute.isFlatFee)} via {group.bestRoute.aggregator}
               </span>
             </div>
           )}
@@ -339,7 +339,7 @@ const GroupRoutesModal: React.FC<{
                     <div className="text-right">
                       <span className="text-[9px] font-bold uppercase text-slate-400 block">Profit Yield</span>
                       <span className="font-mono font-black text-emerald-600 dark:text-amber-400 text-sm">
-                        +{formatCurrencyValue(rate.diffMargin, currency, rate.isFlatFee)}
+                        {formatCurrencyValue(rate.diffMargin, currency, rate.isFlatFee)}
                       </span>
                     </div>
 
@@ -760,7 +760,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           const diff = info.getValue() as number;
           return (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-              +{formatCurrencyValue(diff, activeCurrency, row.isFlatFee)}
+              {formatCurrencyValue(diff, activeCurrency, row.isFlatFee)}
             </span>
           );
         },
@@ -923,7 +923,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
           <div className="flex items-center gap-1.5 shrink-0 ml-auto" onClick={(e) => e.stopPropagation()}>
             <span className="font-mono font-black text-xs text-emerald-600 dark:text-amber-400 mr-1">
-              +{formatCurrencyValue(rate.diffMargin, activeCurrency, rate.isFlatFee)}
+              {formatCurrencyValue(rate.diffMargin, activeCurrency, rate.isFlatFee)}
             </span>
 
             <button
@@ -1339,7 +1339,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                           <div className="flex flex-col">
                             <span className="text-[9px] font-bold text-slate-400 uppercase">Top Yield:</span>
                             <span className="font-mono font-black text-xs text-emerald-600 dark:text-amber-400">
-                              +{formatCurrencyValue(group.maxMargin, activeCurrency, group.bestRoute?.isFlatFee)}
+                              {formatCurrencyValue(group.maxMargin, activeCurrency, group.bestRoute?.isFlatFee)}
                             </span>
                           </div>
 

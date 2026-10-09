@@ -502,37 +502,47 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
   };
 
   const openMessageResults = (message: ChatMessage, schoolId?: string) => {
-    const sourceResults = (message.resultRates || []).filter((rate) => !schoolId || rate.universityId === schoolId);
-    const messageResults = sourceResults.map((rate) => ({
-      ...rate,
-      aggregator: rate.aggregator || '',
-      agentRate: rate.agentRate || 0,
-      masterRate: 0,
-      diffMargin: 0,
-      isFlatFee: rate.isFlatFee || false,
-      netOrGross: 'GROSS' as const,
-    }));
-    setSelectedResults(messageResults);
+    let matched = rates.filter((rate) => message.resultIds?.includes(rate.id));
+    if (schoolId) matched = matched.filter((rate) => rate.universityId === schoolId);
+    if (!matched.length && message.resultRates?.length) {
+      matched = message.resultRates.map((r) => ({
+        ...r,
+        aggregator: r.aggregator || '',
+        agentRate: r.agentRate || 0,
+        masterRate: 0,
+        diffMargin: 0,
+        isFlatFee: r.isFlatFee || false,
+        netOrGross: 'GROSS' as const,
+      }));
+      if (schoolId) matched = matched.filter((rate) => rate.universityId === schoolId);
+    }
+    if (!matched.length) return;
+    setSelectedResults(matched);
     setVisibleResultCount(24);
     setActivePanel('results');
     window.requestAnimationFrame(() => composerRef.current?.focus());
   };
 
   const openMessageSchoolResults = (message: ChatMessage) => {
-    const uniqueSchools = new Map<string, NonNullable<ChatMessage['resultRates']>[number]>();
-    for (const rate of message.resultRates || []) {
+    let matched = rates.filter((rate) => message.resultIds?.includes(rate.id));
+    if (!matched.length && message.resultRates?.length) {
+      matched = message.resultRates.map((r) => ({
+        ...r,
+        aggregator: r.aggregator || '',
+        agentRate: r.agentRate || 0,
+        masterRate: 0,
+        diffMargin: 0,
+        isFlatFee: r.isFlatFee || false,
+        netOrGross: 'GROSS' as const,
+      }));
+    }
+    if (!matched.length) return;
+    const uniqueSchools = new Map<string, CommissionRate>();
+    for (const rate of matched) {
       if (!uniqueSchools.has(rate.universityId)) uniqueSchools.set(rate.universityId, rate);
     }
-    const messageResults = Array.from(uniqueSchools.values()).map((rate) => ({
-      ...rate,
-      aggregator: rate.aggregator || '',
-      agentRate: rate.agentRate || 0,
-      masterRate: 0,
-      diffMargin: 0,
-      isFlatFee: rate.isFlatFee || false,
-      netOrGross: 'GROSS' as const,
-    }));
-    setSelectedResults(messageResults);
+    const schoolResults = Array.from(uniqueSchools.values());
+    setSelectedResults(schoolResults);
     setVisibleResultCount(24);
     setActivePanel('results');
     window.requestAnimationFrame(() => composerRef.current?.focus());
@@ -566,7 +576,10 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
           <div className="chat-header-actions">
             <button onClick={(event) => openUtilityPanel('favorites', event.currentTarget)} aria-expanded={utilityPanel === 'favorites'} aria-controls={utilityPanel ? 'chat-utility-panel' : undefined} aria-label={`Favorite schools, ${favorites.length}`} title="Favorite schools" className="chat-header-button"><Star className="h-4 w-4" /></button>
             <button onClick={(event) => openUtilityPanel('history', event.currentTarget)} aria-expanded={utilityPanel === 'history'} aria-controls={utilityPanel ? 'chat-utility-panel' : undefined} aria-label={`Chat history, ${conversations.length}`} title="Chat history" className="chat-header-button"><History className="h-4 w-4" /></button>
-            <button onClick={(event) => openUtilityPanel('activity', event.currentTarget)} aria-expanded={utilityPanel === 'activity'} aria-controls={utilityPanel ? 'chat-utility-panel' : undefined} aria-label={`Activity, ${unreadUpdates.length} unread`} title="Activity" className="chat-header-button chat-activity-button"><Bell className="h-4 w-4" />{unreadUpdates.length > 0 && <span className="chat-unread-dot" /></button>
+            <button onClick={(event) => openUtilityPanel('activity', event.currentTarget)} aria-expanded={utilityPanel === 'activity'} aria-controls={utilityPanel ? 'chat-utility-panel' : undefined} aria-label={`Activity, ${unreadUpdates.length} unread`} title="Activity" className="chat-header-button chat-activity-button">
+              <Bell className="h-4 w-4" />
+              {unreadUpdates.length > 0 && <span className="chat-unread-dot"></span>}
+            </button>
             <button onClick={startNewConversation} aria-label="Start new chat" title="New chat" className="chat-header-button"><Plus className="h-4 w-4" /></button>
           </div>
         </header>
@@ -677,67 +690,65 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
   );
 };
 
-const ChatBubble: React.FC<{ message: ChatMessage; onContinue: (reply: string) => void }> = ({ message, onContinue }) => {
-  return (
-    <div className={`chat-message ${message.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}`}>
-      <p className="whitespace-pre-wrap">{message.text}</p>
+const ChatBubble: React.FC<{ message: ChatMessage; onContinue: (reply: string) => void }> = ({ message, onContinue }) => (
+  <div className={`chat-message ${message.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}`}>
+    <p className="whitespace-pre-wrap">{message.text}</p>
 
-      {/* Staged Command Confirmation Box */}
-      {message.role === 'assistant' && message.stagedCommand && (
-        <div className="mt-3 p-3.5 rounded-2xl bg-amber-500/15 border border-amber-400/40 text-amber-900 dark:text-amber-200 text-xs space-y-2">
-          <div className="flex items-center gap-1.5 font-bold">
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-            <span>Confirm Administrative Action</span>
-          </div>
-          <p className="font-medium leading-relaxed">{message.stagedCommand.description}</p>
-          <div className="flex items-center gap-2 pt-1">
-            <button
-              onClick={() => onContinue(`CONFIRM_STAGED_${message.stagedCommand?.id}`)}
-              className="px-3 py-1.5 bg-amber-500 text-slate-950 font-extrabold rounded-xl hover:bg-amber-400 transition cursor-pointer shadow-xs"
-            >
-              Proceed & Execute
-            </button>
-            <button
-              onClick={() => onContinue('CANCEL_STAGED')}
-              className="px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold rounded-xl hover:bg-slate-300 dark:hover:bg-slate-700 transition cursor-pointer"
-            >
-              Cancel
-            </button>
-          </div>
+    {/* Staged Command Confirmation Box */}
+    {Boolean(message.role === 'assistant' && message.stagedCommand) && (
+      <div className="mt-3 p-3.5 rounded-2xl bg-amber-500/15 border border-amber-400/40 text-amber-900 dark:text-amber-200 text-xs space-y-2">
+        <div className="flex items-center gap-1.5 font-bold">
+          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+          <span>Confirm Administrative Action</span>
         </div>
-      )}
+        <p className="font-medium leading-relaxed">{message.stagedCommand?.description}</p>
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            onClick={() => onContinue(`CONFIRM_STAGED_${message.stagedCommand?.id}`)}
+            className="px-3 py-1.5 bg-amber-500 text-slate-950 font-extrabold rounded-xl hover:bg-amber-400 transition cursor-pointer shadow-xs"
+          >
+            Proceed & Execute
+          </button>
+          <button
+            onClick={() => onContinue('CANCEL_STAGED')}
+            className="px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold rounded-xl hover:bg-slate-300 dark:hover:bg-slate-700 transition cursor-pointer"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    )}
 
-      {/* Clarification Choices */}
-      {message.status === 'clarifying' && message.role === 'assistant' && message.clarification?.choices.length ? (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {message.clarification.choices.map(({ label, value }) => (
+    {/* Clarification Choices */}
+    {Boolean(message.status === 'clarifying' && message.role === 'assistant' && message.clarification?.choices.length) && (
+      <div className="mt-2 flex flex-wrap gap-2">
+        {message.clarification?.choices.map(({ label, value }) => (
+          <button key={`${label}-${value}`} onClick={() => onContinue(value)} className="chat-suggestion-button">
+            {label}
+          </button>
+        ))}
+      </div>
+    )}
+
+    {/* Follow up result filter */}
+    {Boolean(message.role === 'assistant' && message.followUpFilter) && (
+      <div className="mt-2" aria-label="Available result filters">
+        <p className="mb-2 text-xs text-slate-400">{message.followUpFilter?.question}</p>
+        <div className="flex flex-wrap gap-2">
+          {message.followUpFilter?.choices.map(({ label, value }) => (
             <button key={`${label}-${value}`} onClick={() => onContinue(value)} className="chat-suggestion-button">
               {label}
             </button>
           ))}
         </div>
-      ) : null}
+      </div>
+    )}
 
-      {/* Follow up result filter */}
-      {message.role === 'assistant' && message.followUpFilter && (
-        <div className="mt-2" aria-label="Available result filters">
-          <p className="mb-2 text-xs text-slate-400">{message.followUpFilter.question}</p>
-          <div className="flex flex-wrap gap-2">
-            {message.followUpFilter.choices.map(({ label, value }) => (
-              <button key={`${label}-${value}`} onClick={() => onContinue(value)} className="chat-suggestion-button">
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <p className="mt-1 text-[10px] text-slate-400">
-        {new Date(message.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-      </p>
-    </div>
-  );
-};
+    <p className="mt-1 text-[10px] text-slate-400">
+      {new Date(message.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+    </p>
+  </div>
+);
 
 const InlineResultPreview: React.FC<{ message: ChatMessage; role: 'STAFF' | 'AGENT' | 'ADMIN'; favorites: FavoriteSchool[]; onFavorite: (rate: CommissionRate) => void; onOpen: () => void; onOpenSchool: (schoolId: string) => void; onOpenSchools: () => void; onViewDashboard?: () => void }> = ({ message, role, favorites, onFavorite, onOpen, onOpenSchool, onOpenSchools, onViewDashboard }) => {
   const results = message.resultRates || [];
@@ -753,7 +764,7 @@ const InlineResultPreview: React.FC<{ message: ChatMessage; role: 'STAFF' | 'AGE
           {onViewDashboard ? (
             <button onClick={onViewDashboard} className="chat-primary-button" style={{ minHeight: 36, padding: '0 12px', fontSize: 11 }}>View on dashboard</button>
           ) : (
-            <button onClick={onOpen} className="chat-primary-button" style={{ minHeight: 36, padding: '0 12px', fontSize 11 }}>View on dashboard</button>
+            <button onClick={onOpen} className="chat-primary-button" style={{ minHeight: 36, padding: '0 12px', fontSize: 11 }}>View on dashboard</button>
           )}
         </div>
       </div>
