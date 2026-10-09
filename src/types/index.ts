@@ -9,6 +9,7 @@ export type {
   ChatPromptSuggestion,
   ChatSearchIntent,
   PendingChatClarification,
+  StagedCommand,
 } from './chat';
 
 export interface Organization {

@@ -5,6 +5,21 @@ export interface IntakeYearRange {
   endYear: number;
 }
 
+export interface StagedCommand {
+  id: string; // UUID
+  type: 'UPDATE_GUIDANCE' | 'UPDATE_ROUTE' | 'DISABLE_SHEET' | 'SET_DEFAULT_INTAKE' | 'CLONE_INTAKE' | 'MANAGE_ACCESS';
+  description: string; // e.g. "This action will set guidance to Focus for Leicester University across PG level."
+  targetEntities: {
+    schoolNames?: string[];
+    userEmail?: string;
+    intake?: string;
+    level?: StudyLevel;
+    newValue?: string;
+    affectedRole?: string;
+  };
+  payload: Record<string, any>;
+}
+
 export interface ChatFilterPrompt {
   field: 'intake' | 'intakeYearRange' | 'aggregator' | 'level' | 'guidance';
   question: string;
@@ -19,6 +34,7 @@ export interface ChatMessage {
   resultIds?: string[];
   status?: 'sent' | 'clarifying' | 'results';
   followUpFilter?: ChatFilterPrompt;
+  stagedCommand?: StagedCommand;
   clarification?: {
     field: 'school' | 'country' | 'level' | 'intake' | 'intakeYearRange' | 'aggregator' | 'guidance' | 'scope' | 'intent' | 'ranking' | 'payout';
     choices: Array<{ label: string; value: string }>;

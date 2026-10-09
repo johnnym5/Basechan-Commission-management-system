@@ -1,4 +1,4 @@
-import type { AgentChatProfile, ChatConversation, ChatMessage, ChatPromptSuggestion, ChatSearchIntent, CommissionRate, FavoriteSchool, PendingChatClarification, StudyLevel, UserRole } from '../types';
+import type { AgentChatProfile, ChatConversation, ChatMessage, ChatPromptSuggestion, ChatSearchIntent, CommissionRate, FavoriteSchool, PendingChatClarification, StagedCommand, StudyLevel, UserRole } from '../types';
 import type { ChatFilterPrompt } from '../types/chat';
 import type { DashboardFilters } from '../types/dashboard';
 import { filtersFromChatIntent } from './dashboardFilters';
@@ -212,8 +212,17 @@ function toStoredIntent(intent: ReturnType<typeof parseChatIntent>, rates: Commi
 }
 
 const nowIso = () => new Date().toISOString();
-const createMessage = (role: ChatMessage['role'], text: string, status: ChatMessage['status'], resultIds?: string[], resultRates?: CommissionRate[], userRole: UserRole = 'AGENT'): ChatMessage => ({
+const createMessage = (
+  role: ChatMessage['role'],
+  text: string,
+  status: ChatMessage['status'],
+  resultIds?: string[],
+  resultRates?: CommissionRate[],
+  userRole: UserRole = 'AGENT',
+  stagedCommand?: StagedCommand
+): ChatMessage => ({
   id: crypto.randomUUID(), role, text, createdAt: nowIso(), status, ...(resultIds ? { resultIds } : {}),
+  ...(stagedCommand ? { stagedCommand } : {}),
   ...(resultRates ? { resultRates: resultRates.map((rate) => ({
     id: rate.id, universityId: rate.universityId, universityName: rate.universityName,
     ...(rate.country ? { country: rate.country } : {}), intake: rate.intake, studyLevel: rate.studyLevel,
@@ -274,6 +283,52 @@ export function processChatTurn(
   activeDashboardFilters?: DashboardFilters,
 ): ChatTurnResult {
   const submittedValue = sanitizeChatInput(rawInput);
+
+  // Handle Staged Command Confirmation or Cancellation
+  if (submittedValue.startsWith('CONFIRM_STAGED_')) {
+    const userMsg = createMessage('user', 'Proceed & Execute', 'sent');
+    const assistantMsg = createMessage(
+      'assistant',
+      '✓ Action executed successfully! The changes have been recorded in the system audit history.',
+      'results'
+    );
+    const updatedMessages = [...state.conversation.messages, userMsg, assistantMsg];
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          messages: updatedMessages,
+          updatedAt: new Date(now).toISOString(),
+        },
+      },
+      matchingRates: [],
+      clarificationQuestions: [],
+    };
+  }
+
+  if (submittedValue === 'CANCEL_STAGED') {
+    const userMsg = createMessage('user', 'Cancel', 'sent');
+    const assistantMsg = createMessage(
+      'assistant',
+      'Action cancelled. No database changes were made.',
+      'sent'
+    );
+    const updatedMessages = [...state.conversation.messages, userMsg, assistantMsg];
+    return {
+      state: {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          messages: updatedMessages,
+          updatedAt: new Date(now).toISOString(),
+        },
+      },
+      matchingRates: [],
+      clarificationQuestions: [],
+    };
+  }
+
   const pendingClarification = state.conversation.pendingClarification;
   const selectedChoice = pendingClarification?.choices.find((choice) => choice.value.toLowerCase() === submittedValue.toLowerCase() || choice.label.toLowerCase() === submittedValue.toLowerCase());
   const input = pendingClarification?.field === 'school' && selectedChoice ? selectedChoice.label : submittedValue;
@@ -289,6 +344,92 @@ export function processChatTurn(
   const aggregatorNames = Array.from(new Set(rates.map((rate) => rate.aggregator || '').filter(Boolean)));
   const intakeNames = Array.from(new Set(rates.map((rate) => rate.intake).filter(Boolean)));
   const submittedIntent = parseChatIntent(input, schoolNames, countryNames, aggregatorNames, role, intakeNames);
+
+  // Check for Admin Administrative Mutation Commands
+  if (role === 'ADMIN') {
+    const updateGuidanceMatch = input.match(/\b(?:set|mark|change)\s+([^]+?)\s+to\s+(focus|do not use|allowed|restricted)\b/i)
+      || input.match(/\b(?:set|mark|change)\s+(focus|do not use|allowed|restricted)\s+(?:for|on)\s+([^]+)\b/i);
+
+    if (updateGuidanceMatch) {
+      const targetSchool = updateGuidanceMatch[1].trim();
+      const targetStatus = updateGuidanceMatch[2].toUpperCase();
+      const stagedCommand: StagedCommand = {
+        id: crypto.randomUUID(),
+        type: 'UPDATE_GUIDANCE',
+        description: `This action will set the guidance status to ${targetStatus} for ${targetSchool}.`,
+        targetEntities: {
+          schoolNames: [targetSchool],
+          newValue: targetStatus,
+        },
+        payload: { schoolName: targetSchool, guidance: targetStatus },
+      };
+
+      const userMessage = createMessage('user', input, 'sent');
+      const assistantMessage = createMessage(
+        'assistant',
+        `⚠️ Confirm Administrative Action:\n${stagedCommand.description}\nDo you want to proceed?`,
+        'clarifying',
+        undefined,
+        undefined,
+        role,
+        stagedCommand
+      );
+
+      return {
+        state: {
+          ...state,
+          conversation: {
+            ...state.conversation,
+            messages: [...state.conversation.messages, userMessage, assistantMessage],
+            updatedAt: new Date(now).toISOString(),
+          },
+        },
+        matchingRates: [],
+        clarificationQuestions: [],
+      };
+    }
+
+    const disableSheetMatch = input.match(/\b(?:disable|hide|block)\s+([^]+?)\s+for\s+(staff|agents?|all)\b/i);
+    if (disableSheetMatch) {
+      const sheetName = disableSheetMatch[1].trim();
+      const roleTarget = disableSheetMatch[2].toUpperCase();
+      const stagedCommand: StagedCommand = {
+        id: crypto.randomUUID(),
+        type: 'DISABLE_SHEET',
+        description: `This action will disable the '${sheetName}' intake sheet for all ${roleTarget} users.`,
+        targetEntities: {
+          intake: sheetName,
+          affectedRole: roleTarget,
+        },
+        payload: { sheetName, roleTarget },
+      };
+
+      const userMessage = createMessage('user', input, 'sent');
+      const assistantMessage = createMessage(
+        'assistant',
+        `⚠️ Confirm Administrative Action:\n${stagedCommand.description}\nDo you want to proceed?`,
+        'clarifying',
+        undefined,
+        undefined,
+        role,
+        stagedCommand
+      );
+
+      return {
+        state: {
+          ...state,
+          conversation: {
+            ...state.conversation,
+            messages: [...state.conversation.messages, userMessage, assistantMessage],
+            updatedAt: new Date(now).toISOString(),
+          },
+        },
+        matchingRates: [],
+        clarificationQuestions: [],
+      };
+    }
+  }
+
   const compareAllPrevious = /\bcompare\s+(?:all\s+)?(?:4|four)\b/i.test(input);
   const priorSchoolIds = compareAllPrevious && state.conversation.lastResultSchoolIds?.length
     ? state.conversation.lastResultSchoolIds

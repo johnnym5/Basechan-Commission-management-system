@@ -12,6 +12,7 @@ import {
   Award,
   ShieldCheck,
   Calculator,
+  Settings,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -221,6 +222,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <NavItem
                     name="Users & Activity"
                     icon={Users}
+                    currentPage={currentPage}
+                    setCurrentPage={setCurrentPage}
+                    setIsOpen={setIsOpen}
+                    rates={[]}
+                    isExpanded={isExpandedDesktop}
+                  />
+                  <NavItem
+                    name="Settings"
+                    icon={Settings}
                     currentPage={currentPage}
                     setCurrentPage={setCurrentPage}
                     setIsOpen={setIsOpen}

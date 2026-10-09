@@ -2,16 +2,13 @@ import React, { useState, useMemo } from 'react';
 import type { CommissionRate } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
-import { applyRateChange } from '../../services/adminRateWriteService';
+import { createRate } from '../../services/adminRateWriteService';
 import {
   Copy,
   ArrowRight,
-  Calculator,
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Layers,
-  Calendar,
 } from 'lucide-react';
 
 interface IntakeMigrationTabProps {
@@ -95,12 +92,7 @@ export const IntakeMigrationTab: React.FC<IntakeMigrationTabProps> = ({ rates, o
           updatedAt: new Date().toISOString(),
         };
 
-        await applyRateChange({
-          operationId: `clone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          adminUid: user?.uid || 'Admin',
-          kind: 'upsert',
-          rate: newRecord,
-        });
+        await createRate(newRecord, user?.email || 'Admin');
         successCount++;
       }
 

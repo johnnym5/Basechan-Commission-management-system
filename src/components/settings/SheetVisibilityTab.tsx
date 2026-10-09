@@ -3,7 +3,7 @@ import type { CommissionRate } from '../../types';
 import { useSheetVisibility } from '../../hooks/useSheetVisibility';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
 import { useAuth } from '../../context/AuthContext';
-import { AGGREGATOR_OPTIONS } from '../../constants/aggregators';
+import { COMMON_AGGREGATORS } from '../../constants/aggregators';
 import {
   EyeOff,
   UserCheck,
@@ -52,7 +52,7 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({ rates })
 
   // Unique aggregators
   const uniqueAggregators = useMemo(() => {
-    const set = new Set<string>(AGGREGATOR_OPTIONS);
+    const set = new Set<string>(COMMON_AGGREGATORS);
     rates.forEach((r) => {
       if (r.aggregator) set.add(r.aggregator);
     });

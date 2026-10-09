@@ -39,7 +39,7 @@ import {
 } from '../services/localRateDatabase';
 import { isQuotaOffline, subscribeToFirestoreMode } from '../services/firestoreOfflineMode';
 import { AgentAccessGate } from './AgentAccessGate';
-import { Bell, Check, Heart, History, Loader2, Plus, Send, Star, X } from 'lucide-react';
+import { Bell, Check, Heart, History, Loader2, Plus, Send, Star, X, AlertTriangle } from 'lucide-react';
 import { ChatUtilityPanel, type ChatUtilityPanelKind } from './ChatUtilityPanel';
 import './ChatExperience.css';
 
@@ -90,7 +90,7 @@ export function canCompareSelectedRates(rates: CommissionRate[], role: 'STAFF' |
   return rates.every((rate) => rate.isFlatFee === rates[0].isFlatFee && rate.netOrGross === rates[0].netOrGross);
 }
 
-export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, role, initialPrompt, updates, onUpdatesChange, dataMayBeStale = false, lastSyncedAt, dashboardFilters, onDashboardFiltersChange, onViewDashboard }) => {
+export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, role, initialPrompt, updates, onUpdatesChange, dataMayBeStale = false, dashboardFilters, onDashboardFiltersChange, onViewDashboard }) => {
   const { user, access } = useAuth();
   const [session, setSession] = useState<ChatSessionState>(() => createInitialChatState(user?.uid || ''));
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
@@ -124,16 +124,19 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
   const utilityCloseTimerRef = useRef<number | null>(null);
   const utilityOpenFrameRef = useRef<number | null>(null);
   const previousUtilityPanelRef = useRef<ChatUtilityPanelKind | null>(null);
+
   const localOnly = isOffline || quotaMode || dataMayBeStale;
   const localOnlyMessage = quotaMode
     ? 'Quota limit reached. Chat is using saved school data and will check for access again automatically.'
     : isOffline
       ? 'Offline. Chat is using saved school data until your connection returns.'
       : 'Using saved school data. It may be out of date.';
+
   const availableSchoolCount = useMemo(
     () => new Set(rates.map((rate) => rate.universityId).filter(Boolean)).size,
     [rates]
   );
+
   const messages = session.conversation.messages.map((message) => {
     if (message.role !== 'assistant' || !message.resultIds?.length) return message;
     return { ...message, resultRates: rates.filter((rate) => message.resultIds?.includes(rate.id)) };
@@ -321,8 +324,6 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
     return () => { mounted = false; };
   }, [user?.uid, localOnly]);
 
-  // Keep the local-first interaction immediate. Account history, preferences,
-  // usage and favorites sync after the local transaction completes.
   useEffect(() => {
     if (!user || !cloudSyncRevision || localOnly || !navigator.onLine) return;
     let mounted = true;
@@ -413,8 +414,6 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
       if (result.matchingRates.length) {
         setSelectedResults(result.matchingRates);
         setVisibleResultCount(24);
-        // Keep the first response in the conversation so the result preview is
-        // the entry point to the full, chat-pinned results view.
         setActivePanel('chat');
       } else {
         setSelectedResults([]);
@@ -554,53 +553,226 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
   };
 
   const hasLearnedProfile = Boolean((profile?.queryCount || session.profile.queryCount) > 0);
+  const lastSyncedAt = null;
+
   return (
     <div className="chat-experience">
       <section className="chat-surface">
-          <header className="chat-header"><div className="min-w-0"><b className="block truncate">{session.conversation.title}</b><p className="text-xs text-slate-500">{session.queryCount}/50 questions</p></div><div className="chat-header-actions"><button onClick={(event) => openUtilityPanel('favorites', event.currentTarget)} aria-expanded={utilityPanel === 'favorites'} aria-controls={utilityPanel ? 'chat-utility-panel' : undefined} aria-label={`Favorite schools, ${favorites.length}`} title="Favorite schools" className="chat-header-button"><Star className="h-4 w-4" /></button><button onClick={(event) => openUtilityPanel('history', event.currentTarget)} aria-expanded={utilityPanel === 'history'} aria-controls={utilityPanel ? 'chat-utility-panel' : undefined} aria-label={`Chat history, ${conversations.length}`} title="Chat history" className="chat-header-button"><History className="h-4 w-4" /></button><button onClick={(event) => openUtilityPanel('activity', event.currentTarget)} aria-expanded={utilityPanel === 'activity'} aria-controls={utilityPanel ? 'chat-utility-panel' : undefined} aria-label={`Activity, ${unreadUpdates.length} unread`} title="Activity" className="chat-header-button chat-activity-button"><Bell className="h-4 w-4" />{unreadUpdates.length > 0 && <span className="chat-unread-dot" />}</button><button onClick={startNewConversation} aria-label="Start new chat" title="New chat" className="chat-header-button"><Plus className="h-4 w-4" /></button></div></header>
-          <div className="chat-transcript">{error && <div role="alert" className="chat-error">{error}</div>}{startingOptions && activePanel === 'chat' && messages.length === 0 && <section className="chat-resume-card"><p className="font-bold">Welcome back. Continue where you stopped?</p><p className="mt-1">{startingOptions.resume?.title} · {startingOptions.resume ? shortDate(startingOptions.resume.updatedAt) : ''}</p><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => startingOptions.resume && pickConversation(startingOptions.resume)} className="chat-primary-button">Continue chat</button><button onClick={startNewConversation} className="chat-secondary-button">Start new</button></div></section>}{activePanel === 'results' && <section className="chat-results-list"><div className="mb-3 flex justify-between text-xs"><span>{selectedResults.length} results · {compareIds.length}/4 selected</span><button disabled={compareIds.length < 2} onClick={() => { const selected = chooseComparableRates(selectedResults, compareIds, session.conversation.activeLevel); if (!canCompareSelectedRates(selected, role)) setCompareNotice(role === 'STAFF' ? 'Choose schools with the same intake and study level before comparing.' : 'Choose schools with the same intake, study level, and fee type before comparing. Percentage and flat fee payouts cannot be compared directly.'); else { setCompareNotice(''); setShowCompare(true); } }} className="chat-primary-button" style={{ minHeight: 38 }}>Compare selected</button></div>{compareNotice && <p role="status" className="mb-3 rounded-lg border border-amber-800 bg-amber-950/30 p-2 text-xs text-amber-100">{compareNotice}</p>}<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{selectedResults.slice(0, visibleResultCount).map((rate) => <RateResultCard key={rate.id} rate={rate} role={role} favorite={favorites.some((item) => item.universityId === rate.universityId)} selected={compareIds.includes(rate.universityId)} onFavorite={() => void toggleFavorite(rate)} onCompare={() => { setCompareIds((current) => { if (current.includes(rate.universityId)) return current.filter((id) => id !== rate.universityId); if (current.length >= 4) { setCompareNotice('You can compare up to four schools at a time.'); return current; } setCompareNotice(''); return [...current, rate.universityId]; }); }} />)}</div>{visibleResultCount < selectedResults.length && <button onClick={() => setVisibleResultCount((count) => count + 24)} className="chat-secondary-button mt-4">Show more results</button>}</section>}{messages.length === 0 && activePanel === 'chat' && !startingOptions && <div className="flex min-h-full flex-col items-center justify-center gap-3 px-3 text-center" aria-live="off"><p className={`text-lg font-semibold text-slate-600 transition-opacity duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none dark:text-slate-300 ${welcomePromptVisible ? 'opacity-100' : 'opacity-0'}`}>{EMPTY_CHAT_PROMPTS[welcomePromptIndex]}</p><p className="text-sm text-slate-500 dark:text-slate-400">{loading ? 'Loading your available routes…' : rates.length === 0 ? 'No routes are currently available for your account.' : `Choose from ${rates.length.toLocaleString()} routes across ${availableSchoolCount.toLocaleString()} schools.`}</p><div className="mt-2 flex max-w-2xl flex-wrap justify-center gap-2">{contextualSuggestions.map((suggestion) => <button key={suggestion.label} onClick={() => submitPrompt(suggestion.prompt)} className="chat-suggestion-button">{suggestion.label}</button>)}</div>{hasLearnedProfile && <button onClick={() => void clearPreferences()} className="min-h-11 text-xs text-slate-400 underline">Clear learned preferences</button>}</div>}{messages.map((message) => <React.Fragment key={message.id}><ChatBubble message={message} onContinue={submitPrompt} />{message.role === 'assistant' && Boolean(message.resultRates?.length) && <InlineResultPreview message={message} role={role} favorites={favorites} onFavorite={(rate) => void toggleFavorite(rate)} onOpen={() => openMessageResults(message)} onOpenSchool={(schoolId) => openMessageResults(message, schoolId)} onOpenSchools={() => openMessageSchoolResults(message)} onViewDashboard={onViewDashboard} />}</React.Fragment>)}{messages.length > 0 && <div className="flex flex-wrap gap-2 py-1" aria-label="Suggested follow-up questions">{contextualSuggestions.map((suggestion) => <button key={suggestion.label} onClick={() => submitPrompt(suggestion.prompt)} className="chat-suggestion-button">{suggestion.label}</button>)}</div>}</div>
-          <div className="chat-composer"><ChatComposer inputRef={composerRef} value={input} onChange={setInput} onSubmit={sendMessage} busy={busy || loading} placeholder="Type your question…" completions={queryCompletions} onChooseCompletion={(completion) => setInput(completion)} /></div>
-      </section>
-      {renderedUtilityPanel && <div className={`chat-utility-backdrop${utilityPanelOpen ? ' is-open' : ''}`} onClick={(event) => { if (event.target === event.currentTarget && utilityPanel) closeUtilityPanel(); }}>
-        <section
-          ref={utilityPanelRef}
-          id="chat-utility-panel"
-          className="chat-utility-dialog"
-          role="dialog"
-          aria-modal={utilityPanel ? true : undefined}
-          aria-hidden={utilityPanel ? undefined : true}
-          aria-label={renderedUtilityPanel === 'history' ? 'Chat history' : renderedUtilityPanel === 'favorites' ? 'Favorite schools' : 'Activity'}
-          tabIndex={-1}
-          inert={!utilityPanel}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <header className="chat-utility-toolbar">
-            <div><p className="chat-utility-eyebrow">Your workspace</p><h2>{renderedUtilityPanel === 'history' ? 'Chat history' : renderedUtilityPanel === 'favorites' ? 'Favorite schools' : 'Activity'}</h2></div>
-            <button ref={utilityCloseButtonRef} type="button" className="chat-header-button" onClick={closeUtilityPanel} aria-label={`Close ${renderedUtilityPanel === 'history' ? 'chat history' : renderedUtilityPanel === 'favorites' ? 'favorite schools' : 'activity'}`}><X aria-hidden="true" /></button>
-          </header>
-          <div className="chat-utility-body">
-            <ChatUtilityPanel
-              panel={renderedUtilityPanel}
-              conversations={conversations}
-              favorites={favorites}
-              updates={updates}
-              notice={notice}
-              localOnly={localOnly}
-              localOnlyMessage={localOnlyMessage}
-              lastSyncedAt={lastSyncedAt || null}
-              onSelectConversation={(conversation) => { closeUtilityPanel(); pickConversation(conversation); }}
-              onNewConversation={() => { closeUtilityPanel(); startNewConversation(); }}
-              onSearchFavorite={(schoolName) => { closeUtilityPanel(); setInput(`Show me ${schoolName}`); setActivePanel('chat'); }}
-              onRemoveFavorite={(universityId) => void removeSavedFavorite(universityId)}
-              onOpenUpdate={(update) => { closeUtilityPanel(); void openUpdate(update); }}
-              onDismissNotice={() => setNotice('')}
-            />
+        <header className="chat-header">
+          <div className="min-w-0">
+            <b className="block truncate">{session.conversation.title}</b>
+            <p className="text-xs text-slate-500">{session.queryCount}/50 questions</p>
           </div>
-        </section>
-      </div>}
+          <div className="chat-header-actions">
+            <button onClick={(event) => openUtilityPanel('favorites', event.currentTarget)} aria-expanded={utilityPanel === 'favorites'} aria-controls={utilityPanel ? 'chat-utility-panel' : undefined} aria-label={`Favorite schools, ${favorites.length}`} title="Favorite schools" className="chat-header-button"><Star className="h-4 w-4" /></button>
+            <button onClick={(event) => openUtilityPanel('history', event.currentTarget)} aria-expanded={utilityPanel === 'history'} aria-controls={utilityPanel ? 'chat-utility-panel' : undefined} aria-label={`Chat history, ${conversations.length}`} title="Chat history" className="chat-header-button"><History className="h-4 w-4" /></button>
+            <button onClick={(event) => openUtilityPanel('activity', event.currentTarget)} aria-expanded={utilityPanel === 'activity'} aria-controls={utilityPanel ? 'chat-utility-panel' : undefined} aria-label={`Activity, ${unreadUpdates.length} unread`} title="Activity" className="chat-header-button chat-activity-button"><Bell className="h-4 w-4" />{unreadUpdates.length > 0 && <span className="chat-unread-dot" /></button>
+            <button onClick={startNewConversation} aria-label="Start new chat" title="New chat" className="chat-header-button"><Plus className="h-4 w-4" /></button>
+          </div>
+        </header>
+
+        <div className="chat-transcript">
+          {error && <div role="alert" className="chat-error">{error}</div>}
+          {startingOptions && activePanel === 'chat' && messages.length === 0 && (
+            <section className="chat-resume-card">
+              <p className="font-bold">Welcome back. Continue where you stopped?</p>
+              <p className="mt-1">{startingOptions.resume?.title} · {startingOptions.resume ? shortDate(startingOptions.resume.updatedAt) : ''}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button onClick={() => startingOptions.resume && pickConversation(startingOptions.resume)} className="chat-primary-button">Continue chat</button>
+                <button onClick={startNewConversation} className="chat-secondary-button">Start new</button>
+              </div>
+            </section>
+          )}
+
+          {activePanel === 'results' && (
+            <section className="chat-results-list">
+              <div className="mb-3 flex justify-between text-xs">
+                <span>{selectedResults.length} results · {compareIds.length}/4 selected</span>
+                <button disabled={compareIds.length < 2} onClick={() => { const selected = chooseComparableRates(selectedResults, compareIds, session.conversation.activeLevel); if (!canCompareSelectedRates(selected, role)) setCompareNotice(role === 'STAFF' ? 'Choose schools with the same intake and study level before comparing.' : 'Choose schools with the same intake, study level, and fee type before comparing. Percentage and flat fee payouts cannot be compared directly.'); else { setCompareNotice(''); setShowCompare(true); } }} className="chat-primary-button" style={{ minHeight: 38 }}>Compare selected</button>
+              </div>
+              {compareNotice && <p role="status" className="mb-3 rounded-lg border border-amber-800 bg-amber-950/30 p-2 text-xs text-amber-100">{compareNotice}</p>}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {selectedResults.slice(0, visibleResultCount).map((rate) => (
+                  <RateResultCard key={rate.id} rate={rate} role={role} favorite={favorites.some((item) => item.universityId === rate.universityId)} selected={compareIds.includes(rate.universityId)} onFavorite={() => void toggleFavorite(rate)} onCompare={() => { setCompareIds((current) => { if (current.includes(rate.universityId)) return current.filter((id) => id !== rate.universityId); if (current.length >= 4) { setCompareNotice('You can compare up to four schools at a time.'); return current; } setCompareNotice(''); return [...current, rate.universityId]; }); }} />
+                ))}
+              </div>
+              {visibleResultCount < selectedResults.length && <button onClick={() => setVisibleResultCount((count) => count + 24)} className="chat-secondary-button mt-4">Show more results</button>}
+            </section>
+          )}
+
+          {messages.length === 0 && activePanel === 'chat' && !startingOptions && (
+            <div className="flex min-h-full flex-col items-center justify-center gap-3 px-3 text-center" aria-live="off">
+              <p className={`text-lg font-semibold text-slate-600 transition-opacity duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none dark:text-slate-300 ${welcomePromptVisible ? 'opacity-100' : 'opacity-0'}`}>{EMPTY_CHAT_PROMPTS[welcomePromptIndex]}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{loading ? 'Loading your available routes…' : rates.length === 0 ? 'No routes are currently available for your account.' : `Choose from ${rates.length.toLocaleString()} routes across ${availableSchoolCount.toLocaleString()} schools.`}</p>
+              <div className="mt-2 flex max-w-2xl flex-wrap justify-center gap-2">
+                {contextualSuggestions.map((suggestion) => <button key={suggestion.label} onClick={() => submitPrompt(suggestion.prompt)} className="chat-suggestion-button">{suggestion.label}</button>)}
+              </div>
+              {hasLearnedProfile && <button onClick={() => void clearPreferences()} className="min-h-11 text-xs text-slate-400 underline">Clear learned preferences</button>}
+            </div>
+          )}
+
+          {messages.map((message) => (
+            <React.Fragment key={message.id}>
+              <ChatBubble message={message} onContinue={submitPrompt} />
+              {message.role === 'assistant' && Boolean(message.resultRates?.length) && (
+                <InlineResultPreview message={message} role={role} favorites={favorites} onFavorite={(rate) => void toggleFavorite(rate)} onOpen={() => openMessageResults(message)} onOpenSchool={(schoolId) => openMessageResults(message, schoolId)} onOpenSchools={() => openMessageSchoolResults(message)} onViewDashboard={onViewDashboard} />
+              )}
+            </React.Fragment>
+          ))}
+
+          {messages.length > 0 && (
+            <div className="flex flex-wrap gap-2 py-1" aria-label="Suggested follow-up questions">
+              {contextualSuggestions.map((suggestion) => <button key={suggestion.label} onClick={() => submitPrompt(suggestion.prompt)} className="chat-suggestion-button">{suggestion.label}</button>)}
+            </div>
+          )}
+        </div>
+
+        <div className="chat-composer">
+          <ChatComposer inputRef={composerRef} value={input} onChange={setInput} onSubmit={sendMessage} busy={busy || loading} placeholder="Type your question…" completions={queryCompletions} onChooseCompletion={(completion) => setInput(completion)} />
+        </div>
+      </section>
+
+      {renderedUtilityPanel && (
+        <div className={`chat-utility-backdrop${utilityPanelOpen ? ' is-open' : ''}`} onClick={(event) => { if (event.target === event.currentTarget && utilityPanel) closeUtilityPanel(); }}>
+          <section
+            ref={utilityPanelRef}
+            id="chat-utility-panel"
+            className="chat-utility-dialog"
+            role="dialog"
+            aria-modal={utilityPanel ? true : undefined}
+            aria-hidden={utilityPanel ? undefined : true}
+            aria-label={renderedUtilityPanel === 'history' ? 'Chat history' : renderedUtilityPanel === 'favorites' ? 'Favorite schools' : 'Activity'}
+            tabIndex={-1}
+            inert={!utilityPanel}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="chat-utility-toolbar">
+              <div><p className="chat-utility-eyebrow">Your workspace</p><h2>{renderedUtilityPanel === 'history' ? 'Chat history' : renderedUtilityPanel === 'favorites' ? 'Favorite schools' : 'Activity'}</h2></div>
+              <button ref={utilityCloseButtonRef} type="button" className="chat-header-button" onClick={closeUtilityPanel} aria-label={`Close ${renderedUtilityPanel === 'history' ? 'chat history' : renderedUtilityPanel === 'favorites' ? 'favorite schools' : 'activity'}`}><X aria-hidden="true" /></button>
+            </header>
+            <div className="chat-utility-body">
+              <ChatUtilityPanel
+                panel={renderedUtilityPanel}
+                conversations={conversations}
+                favorites={favorites}
+                updates={updates}
+                notice={notice}
+                localOnly={localOnly}
+                localOnlyMessage={localOnlyMessage}
+                lastSyncedAt={lastSyncedAt || null}
+                onSelectConversation={(conversation) => { closeUtilityPanel(); pickConversation(conversation); }}
+                onNewConversation={() => { closeUtilityPanel(); startNewConversation(); }}
+                onSearchFavorite={(schoolName) => { closeUtilityPanel(); setInput(`Show me ${schoolName}`); setActivePanel('chat'); }}
+                onRemoveFavorite={(universityId) => void removeSavedFavorite(universityId)}
+                onOpenUpdate={(update) => { closeUtilityPanel(); void openUpdate(update); }}
+                onDismissNotice={() => setNotice('')}
+              />
+            </div>
+          </section>
+        </div>
+      )}
+
       {showCompare && <CompareMatrix rates={chooseComparableRates(selectedResults, compareIds, session.conversation.activeLevel)} role={role} onClose={() => setShowCompare(false)} />}
     </div>
   );
+};
+
+const ChatBubble: React.FC<{ message: ChatMessage; onContinue: (reply: string) => void }> = ({ message, onContinue }) => {
+  return (
+    <div className={`chat-message ${message.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}`}>
+      <p className="whitespace-pre-wrap">{message.text}</p>
+
+      {/* Staged Command Confirmation Box */}
+      {message.role === 'assistant' && message.stagedCommand && (
+        <div className="mt-3 p-3.5 rounded-2xl bg-amber-500/15 border border-amber-400/40 text-amber-900 dark:text-amber-200 text-xs space-y-2">
+          <div className="flex items-center gap-1.5 font-bold">
+            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+            <span>Confirm Administrative Action</span>
+          </div>
+          <p className="font-medium leading-relaxed">{message.stagedCommand.description}</p>
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={() => onContinue(`CONFIRM_STAGED_${message.stagedCommand?.id}`)}
+              className="px-3 py-1.5 bg-amber-500 text-slate-950 font-extrabold rounded-xl hover:bg-amber-400 transition cursor-pointer shadow-xs"
+            >
+              Proceed & Execute
+            </button>
+            <button
+              onClick={() => onContinue('CANCEL_STAGED')}
+              className="px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold rounded-xl hover:bg-slate-300 dark:hover:bg-slate-700 transition cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Clarification Choices */}
+      {message.status === 'clarifying' && message.role === 'assistant' && message.clarification?.choices.length ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {message.clarification.choices.map(({ label, value }) => (
+            <button key={`${label}-${value}`} onClick={() => onContinue(value)} className="chat-suggestion-button">
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Follow up result filter */}
+      {message.role === 'assistant' && message.followUpFilter && (
+        <div className="mt-2" aria-label="Available result filters">
+          <p className="mb-2 text-xs text-slate-400">{message.followUpFilter.question}</p>
+          <div className="flex flex-wrap gap-2">
+            {message.followUpFilter.choices.map(({ label, value }) => (
+              <button key={`${label}-${value}`} onClick={() => onContinue(value)} className="chat-suggestion-button">
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="mt-1 text-[10px] text-slate-400">
+        {new Date(message.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+      </p>
+    </div>
+  );
+};
+
+const InlineResultPreview: React.FC<{ message: ChatMessage; role: 'STAFF' | 'AGENT' | 'ADMIN'; favorites: FavoriteSchool[]; onFavorite: (rate: CommissionRate) => void; onOpen: () => void; onOpenSchool: (schoolId: string) => void; onOpenSchools: () => void; onViewDashboard?: () => void }> = ({ message, role, favorites, onFavorite, onOpen, onOpenSchool, onOpenSchools, onViewDashboard }) => {
+  const results = message.resultRates || [];
+  const schoolCount = new Set(results.map((rate) => rate.universityId)).size;
+  return (
+    <section aria-label="Search results preview" className="chat-result-preview">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={onOpenSchools} aria-label={`Open results for ${schoolCount} unique schools`} className="text-left text-xs font-bold text-slate-700 underline decoration-slate-400 underline-offset-2 dark:text-slate-100">{schoolCount} unique schools</button>
+          <button type="button" onClick={onOpen} aria-label={`Open all ${results.length} matching routes`} className="text-left text-xs font-bold text-slate-700 underline decoration-slate-400 underline-offset-2 dark:text-slate-100">{results.length} matching routes</button>
+        </div>
+        <div className="flex gap-2">
+          {onViewDashboard ? (
+            <button onClick={onViewDashboard} className="chat-primary-button" style={{ minHeight: 36, padding: '0 12px', fontSize: 11 }}>View on dashboard</button>
+          ) : (
+            <button onClick={onOpen} className="chat-primary-button" style={{ minHeight: 36, padding: '0 12px', fontSize 11 }}>View on dashboard</button>
+          )}
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">{results.slice(0, 4).map((partial) => {
+        const rate = { ...partial, aggregator: partial.aggregator || '', agentRate: partial.agentRate || 0, masterRate: 0, diffMargin: 0, isFlatFee: partial.isFlatFee || false, netOrGross: 'GROSS' as const };
+        const favorite = favorites.some((item) => item.universityId === rate.universityId);
+        return <article key={rate.id} className="chat-result-card flex items-start justify-between gap-2"><button onClick={() => onOpenSchool(rate.universityId)} aria-label={`Open ${rate.universityName} results`} className="min-w-0 flex-1 text-left"><b className="block truncate text-xs">{rate.universityName}</b><span className="mt-1 block text-[10px] text-slate-400">{rate.intake} · {rate.studyLevel}{role !== 'AGENT' && rate.aggregator ? ` · ${rate.aggregator}` : ''}</span><span className="mt-2 inline-block rounded-full bg-slate-700 px-2 py-0.5 text-[9px] font-bold text-slate-100">{rate.guidance || 'ALLOWED'}</span>{role !== 'STAFF' && typeof rate.agentRate === 'number' && <span className="mt-2 block text-xs font-black text-emerald-400">{rate.isFlatFee ? `£${rate.agentRate}` : `${rate.agentRate}%`}</span>}</button><button onClick={() => onFavorite(rate)} aria-label={`${favorite ? 'Remove' : 'Add'} ${rate.universityName} ${favorite ? 'from' : 'to'} favorites`} className={`rounded-lg p-1.5 ${favorite ? 'text-rose-400' : 'text-slate-400 hover:text-rose-300'}`}><Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} /></button></article>;
+      })}</div>
+    </section>
+  );
+};
+
+const RateResultCard: React.FC<{ rate: CommissionRate; role: 'STAFF' | 'AGENT' | 'ADMIN'; favorite: boolean; onFavorite: () => void; onCompare?: () => void; selected?: boolean; readOnly?: boolean }> = ({ rate, role, favorite, onFavorite, onCompare, selected, readOnly = false }) => <article className={`chat-route-card ${selected ? 'is-selected' : ''}`}><div className="flex items-start justify-between gap-2"><div><h3 className="text-sm font-extrabold leading-snug">{rate.universityName}</h3><p className="mt-1 text-[11px] text-slate-400">{rate.intake} · {rate.studyLevel}{role !== 'AGENT' && rate.aggregator ? ` · ${rate.aggregator}` : ''}</p></div><div className="flex"><button onClick={onCompare} aria-pressed={selected} aria-label={`${selected ? 'Remove' : 'Select'} ${rate.universityName} ${selected ? 'for' : 'from'} comparison`} className={`rounded-lg p-1.5 ${selected ? 'text-blue-300' : 'text-slate-400 hover:text-blue-300'}`}><Check className="h-4 w-4" /></button><button disabled={readOnly} onClick={onFavorite} aria-label={`${favorite ? 'Remove' : 'Add'} ${rate.universityName} ${favorite ? 'from' : 'to'} favorites`} className={`rounded-lg p-1.5 disabled:cursor-not-allowed disabled:opacity-40 ${favorite ? 'text-rose-400' : 'text-slate-400 hover:text-rose-300'}`}><Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} /></button></div></div><div className="mt-3 flex flex-wrap items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${rate.guidance === 'FOCUS' ? 'bg-emerald-900/60 text-emerald-200' : rate.guidance === 'DO_NOT_USE' ? 'bg-rose-950 text-rose-200' : 'bg-slate-700 text-slate-100'}`}>{rate.guidance || 'ALLOWED'}</span>{role !== 'STAFF' && typeof rate.agentRate === 'number' && <span className="text-sm font-black text-emerald-400">{rate.isFlatFee ? `£${rate.agentRate}` : `${rate.agentRate}%`}</span>}</div></article>;
+
+const CompareMatrix: React.FC<{ rates: CommissionRate[]; role: 'STAFF' | 'AGENT' | 'ADMIN'; onClose: () => void }> = ({ rates, role, onClose }) => {
+  const compatible = rates.length > 0 && rates.every((rate) => rate.intake === rates[0].intake && rate.studyLevel === rates[0].studyLevel);
+  const payoutLabel = (rate: CommissionRate) => role === 'STAFF' || typeof rate.agentRate !== 'number' ? 'Unavailable' : `${rate.isFlatFee ? '£' : ''}${rate.agentRate}${rate.isFlatFee ? '' : '%'}`;
+  const routingLabel = (rate: CommissionRate) => role === 'AGENT' ? 'Unavailable' : rate.aggregator || 'Unavailable';
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"><section role="dialog" aria-modal="true" aria-label="School comparison" className="chat-compare-dialog max-h-[85vh] w-full max-w-4xl overflow-auto rounded-2xl p-5"><div className="flex items-start justify-between"><div><h2 className="text-lg font-extrabold">Compare schools</h2><p className="text-xs text-slate-400">{rates.length} of up to 4 schools</p></div><button onClick={onClose} aria-label="Close comparison" className="chat-header-button"><X className="h-4 w-4" /></button></div>{!compatible ? <p className="mt-4 rounded-xl border border-amber-800 bg-amber-950/30 p-4 text-sm text-amber-100">Select schools with the same intake and study level to compare them fairly.</p> : <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[620px] border-collapse text-left text-sm"><thead><tr><th className="p-3">Field</th>{rates.map((rate) => <th key={rate.id} className="p-3">{rate.universityName}</th>)}</tr></thead><tbody>{[['Intake', (r: CommissionRate) => r.intake], ['Study level', (r: CommissionRate) => r.studyLevel], ['Guidance', (r: CommissionRate) => r.guidance || 'ALLOWED'], ['Payout', payoutLabel], ['Routing', routingLabel]].map(([label, get]) => <tr key={label as string} className="border-t border-slate-700"><th className="p-3 text-xs text-slate-400">{label as string}</th>{rates.map((rate) => <td key={rate.id} className="p-3 font-semibold">{(get as (rate: CommissionRate) => string)(rate)}</td>)}</tr>)}</tbody></table></div>}</section></div>;
 };
 
 const ChatComposer: React.FC<{ value: string; onChange: (value: string) => void; onSubmit: (event: React.FormEvent) => void; busy: boolean; placeholder: string; completions: Array<{ label: string; completion: string }>; onChooseCompletion: (completion: string) => void; inputRef?: React.Ref<HTMLTextAreaElement> }> = ({ value, onChange, onSubmit, busy, placeholder, completions, onChooseCompletion, inputRef }) => {
@@ -647,40 +819,4 @@ const ChatComposer: React.FC<{ value: string; onChange: (value: string) => void;
       )}
     </form>
   );
-};
-
-const ChatBubble: React.FC<{ message: ChatMessage; onContinue: (reply: string) => void }> = ({ message, onContinue }) => <div className={`chat-message ${message.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}`}><p>{message.text}</p>{message.status === 'clarifying' && message.role === 'assistant' && message.clarification?.choices.length ? <div className="mt-2 flex flex-wrap gap-2">{message.clarification.choices.map(({ label, value }) => <button key={`${label}-${value}`} onClick={() => onContinue(value)} className="chat-suggestion-button">{label}</button>)}</div> : null}{message.role === 'assistant' && message.followUpFilter && <div className="mt-2" aria-label="Available result filters"><p className="mb-2 text-xs text-slate-400">{message.followUpFilter.question}</p><div className="flex flex-wrap gap-2">{message.followUpFilter.choices.map(({ label, value }) => <button key={`${label}-${value}`} onClick={() => onContinue(value)} className="chat-suggestion-button">{label}</button>)}</div></div>}<p className="mt-1 text-[10px] text-slate-400">{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</p></div>;
-
-const InlineResultPreview: React.FC<{ message: ChatMessage; role: 'STAFF' | 'AGENT' | 'ADMIN'; favorites: FavoriteSchool[]; onFavorite: (rate: CommissionRate) => void; onOpen: () => void; onOpenSchool: (schoolId: string) => void; onOpenSchools: () => void; onViewDashboard?: () => void }> = ({ message, role, favorites, onFavorite, onOpen, onOpenSchool, onOpenSchools, onViewDashboard }) => {
-  const results = message.resultRates || [];
-  const schoolCount = new Set(results.map((rate) => rate.universityId)).size;
-  return <section aria-label="Search results preview" className="chat-result-preview">
-    <div className="mb-2 flex items-center justify-between gap-2">
-      <div className="flex flex-wrap gap-3">
-        <button type="button" onClick={onOpenSchools} aria-label={`Open results for ${schoolCount} unique schools`} className="text-left text-xs font-bold text-slate-700 underline decoration-slate-400 underline-offset-2 dark:text-slate-100">{schoolCount} unique schools</button>
-        <button type="button" onClick={onOpen} aria-label={`Open all ${results.length} matching routes`} className="text-left text-xs font-bold text-slate-700 underline decoration-slate-400 underline-offset-2 dark:text-slate-100">{results.length} matching routes</button>
-      </div>
-      <div className="flex gap-2">
-        {onViewDashboard ? (
-          <button onClick={onViewDashboard} className="chat-primary-button" style={{ minHeight: 36, padding: '0 12px', fontSize: 11 }}>View on dashboard</button>
-        ) : (
-          <button onClick={onOpen} className="chat-primary-button" style={{ minHeight: 36, padding: '0 12px', fontSize: 11 }}>View on dashboard</button>
-        )}
-      </div>
-    </div>
-    <div className="grid gap-2 sm:grid-cols-2">{results.slice(0, 4).map((partial) => {
-      const rate = { ...partial, aggregator: partial.aggregator || '', agentRate: partial.agentRate || 0, masterRate: 0, diffMargin: 0, isFlatFee: partial.isFlatFee || false, netOrGross: 'GROSS' as const };
-      const favorite = favorites.some((item) => item.universityId === rate.universityId);
-      return <article key={rate.id} className="chat-result-card flex items-start justify-between gap-2"><button onClick={() => onOpenSchool(rate.universityId)} aria-label={`Open ${rate.universityName} results`} className="min-w-0 flex-1 text-left"><b className="block truncate text-xs">{rate.universityName}</b><span className="mt-1 block text-[10px] text-slate-400">{rate.intake} · {rate.studyLevel}{role !== 'AGENT' && rate.aggregator ? ` · ${rate.aggregator}` : ''}</span><span className="mt-2 inline-block rounded-full bg-slate-700 px-2 py-0.5 text-[9px] font-bold text-slate-100">{rate.guidance || 'ALLOWED'}</span>{role !== 'STAFF' && typeof rate.agentRate === 'number' && <span className="mt-2 block text-xs font-black text-emerald-400">{rate.isFlatFee ? `£${rate.agentRate}` : `${rate.agentRate}%`}</span>}</button><button onClick={() => onFavorite(rate)} aria-label={`${favorite ? 'Remove' : 'Add'} ${rate.universityName} ${favorite ? 'from' : 'to'} favorites`} className={`rounded-lg p-1.5 ${favorite ? 'text-rose-400' : 'text-slate-400 hover:text-rose-300'}`}><Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} /></button></article>;
-    })}</div>
-  </section>;
-};
-
-const RateResultCard: React.FC<{ rate: CommissionRate; role: 'STAFF' | 'AGENT' | 'ADMIN'; favorite: boolean; onFavorite: () => void; onCompare?: () => void; selected?: boolean; readOnly?: boolean }> = ({ rate, role, favorite, onFavorite, onCompare, selected, readOnly = false }) => <article className={`chat-route-card ${selected ? 'is-selected' : ''}`}><div className="flex items-start justify-between gap-2"><div><h3 className="text-sm font-extrabold leading-snug">{rate.universityName}</h3><p className="mt-1 text-[11px] text-slate-400">{rate.intake} · {rate.studyLevel}{role !== 'AGENT' && rate.aggregator ? ` · ${rate.aggregator}` : ''}</p></div><div className="flex"><button onClick={onCompare} aria-pressed={selected} aria-label={`${selected ? 'Remove' : 'Select'} ${rate.universityName} ${selected ? 'from' : 'for'} comparison`} className={`rounded-lg p-1.5 ${selected ? 'text-blue-300' : 'text-slate-400 hover:text-blue-300'}`}><Check className="h-4 w-4" /></button><button disabled={readOnly} onClick={onFavorite} aria-label={`${favorite ? 'Remove' : 'Add'} ${rate.universityName} ${favorite ? 'from' : 'to'} favorites`} className={`rounded-lg p-1.5 disabled:cursor-not-allowed disabled:opacity-40 ${favorite ? 'text-rose-400' : 'text-slate-400 hover:text-rose-300'}`}><Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} /></button></div></div><div className="mt-3 flex flex-wrap items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${rate.guidance === 'FOCUS' ? 'bg-emerald-900/60 text-emerald-200' : rate.guidance === 'DO_NOT_USE' ? 'bg-rose-950 text-rose-200' : 'bg-slate-700 text-slate-100'}`}>{rate.guidance || 'ALLOWED'}</span>{role !== 'STAFF' && typeof rate.agentRate === 'number' && <span className="text-sm font-black text-emerald-400">{rate.isFlatFee ? `£${rate.agentRate}` : `${rate.agentRate}%`}</span>}</div></article>;
-
-const CompareMatrix: React.FC<{ rates: CommissionRate[]; role: 'STAFF' | 'AGENT' | 'ADMIN'; onClose: () => void }> = ({ rates, role, onClose }) => {
-  const compatible = rates.length > 0 && rates.every((rate) => rate.intake === rates[0].intake && rate.studyLevel === rates[0].studyLevel);
-  const payoutLabel = (rate: CommissionRate) => role === 'STAFF' || typeof rate.agentRate !== 'number' ? 'Unavailable' : `${rate.isFlatFee ? '£' : ''}${rate.agentRate}${rate.isFlatFee ? '' : '%'}`;
-  const routingLabel = (rate: CommissionRate) => role === 'AGENT' ? 'Unavailable' : rate.aggregator || 'Unavailable';
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"><section role="dialog" aria-modal="true" aria-label="School comparison" className="chat-compare-dialog max-h-[85vh] w-full max-w-4xl overflow-auto rounded-2xl p-5"><div className="flex items-start justify-between"><div><h2 className="text-lg font-extrabold">Compare schools</h2><p className="text-xs text-slate-400">{rates.length} of up to 4 schools</p></div><button onClick={onClose} aria-label="Close comparison" className="chat-header-button"><X className="h-4 w-4" /></button></div>{!compatible ? <p className="mt-4 rounded-xl border border-amber-800 bg-amber-950/30 p-4 text-sm text-amber-100">Select schools with the same intake and study level to compare them fairly.</p> : <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[620px] border-collapse text-left text-sm"><thead><tr><th className="p-3">Field</th>{rates.map((rate) => <th key={rate.id} className="p-3">{rate.universityName}</th>)}</tr></thead><tbody>{[['Intake', (r: CommissionRate) => r.intake], ['Study level', (r: CommissionRate) => r.studyLevel], ['Guidance', (r: CommissionRate) => r.guidance || 'ALLOWED'], ['Payout', payoutLabel], ['Routing', routingLabel]].map(([label, get]) => <tr key={label as string} className="border-t border-slate-700"><th className="p-3 text-xs text-slate-400">{label as string}</th>{rates.map((rate) => <td key={rate.id} className="p-3 font-semibold">{(get as (rate: CommissionRate) => string)(rate)}</td>)}</tr>)}</tbody></table></div>}</section></div>;
 };

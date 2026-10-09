@@ -16,6 +16,7 @@ import { buildDashboardRates } from '../services/dashboardData';
 import { createEmptyDashboardFilters } from '../services/dashboardFilters';
 import type { DashboardFilters } from '../types/dashboard';
 import { DealCalculatorView } from './DealCalculatorView';
+import { SettingsView } from './SettingsView';
 import { AddRateModal } from './AddRateModal';
 import { Sidebar } from './Sidebar';
 import { EditRateModal } from './EditRateModal';
@@ -46,9 +47,9 @@ import {
   CheckCircle2,
   WifiOff,
   History,
-  EyeOff,
   HelpCircle,
   Bell,
+  Settings,
 } from 'lucide-react';
 
 // Interactive Icon Button with Floating Hover/Long-Press Tooltip
@@ -458,16 +459,16 @@ export const AppLayout: React.FC = () => {
                       </span>
                     </div>
 
-                    {/* Section 2: Management Actions (Import Excel Icon Removed) */}
+                    {/* Section 2: Management Actions */}
                     {role === 'ADMIN' && effectiveRole === 'ADMIN' && canWriteRates && (
                       <div className="p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43] flex items-center justify-around">
                         <IconButtonWithTooltip
-                          title="Sheet Visibility Manager"
+                          title="System Settings"
                           onClick={() => {
-                            setIsSheetVisibilityOpen(true);
+                            setCurrentPage('Settings');
                             setIsHeaderMenuOpen(false);
                           }}
-                          icon={<EyeOff className="w-4 h-4 text-indigo-500 dark:text-amber-400" />}
+                          icon={<Settings className="w-4 h-4 text-indigo-500 dark:text-amber-400" />}
                         />
 
                         <IconButtonWithTooltip
@@ -650,7 +651,8 @@ export const AppLayout: React.FC = () => {
             {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage === 'Compare Rates' && <CompareView allRates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Deal Calculator' && <DealCalculatorView rates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Users & Activity' && <UserManagementView />}
-            {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage !== 'Compare Rates' && currentPage !== 'Deal Calculator' && currentPage !== 'Users & Activity' && <SheetView sheetName={currentPage} rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} />}
+            {effectiveRole === 'ADMIN' && currentPage === 'Settings' && <SettingsView rates={rates} onRefreshRates={() => {}} />}
+            {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage !== 'Compare Rates' && currentPage !== 'Deal Calculator' && currentPage !== 'Users & Activity' && currentPage !== 'Settings' && <SheetView sheetName={currentPage} rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} />}
           </div>
         </main>
       </div>
