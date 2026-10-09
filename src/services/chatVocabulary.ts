@@ -97,3 +97,7 @@ export function normalizeChatVocabulary(input: string): string {
   normalized = normalized.replace(/,/g, ' ').replace(/[^\S\r\n]+/g, ' ').trim();
   return normalized.replace(/\b[a-z]+\b/gi, (word) => spellingAliases[word] || word);
 }
+
+export function normalizeChatEntityName(input: string): string {
+  return input.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]/g, '');
+}

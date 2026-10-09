@@ -1,6 +1,6 @@
 import type { CommissionRate, StudyLevel, UserRole } from '../types';
 import type { IntakeYearRange } from '../types/chat';
-import { normalizeChatVocabulary } from './chatVocabulary';
+import { normalizeChatEntityName, normalizeChatVocabulary } from './chatVocabulary';
 
 export const MAX_CHAT_INPUT_LENGTH = 500;
 export const MAX_COMPARISON_SCHOOLS = 4;
@@ -24,6 +24,8 @@ export interface ChatIntent {
   outOfScope: boolean;
   countryTerms: string[];
   aggregatorTerms: string[];
+  suggestedAggregators: string[];
+  intakeSuggestions: string[];
   rateMinimum?: number;
   rateMaximum?: number;
   feeType?: 'FLAT' | 'PERCENTAGE';
@@ -63,7 +65,56 @@ function includesPhrase(text: string, phrase: string): boolean {
   return new RegExp(`(^|[^a-z0-9])${escaped.replace(/\s+/g, '\\s+')}(?=$|[^a-z0-9])`, 'i').test(text);
 }
 
-export function parseChatIntent(input: string, knownSchools: string[], knownCountries: string[] = [], knownAggregators: string[] = [], role: UserRole = 'AGENT'): ChatIntent {
+const entitySearchStopWords = new Set([
+  'show', 'find', 'list', 'search', 'me', 'please', 'could', 'can', 'would', 'will', 'i', 'want', 'need', 'know',
+  'all', 'any', 'every', 'available', 'active', 'listed', 'partner', 'school', 'schools', 'university', 'universities',
+  'institution', 'institutions', 'route', 'routes', 'record', 'records', 'in', 'on', 'of', 'for', 'with', 'and', 'or',
+  'the', 'a', 'an', 'from', 'between', 'to', 'through', 'intake', 'intakes', 'aggregator', 'aggregators', 'filter',
+]);
+
+function matchLocalNames(text: string, knownNames: string[]): { exact: string[]; suggested: string[] } {
+  const names = Array.from(new Set(knownNames.filter(Boolean)));
+  const words = text.toLowerCase().match(/[a-z0-9]+/g) || [];
+  const candidateWords = words.map((word, index) => ({ word, index }))
+    .filter(({ word }) => !entitySearchStopWords.has(word));
+  const windows = (count: number, source = candidateWords) => Array.from({ length: Math.max(0, source.length - count + 1) }, (_, start) => ({
+    value: source.slice(start, start + count).map(({ word }) => word).join(''),
+    indexes: source.slice(start, start + count).map(({ index }) => index),
+  }));
+  const exactNames: string[] = [];
+  const exactIndexes = new Set<number>();
+  for (const name of names) {
+    const normalized = normalizeChatEntityName(name);
+    const parts = name.toLowerCase().match(/[a-z0-9]+/g) || [];
+    const match = windows(parts.length).find((window) => window.value === normalized);
+    if (match) {
+      exactNames.push(name);
+      match.indexes.forEach((index) => exactIndexes.add(index));
+    }
+  }
+
+  const remainingWords = candidateWords.filter(({ index }) => !exactIndexes.has(index));
+  const fuzzyWindows = Array.from({ length: Math.min(4, remainingWords.length) }, (_, index) => index + 1)
+    .flatMap((count) => windows(count, remainingWords));
+  const bestCandidates = new Map<string, number>();
+  for (const name of names.filter((candidate) => !exactNames.includes(candidate))) {
+    const normalized = normalizeChatEntityName(name);
+    const maxDistance = normalized.length >= 7 ? 2 : 1;
+    for (const window of fuzzyWindows) {
+      if (!window.value) continue;
+      const distance = editDistance(window.value, normalized);
+      if (distance <= maxDistance && (!bestCandidates.has(name) || distance < bestCandidates.get(name)!)) bestCandidates.set(name, distance);
+    }
+  }
+  if (!bestCandidates.size) return { exact: exactNames, suggested: [] };
+  const bestDistance = Math.min(...bestCandidates.values());
+  return {
+    exact: exactNames,
+    suggested: Array.from(bestCandidates.entries()).filter(([, distance]) => distance === bestDistance).map(([name]) => name).slice(0, 4),
+  };
+}
+
+export function parseChatIntent(input: string, knownSchools: string[], knownCountries: string[] = [], knownAggregators: string[] = [], role: UserRole = 'AGENT', knownIntakes: string[] = []): ChatIntent {
   const text = normalizeChatVocabulary(sanitizeChatInput(input));
   const normalizedSchools = Array.from(new Set(knownSchools.filter(Boolean)));
   const asksQuantity = /\bhow\s+many\b|\bnumber\s+of\b|\bcount\s+(?:the\s+)?/i.test(text);
@@ -96,7 +147,12 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     ...(requestsUnitedKingdom ? ['united kingdom', 'uk', 'u.k.', 'britain', 'great britain'] : [])];
   const canReadPayout = role !== 'STAFF';
   const canReadRouting = role !== 'AGENT';
-  const aggregatorTerms = canReadRouting ? Array.from(new Set(knownAggregators.filter((aggregator) => aggregator && includesPhrase(text, aggregator)))) : [];
+  const aggregatorMatches = canReadRouting ? matchLocalNames(text, knownAggregators) : { exact: [], suggested: [] };
+  const aggregatorTerms = aggregatorMatches.exact;
+  const suggestedAggregators = aggregatorMatches.suggested;
+  const exactIntakeTerms = sanitizeChatInput(input).match(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/gi) || [];
+  const intakeMatches = exactIntakeTerms.length ? { exact: [], suggested: [] } : matchLocalNames(text, knownIntakes);
+  const intakeSuggestions = intakeMatches.suggested;
   const minimumMatch = canReadPayout ? text.match(/\b(?:at least|minimum|min|over|above|more than|greater than|>=?)\s*[£$]?\s*(\d+(?:\.\d+)?)\s*(%|percent)?/i) : null;
   const maximumMatch = canReadPayout ? text.match(/\b(?:up to|maximum|max|under|below|less than|fewer than|<=?)\s*[£$]?\s*(\d+(?:\.\d+)?)\s*(%|percent)?/i) : null;
   const thresholdMatch = minimumMatch || maximumMatch;
@@ -131,7 +187,7 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     : /\b(fastest|processing time|conversion rate|conversion|success rate|deadline|processing speed)\b/i.test(text)
       ? ( /\b(conversion|success rate)\b/i.test(text) ? 'conversion rate' : 'processing time' )
     : undefined;
-  const schoolText = [...countryMentions, ...countryTerms, ...aggregatorTerms].reduce((remaining, term) => remaining.replace(new RegExp(term.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'ig'), ' '), text);
+  const schoolText = [...countryMentions, ...countryTerms, ...aggregatorTerms, ...suggestedAggregators, ...intakeSuggestions].reduce((remaining, term) => remaining.replace(new RegExp(term.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'ig'), ' '), text);
   const genericSchoolWords = new Set(['university', 'universities', 'school', 'schools', 'college', 'colleges', 'institute', 'institutes', 'international', 'group', 'campus', 'center', 'centre', 'foundation', 'undergraduate', 'postgraduate', 'bachelor', 'master', 'doctoral', 'focus', 'preferred', 'priority', 'allowed', 'permitted', 'restricted', 'compare', 'school', 'routes', 'available', 'partner', 'highest', 'lowest', 'recommended', 'processing', 'conversion', 'success']);
   const wordMatches = normalizedSchools.filter((name) => name.toLowerCase().split(/\s+/).some((word) => word.length >= 5 && !genericSchoolWords.has(word) && includesPhrase(schoolText, word)));
   const schoolTerms = (exactSchoolTerms.length ? exactSchoolTerms : wordMatches).sort((a, b) => b.length - a.length).slice(0, MAX_COMPARISON_SCHOOLS);
@@ -155,8 +211,13 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     .replace(/\b\d+(?:\.\d+)?\b|[£$%>=]+/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ').trim();
     
-  const unmatchedSchoolLikeTerms = scrubbed.split(/\s+/).filter((term) => term.length >= 4 && !normalizedSchools.some((name) => name.toLowerCase().split(/\s+/).some((word) => word === term)));
-  const hasNonSchoolFilter = countryTerms.length > 0 || aggregatorTerms.length > 0 || guidances.length > 0 || rateMinimum !== undefined || rateMaximum !== undefined || feeType !== undefined || sortBy !== undefined || rankingUnclear || intakeOrder !== undefined || intakeYearRange !== undefined || invalidIntakeYearRange;
+  const unmatchedSchoolLikeTerms = scrubbed.split(/\s+/).filter((term) => term.length >= 4
+    && !normalizedSchools.some((name) => name.toLowerCase().split(/\s+/).some((word) => word === term))
+    && ![...suggestedAggregators, ...intakeSuggestions].some((name) => {
+      const entityName = normalizeChatEntityName(name);
+      return editDistance(term, entityName) <= (entityName.length >= 7 ? 2 : 1);
+    }));
+  const hasNonSchoolFilter = countryTerms.length > 0 || aggregatorTerms.length > 0 || suggestedAggregators.length > 0 || intakeSuggestions.length > 0 || guidances.length > 0 || rateMinimum !== undefined || rateMaximum !== undefined || feeType !== undefined || sortBy !== undefined || rankingUnclear || intakeOrder !== undefined || intakeYearRange !== undefined || invalidIntakeYearRange;
   // A filter-only query such as “show focus postgraduate” is an intentional
   // search across matching routes; requiring a school name defeats that filter.
   const broadSearch = explicitBroadSearch || quantity !== undefined || intakeOrder !== undefined || (hasNonSchoolFilter && (Boolean(level) || intakeTerms.length > 0 || guidances.length > 0));
@@ -188,6 +249,8 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
     outOfScope,
     countryTerms,
     aggregatorTerms,
+    suggestedAggregators,
+    intakeSuggestions,
     rateMinimum,
     rateMaximum,
     feeType,

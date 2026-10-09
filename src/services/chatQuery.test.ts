@@ -123,6 +123,7 @@ describe('natural language chat query', () => {
   it('does not recognize a Staff-only aggregator as an Agent filter', () => {
     const intent = parseChatIntent('show SI-UK schools', rates.map((rate) => rate.universityName), [], ['SI-UK'], 'AGENT');
     expect(intent.aggregatorTerms).toEqual([]);
+    expect(intent.suggestedAggregators).toEqual([]);
   });
 
   it('does not treat payout fields or payout language as searchable for Staff', () => {
@@ -135,6 +136,7 @@ describe('natural language chat query', () => {
   it('does not recognize staff routing fields as searchable for Agents', () => {
     const intent = parseChatIntent('show SI-UK schools', [], [], ['SI-UK'], 'AGENT');
     expect(intent.aggregatorTerms).toEqual([]);
+    expect(intent.suggestedAggregators).toEqual([]);
   });
 
   it('understands Nigerian conversational phrasing for school searches', () => {
@@ -228,5 +230,29 @@ describe('natural language chat query', () => {
     expect(intent.invalidIntakeYearRange).toBe(true);
     expect(intent.intakeYearRange).toBeUndefined();
     expect(buildClarifyingQuestions(intent).join(' ')).toMatch(/start year.*before.*end year/i);
+  });
+
+  it('matches multiple known aggregators as canonical alternatives', () => {
+    const intent = parseChatIntent('show routes for SI UK and UAP', [], [], ['SI-UK', 'UAP'], 'STAFF');
+    expect(intent.aggregatorTerms).toEqual(['SI-UK', 'UAP']);
+  });
+
+  it('suggests but does not apply a single misspelled aggregator', () => {
+    const intent = parseChatIntent('show routes for SI-Ukk', [], [], ['SI-UK'], 'STAFF');
+    expect(intent.aggregatorTerms).toEqual([]);
+    expect(intent.suggestedAggregators).toEqual(['SI-UK']);
+    expect(intent.suggestedSchools).toEqual([]);
+  });
+
+  it('asks the user to choose when an aggregator typo has multiple candidates', () => {
+    const intent = parseChatIntent('show routes for Alba Connect', [], [], ['Alfa Connect', 'Alga Connect'], 'STAFF');
+    expect(intent.aggregatorTerms).toEqual([]);
+    expect(intent.suggestedAggregators).toEqual(['Alfa Connect', 'Alga Connect']);
+  });
+
+  it('suggests a known intake when the typed intake is misspelled', () => {
+    const intent = parseChatIntent('show routes for Septmber 2024', [], [], [], 'STAFF', ['September 2024', 'January 2025']);
+    expect(intent.intakeTerms).toEqual([]);
+    expect(intent.intakeSuggestions).toEqual(['September 2024']);
   });
 });

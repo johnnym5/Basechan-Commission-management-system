@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeChatVocabulary } from './chatVocabulary';
+import { normalizeChatEntityName, normalizeChatVocabulary } from './chatVocabulary';
 
 describe('chat phrase and spelling library', () => {
   it('normalizes common Nigerian conversational searches', () => {
@@ -9,5 +9,10 @@ describe('chat phrase and spelling library', () => {
 
   it('corrects frequent query spelling mistakes', () => {
     expect(normalizeChatVocabulary('postgradute universitty focas scholl')).toBe('postgraduate university focus school');
+  });
+
+  it('normalizes intake misspellings and safe aggregator punctuation variants', () => {
+    expect(normalizeChatVocabulary('intack')).toBe('intake');
+    expect(normalizeChatEntityName('SI-UK')).toBe(normalizeChatEntityName('SI UK'));
   });
 });
