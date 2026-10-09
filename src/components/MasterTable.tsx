@@ -66,6 +66,7 @@ interface MasterTableProps {
   onExternalLevelChange?: (level: StudyLevel | 'ALL') => void;
   externalIntakeFilter?: string;
   onExternalIntakeChange?: (intake: string) => void;
+  externalSchoolIdsFilter?: string[];
 }
 
 const COMMON_AGGREGATORS = ['SI-UK', 'EDVOY', 'UAP', 'CRIZAC', 'BASECHAN', 'Direct'];
@@ -387,6 +388,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   onExternalLevelChange,
   externalIntakeFilter,
   onExternalIntakeChange,
+  externalSchoolIdsFilter,
 }) => {
   const { user } = useAuth();
   const [sorting, setSorting] = useState<SortingState>([
@@ -529,6 +531,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   // Client-side filtering logic with fuzzy search & watchlist filter
   const filteredData = useMemo(() => {
     return data.filter((row) => {
+      if (externalSchoolIdsFilter?.length && !externalSchoolIdsFilter.includes(row.universityId)) return false;
       if (onlyShowStarred && !isStarred(watchlist, row.universityName)) {
         return false;
       }
@@ -560,7 +563,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
       return true;
     });
-  }, [data, searchQuery, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, selectedGuidance, watchlist, onlyShowStarred]);
+  }, [data, searchQuery, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, selectedGuidance, watchlist, onlyShowStarred, externalSchoolIdsFilter]);
 
   // Grouped Data Calculations
   const groupedUniversities = useMemo(() => {

@@ -45,3 +45,21 @@ describe('filtersFromChatIntent', () => {
     expect(filtersFromChatIntent('AGENT', intent, { ...createEmptyDashboardFilters(), aggregators: ['UAP'] }).aggregators).toEqual([]);
   });
 });
+
+describe('role boundary edge cases', () => {
+  it('rejects records projected for a different role', () => {
+    const agentRates = buildDashboardRates('AGENT', rates);
+    expect(applyDashboardFilters('STAFF', agentRates, createEmptyDashboardFilters())).toEqual([]);
+  });
+  it('does not infer a payout fee type from a numeric chat bound', () => {
+    const intent: ChatSearchIntent = { schoolIds: [], aggregatorTerms: [], rateMinimum: 10, compare: false, compareSchoolIds: [] };
+    const next = filtersFromChatIntent('AGENT', intent, createEmptyDashboardFilters());
+    expect(next.agentPayoutKind).toBeUndefined();
+    expect(applyDashboardFilters('AGENT', buildDashboardRates('AGENT', rates), next)).toEqual([]);
+  });
+});
+it('matches UK country aliases when Chat normalizes the location', () => {
+  const unitedKingdom = [{ ...base, country: 'United Kingdom' }];
+  const filtered = applyDashboardFilters('ADMIN', buildDashboardRates('ADMIN', unitedKingdom), { ...createEmptyDashboardFilters(), countries: ['UK'] });
+  expect(filtered).toHaveLength(1);
+});

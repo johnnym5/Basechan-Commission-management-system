@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import type { CommissionRate } from '../types';
 import { canCompareSelectedRates, selectSchoolResultRates } from './ChatExperience';
-
 const mocks = vi.hoisted(() => ({
   loadChatProfile: vi.fn(),
   loadFavorites: vi.fn(),
@@ -262,3 +261,15 @@ describe('chat search results flow', () => {
     expect(screen.getByRole('button', { name: 'Compare selected' })).toBeTruthy();
   });
 });
+
+describe('dashboard filter handoff', () => {
+  it('applies only resolved Chat searches to the controlled dashboard filters', async () => {
+    const onDashboardFiltersChange = vi.fn();
+    render(React.createElement(ChatExperience, { rates: [rate({ id: 'aberdeen-pg', universityName: 'University of Aberdeen' })], loading: false, role: 'AGENT', updates: [], onUpdatesChange: vi.fn(), dashboardFilters: { query: '', schoolIds: [], countries: [], levels: [], intakes: [], guidances: [], aggregators: [] }, onDashboardFiltersChange, onViewDashboard: vi.fn() }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your message' }), { target: { value: 'Show me University of Aberdeen postgraduate' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(onDashboardFiltersChange).toHaveBeenCalledWith(expect.objectContaining({ schoolIds: ['uni'], levels: ['PG'] })));
+    expect(await screen.findByRole('button', { name: 'View on dashboard' })).toBeInTheDocument();
+  });
+});
+

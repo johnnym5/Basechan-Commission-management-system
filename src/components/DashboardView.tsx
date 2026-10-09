@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import type { CommissionRate, SchoolGuidance } from '../types';
 import type { DashboardFilters } from '../types/dashboard';
 import { createEmptyDashboardFilters } from '../services/dashboardFilters';
+import { applyDashboardFilters } from '../services/dashboardFilters';
+import { buildDashboardRates } from '../services/dashboardData';
 import { MasterTable } from './MasterTable';
 import { DashboardShell } from './DashboardShell';
 import {
@@ -72,7 +74,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
   };
 
   const handleFilterByGuidance = (guidance: SchoolGuidance) => {
-    if (activeGuidanceFilter === guidance) {
+    if ((controlledFilters.guidances[0] || 'ALL') === guidance) {
       changeGuidance('ALL');
     } else {
       changeGuidance(guidance);
@@ -81,7 +83,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
   };
 
   const handleFilterByAggregator = (aggName: string) => {
-    if (activeAggregatorFilter === aggName) {
+    if ((controlledFilters.aggregators[0] || 'ALL') === aggName) {
       changeAggregator('ALL');
     } else {
       changeAggregator(aggName);
@@ -96,31 +98,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
     onFiltersChange?.(createEmptyDashboardFilters());
   };
 
-  // KPI Calculations
-  const totalUniversities = useMemo(() => new Set(rates.map((r) => r.universityId)).size, [rates]);
-  const totalCountries = useMemo(() => new Set(rates.map((r) => r.country || 'UK')).size, [rates]);
+  const visibleRates = useMemo(() => applyDashboardFilters('ADMIN', buildDashboardRates('ADMIN', rates), controlledFilters), [rates, controlledFilters]) as CommissionRate[];
+
+  // KPI Calculations follow the shared filter state.
+  const totalUniversities = useMemo(() => new Set(visibleRates.map((r) => r.universityId)).size, [visibleRates]);
+  const totalCountries = useMemo(() => new Set(visibleRates.map((r) => r.country || 'UK')).size, [visibleRates]);
 
   const bestRate = useMemo(() => {
-    if (rates.length === 0) return null;
-    return rates.reduce((prev, curr) => (curr.diffMargin > prev.diffMargin ? curr : prev), rates[0]);
-  }, [rates]);
+    if (visibleRates.length === 0) return null;
+    return visibleRates.reduce((prev, curr) => (curr.diffMargin > prev.diffMargin ? curr : prev), visibleRates[0]);
+  }, [visibleRates]);
 
   const averageMargin = useMemo(() => {
-    const percentRates = rates.filter((r) => !r.isFlatFee);
+    const percentRates = visibleRates.filter((r) => !r.isFlatFee);
     if (percentRates.length === 0) return '0.0';
     const total = percentRates.reduce((acc, r) => acc + r.diffMargin, 0);
     return (total / percentRates.length).toFixed(1);
-  }, [rates]);
+  }, [visibleRates]);
 
   // Guidance status counts
-  const focusCount = useMemo(() => rates.filter((r) => r.guidance === 'FOCUS').length, [rates]);
-  const restrictedCount = useMemo(() => rates.filter((r) => r.guidance === 'DO_NOT_USE').length, [rates]);
-  const allowedCount = useMemo(() => rates.filter((r) => !r.guidance || r.guidance === 'ALLOWED').length, [rates]);
+  const focusCount = useMemo(() => visibleRates.filter((r) => r.guidance === 'FOCUS').length, [visibleRates]);
+  const restrictedCount = useMemo(() => visibleRates.filter((r) => r.guidance === 'DO_NOT_USE').length, [visibleRates]);
+  const allowedCount = useMemo(() => visibleRates.filter((r) => !r.guidance || r.guidance === 'ALLOWED').length, [visibleRates]);
 
   // Aggregator Breakdown Analytics
   const aggregatorStats = useMemo<AggregatorStat[]>(() => {
     const map = new Map<string, CommissionRate[]>();
-    rates.forEach((r) => {
+    visibleRates.forEach((r) => {
       const agg = r.aggregator || 'Direct / Other';
       if (!map.has(agg)) map.set(agg, []);
       map.get(agg)!.push(r);
@@ -146,7 +150,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
     });
 
     return stats.sort((a, b) => b.avgDiff - a.avgDiff).slice(0, 5);
-  }, [rates]);
+  }, [visibleRates]);
 
   return (
     <DashboardShell role="ADMIN">
@@ -232,7 +236,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
             </div>
             <div>
               <p className="text-xl sm:text-3xl font-extrabold text-slate-900 dark:text-slate-100 font-mono tracking-tight">
-                {rates.length}
+                {visibleRates.length}
               </p>
               <p className="text-[10px] sm:text-[11px] text-slate-400 dark:text-slate-400 mt-0.5 sm:mt-1 flex items-center gap-1 font-medium truncate">
                 <span className="text-blue-600 dark:text-amber-400 font-bold">Updated</span> from sheets
@@ -322,7 +326,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
                 onClick={() => handleFilterByGuidance('FOCUS')}
                 title="Click to filter for Focus Schools (Preferred)"
                 className={`px-2.5 sm:px-3 py-1 rounded-full border flex items-center gap-1 transition cursor-pointer text-[11px] sm:text-xs ${
-                  activeGuidanceFilter === 'FOCUS'
+                  (controlledFilters.guidances[0] || 'ALL') === 'FOCUS'
                     ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold'
                     : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60'
                 }`}
@@ -335,7 +339,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
                 onClick={() => handleFilterByGuidance('ALLOWED')}
                 title="Click to filter for Allowed Schools"
                 className={`px-2.5 sm:px-3 py-1 rounded-full border transition cursor-pointer text-[11px] sm:text-xs ${
-                  activeGuidanceFilter === 'ALLOWED'
+                  (controlledFilters.guidances[0] || 'ALL') === 'ALLOWED'
                     ? 'bg-slate-800 dark:bg-amber-400 text-white dark:text-slate-950 border-slate-800 dark:border-amber-400 shadow-xs font-bold'
                     : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#222F43] hover:bg-slate-200 dark:hover:bg-slate-800'
                 }`}
@@ -348,7 +352,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
                 onClick={() => handleFilterByGuidance('DO_NOT_USE')}
                 title="Click to filter for Do Not Use Schools"
                 className={`px-2.5 sm:px-3 py-1 rounded-full border flex items-center gap-1 transition cursor-pointer text-[11px] sm:text-xs ${
-                  activeGuidanceFilter === 'DO_NOT_USE'
+                  (controlledFilters.guidances[0] || 'ALL') === 'DO_NOT_USE'
                     ? 'bg-rose-600 text-white border-rose-600 shadow-xs font-bold'
                     : 'bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/60'
                 }`}
@@ -363,7 +367,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
           {aggregatorStats.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3.5 pt-1">
               {aggregatorStats.map((agg) => {
-                const isSelected = activeAggregatorFilter === agg.name;
+                const isSelected = (controlledFilters.aggregators[0] || 'ALL') === agg.name;
                 return (
                   <div
                     key={agg.name}
@@ -417,24 +421,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
       </div>
 
       {/* Active Filter Indication Banner if user clicked a school, status badge, or aggregator card */}
-      {(activeSearchQuery || activeGuidanceFilter !== 'ALL' || activeAggregatorFilter !== 'ALL') && (
+      {(controlledFilters.query || controlledFilters.countries.length > 0 || controlledFilters.levels.length > 0 || controlledFilters.intakes.length > 0 || controlledFilters.guidances.length > 0 || controlledFilters.aggregators.length > 0) && (
         <div className="bg-blue-600 dark:bg-amber-400 text-white dark:text-slate-950 text-xs px-4 py-3 rounded-xl shadow-md flex items-center justify-between animate-in fade-in font-bold">
           <div className="flex flex-wrap items-center gap-2">
             <Filter className="w-4 h-4 text-blue-200 dark:text-slate-900 shrink-0" />
             <span>Active Filters:</span>
-            {activeSearchQuery && (
+            {controlledFilters.query && (
               <span className="bg-blue-700 dark:bg-amber-500 px-2 py-0.5 rounded-md">
-                School: <strong>"{activeSearchQuery}"</strong>
+                School: <strong>"{controlledFilters.query}"</strong>
               </span>
             )}
-            {activeGuidanceFilter !== 'ALL' && (
+            {controlledFilters.countries.map((country) => <span key={`country-${country}`} className="bg-blue-700 dark:bg-amber-500 px-2 py-0.5 rounded-md">Country: <strong>{country}</strong></span>)}
+            {controlledFilters.levels.map((level) => <span key={`level-${level}`} className="bg-blue-700 dark:bg-amber-500 px-2 py-0.5 rounded-md">Level: <strong>{level}</strong></span>)}
+            {controlledFilters.intakes.map((intake) => <span key={`intake-${intake}`} className="bg-blue-700 dark:bg-amber-500 px-2 py-0.5 rounded-md">Intake: <strong>{intake}</strong></span>)}
+            {(controlledFilters.guidances[0] || 'ALL') !== 'ALL' && (
               <span className="bg-blue-700 dark:bg-amber-500 px-2 py-0.5 rounded-md">
-                Status: <strong>{activeGuidanceFilter === 'FOCUS' ? 'Focus (Green)' : activeGuidanceFilter === 'DO_NOT_USE' ? 'Do Not Use' : 'Allowed'}</strong>
+                Status: <strong>{(controlledFilters.guidances[0] || 'ALL') === 'FOCUS' ? 'Focus (Green)' : (controlledFilters.guidances[0] || 'ALL') === 'DO_NOT_USE' ? 'Do Not Use' : 'Allowed'}</strong>
               </span>
             )}
-            {activeAggregatorFilter !== 'ALL' && (
+            {(controlledFilters.aggregators[0] || 'ALL') !== 'ALL' && (
               <span className="bg-blue-700 dark:bg-amber-500 px-2 py-0.5 rounded-md">
-                Aggregator: <strong>"{activeAggregatorFilter}"</strong>
+                Aggregator: <strong>"{controlledFilters.aggregators[0]}"</strong>
               </span>
             )}
           </div>
@@ -449,7 +456,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
       )}
 
       {/* Master Intelligence Table Section - Directly accessible on mobile without scrolling */}
-      <section className="space-y-3">
+      <section id="dashboard-results" className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
@@ -478,6 +485,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ rates, loading, on
           onExternalLevelChange={value => changeFilters({ levels: value === 'ALL' ? [] : [value] })}
           externalIntakeFilter={controlledFilters.intakes[0] || 'ALL'}
           onExternalIntakeChange={value => changeFilters({ intakes: value === 'ALL' ? [] : [value] })}
+          externalSchoolIdsFilter={controlledFilters.schoolIds}
         />
       </section>
     </div>

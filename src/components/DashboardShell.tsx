@@ -15,9 +15,9 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ role, title, des
       <h1 className="mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl">{title}</h1>
       {description && <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-300">{description}</p>}
     </section>}
-    <button type="button" className="flex min-h-11 w-full items-center justify-between rounded-xl border border-[#26334b] bg-[#0e1526] px-4 text-left text-sm font-bold text-slate-200 sm:hidden" aria-expanded={overviewOpen} onClick={() => setOverviewOpen(value => !value)}>
+    {role !== 'ADMIN' && <button type="button" className="flex min-h-11 w-full items-center justify-between rounded-xl border border-[#26334b] bg-[#0e1526] px-4 text-left text-sm font-bold text-slate-200 sm:hidden" aria-expanded={overviewOpen} onClick={() => setOverviewOpen(value => !value)}>
       <span>Overview & filters</span><span aria-hidden="true">{overviewOpen ? '−' : '+'}</span>
-    </button>
+    </button>}
     <div className={overviewOpen ? 'space-y-5' : 'space-y-5 [&_.dashboard-summary]:hidden sm:[&_.dashboard-summary]:block'}>{children}</div>
   </div>;
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useCommissionRates } from '../hooks/useCommissionRates';
@@ -10,6 +10,11 @@ import { CompareView } from './CompareView';
 import { UserManagementView } from './UserManagementView';
 import { AgentAccessGate } from './AgentAccessGate';
 import { ChatExperience } from './ChatExperience';
+import { ChatAssistantLauncher } from './ChatAssistantLauncher';
+import { RoleDashboardView } from './RoleDashboardView';
+import { buildDashboardRates } from '../services/dashboardData';
+import { createEmptyDashboardFilters } from '../services/dashboardFilters';
+import type { DashboardFilters } from '../types/dashboard';
 import { DealCalculatorView } from './DealCalculatorView';
 import { AddRateModal } from './AddRateModal';
 import { Sidebar } from './Sidebar';
@@ -43,9 +48,7 @@ import {
   History,
   EyeOff,
   HelpCircle,
-  MessageCircle,
   Bell,
-  House,
 } from 'lucide-react';
 
 // Interactive Icon Button with Floating Hover/Long-Press Tooltip
@@ -149,11 +152,11 @@ export const AppLayout: React.FC = () => {
   }, [user?.uid, role, access.accessState, isQuotaOfflineMode, quotaMode]);
 
   useEffect(() => {
-    if (!isQuotaOfflineMode) return;
+    if (!isQuotaOfflineMode && !quotaMode) return;
     setShowQuotaToast(true);
     const timeout = window.setTimeout(() => setShowQuotaToast(false), 5000);
     return () => window.clearTimeout(timeout);
-  }, [isQuotaOfflineMode]);
+  }, [isQuotaOfflineMode, quotaMode]);
 
   useEffect(() => {
     setIsRatesErrorOpen(Boolean(ratesError));
@@ -185,9 +188,10 @@ export const AppLayout: React.FC = () => {
   // Effective role used across views and sidebar
   const effectiveRole = role === 'ADMIN' ? viewAsRole : role;
   const canUseAdminNavigation = role === 'ADMIN' && viewAsRole === 'ADMIN';
-  const isLocalOnly = isQuotaOfflineMode || quotaMode || isOffline;
+  const isQuotaMode = isQuotaOfflineMode || quotaMode;
+  const isLocalOnly = isQuotaMode || isOffline;
   const canWriteRates = role === 'ADMIN' && !isLocalOnly;
-  const connectionState = isQuotaOfflineMode ? 'quota' : (isOffline ? 'offline' : 'online');
+  const connectionState = isQuotaMode ? 'quota' : (isOffline ? 'offline' : 'online');
   const connectionRing = connectionState === 'quota'
     ? 'ring-gray-400 dark:ring-gray-500'
     : connectionState === 'offline'
@@ -205,9 +209,9 @@ export const AppLayout: React.FC = () => {
   };
 
   // Dynamic page state based on effective role
-  const [currentPage, setCurrentPage] = useState<string>(
-    effectiveRole === 'ADMIN' ? 'Dashboard' : 'Chat'
-  );
+  const [currentPage, setCurrentPage] = useState<string>('Dashboard');
+  const [dashboardFilters, setDashboardFilters] = useState<DashboardFilters>(createEmptyDashboardFilters);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   
   const [editingRate, setEditingRate] = useState<CommissionRate | null>(null);
@@ -219,8 +223,13 @@ export const AppLayout: React.FC = () => {
   const [isLegalModalOpen, setIsLegalModalOpen] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
   const [bannerNotice, setBannerNotice] = useState<string | null>(null);
-  const [adminChatInitialized, setAdminChatInitialized] = useState(false);
   const roleRateMigrationStarted = useRef(false);
+
+  const dashboardRates = useMemo(() => buildDashboardRates(effectiveRole, rates), [effectiveRole, rates]);
+  useEffect(() => {
+    setDashboardFilters(createEmptyDashboardFilters());
+    setIsChatOpen(false);
+  }, [user?.uid, effectiveRole, access.accessState, access.organizationId]);
 
   useEffect(() => {
     if (role !== 'ADMIN' || isLocalOnly || loading || rates.length === 0 || roleRateMigrationStarted.current) return;
@@ -248,24 +257,11 @@ export const AppLayout: React.FC = () => {
   // Switch default page when effective role changes
   const handleViewAsChange = (newViewRole: UserRole) => {
     setViewAsRole(newViewRole);
-    if (newViewRole === 'STAFF') {
-      setCurrentPage('Application Directory');
-    } else if (newViewRole === 'AGENT') {
-      setCurrentPage('Agent Commissions');
-    } else {
-      setCurrentPage('Dashboard');
-    }
-    setCurrentPage(newViewRole === 'ADMIN' ? 'Dashboard' : 'Chat');
-  };
-
-  const switchAdminWorkspace = (workspace: 'Dashboard' | 'Chat') => {
-    if (workspace === 'Chat') setAdminChatInitialized(true);
-    setCurrentPage(role === 'ADMIN' && viewAsRole !== 'ADMIN' ? 'Chat' : workspace);
+    setCurrentPage('Dashboard');
   };
 
   const navigateToPage = (page: string) => {
-    if (page === 'Chat' && effectiveRole === 'ADMIN') setAdminChatInitialized(true);
-    setCurrentPage(effectiveRole === 'ADMIN' ? page : 'Chat');
+    setCurrentPage(effectiveRole === 'ADMIN' ? page : 'Dashboard');
   };
 
   const handleEditRate = (rate: CommissionRate) => {
@@ -291,8 +287,8 @@ export const AppLayout: React.FC = () => {
 
   return (
     role === 'AGENT' && access.accessState !== 'approved' ? <AgentAccessGate /> :
-    <div className={`min-h-screen ${currentPage === 'Chat' ? 'h-[100dvh]' : ''} bg-[#FDFBF7] dark:bg-[#18181B] flex font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full overflow-x-hidden`}>
-      {canUseAdminNavigation && currentPage !== 'Chat' && <Sidebar
+    <div className="min-h-screen bg-[#FDFBF7] dark:bg-[#18181B] flex font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full overflow-x-hidden">
+      {canUseAdminNavigation && <Sidebar
         currentPage={currentPage} 
         setCurrentPage={navigateToPage}
         rates={rates}
@@ -302,9 +298,9 @@ export const AppLayout: React.FC = () => {
         onOpenLegal={() => setIsLegalModalOpen(true)}
       />}
 
-      <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${canUseAdminNavigation && currentPage !== 'Chat' ? 'lg:ml-[72px]' : ''}`}>
+      <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${canUseAdminNavigation ? 'lg:ml-[72px]' : ''}`}>
         {/* Offline Connection Drop Banner */}
-        {isOffline && currentPage !== 'Chat' && (
+        {isOffline && (
           <div className="bg-amber-600 text-white text-xs px-4 py-2.5 flex items-center justify-center gap-2 font-semibold shadow-md animate-in fade-in sticky top-0 z-40">
             <WifiOff className="w-4 h-4 text-amber-200 shrink-0" />
             <span>You’re offline. Searches use your saved school data; changes are paused.</span>
@@ -314,7 +310,7 @@ export const AppLayout: React.FC = () => {
         <header className="flex-none bg-[#F7F4EF]/95 dark:bg-[#0E1526]/90 backdrop-blur-md border-b border-slate-200 dark:border-[#222F43] sticky top-0 z-30 transition-colors">
           <div className="mx-auto flex h-16 w-full min-w-0 max-w-7xl items-center justify-between gap-2 px-2 sm:px-6 lg:px-8">
             <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3">
-              {canUseAdminNavigation && currentPage !== 'Chat' && (
+              {canUseAdminNavigation && (
                 <button
                   onClick={() => setIsSidebarOpen(true)}
                   className="lg:hidden p-2 -ml-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
@@ -333,9 +329,7 @@ export const AppLayout: React.FC = () => {
                   Basechan CMS
                 </h1>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  {currentPage === 'Chat'
-                    ? 'Natural Language Search'
-                    : effectiveRole === 'ADMIN'
+                  {effectiveRole === 'ADMIN'
                     ? 'Commission Rates & Profit Margins'
                     : effectiveRole === 'STAFF'
                     ? 'Staff Application Guide'
@@ -349,12 +343,6 @@ export const AppLayout: React.FC = () => {
 
             {/* HEADER RIGHT: User Tutorial Question Mark & User Profile FAB Button */}
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-              {role === 'ADMIN' && (
-                <div aria-label="Admin workspace" className="inline-flex shrink-0 rounded-xl border border-slate-200 bg-white p-0.5 sm:p-1 dark:border-[#222F43] dark:bg-[#18181B]">
-                  <button type="button" onClick={() => switchAdminWorkspace('Dashboard')} aria-label="Dashboard" title="Dashboard" aria-pressed={currentPage !== 'Chat'} className={`flex min-h-10 min-w-10 items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs font-bold sm:px-3 ${currentPage !== 'Chat' ? 'bg-slate-900 text-white dark:bg-amber-400 dark:text-slate-950' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}><House className="h-4 w-4 sm:hidden" /><span className="hidden sm:inline">Dashboard</span></button>
-                  <button type="button" onClick={() => switchAdminWorkspace('Chat')} aria-label="Chat" title="Chat" aria-pressed={currentPage === 'Chat'} className={`inline-flex min-h-10 min-w-10 items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs font-bold sm:px-3 ${currentPage === 'Chat' ? 'bg-slate-900 text-white dark:bg-amber-400 dark:text-slate-950' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}><MessageCircle className="h-3.5 w-3.5" /><span className="hidden sm:inline">Chat</span></button>
-                </div>
-              )}
               {/* Question Mark Onboarding Tutorial Button */}
               <button
                 type="button"
@@ -615,7 +603,7 @@ export const AppLayout: React.FC = () => {
           </div>
         </header>
 
-        <main className={`flex-1 min-h-0 w-full min-w-0 mx-auto ${currentPage === 'Chat' ? 'flex flex-col max-w-none overflow-hidden px-0 py-0' : 'max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-6'}`}>
+        <main className="flex-1 min-h-0 w-full min-w-0 mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-6">
           {loading && !ratesError && (
             <div role="status" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600 dark:border-[#222F43] dark:bg-[#0E1526] dark:text-slate-300">
               Loading your authorized school data…
@@ -655,46 +643,45 @@ export const AppLayout: React.FC = () => {
             </div>
           )}
 
-          {/* Animated Page Views based on Effective Role */}
-          <div key={effectiveRole} className={currentPage === 'Chat' ? 'flex min-h-0 flex-1 flex-col' : 'animate-page-enter'}>
-            {effectiveRole === 'ADMIN' && (
-              <div className={currentPage === 'Dashboard' ? '' : 'hidden'}>
-                <DashboardView rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} />
-              </div>
-            )}
-            {effectiveRole === 'ADMIN' && adminChatInitialized && (
-              <div className={currentPage === 'Chat' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-                <ChatExperience rates={rates} loading={loading} role="ADMIN" updates={activityUpdates} onUpdatesChange={setActivityUpdates} dataMayBeStale={isLocalOnly && hasLocalCopy} lastSyncedAt={lastSyncedAt} />
-              </div>
-            )}
-            {currentPage === 'Chat' ? (
-              effectiveRole === 'ADMIN' ? null : <div className="flex min-h-0 flex-1 flex-col">
-                <ChatExperience rates={rates} loading={loading} role={effectiveRole} updates={activityUpdates} onUpdatesChange={setActivityUpdates} dataMayBeStale={isLocalOnly && hasLocalCopy} lastSyncedAt={lastSyncedAt} />
-              </div>
-            ) : currentPage === 'Dashboard' ? (
-              null
-            ) : currentPage === 'Compare Rates' ? (
-              <CompareView 
-                allRates={rates}
-              />
-            ) : currentPage === 'Deal Calculator' ? (
-              <DealCalculatorView
-                rates={rates}
-              />
-            ) : currentPage === 'Users & Activity' ? (
-              <UserManagementView />
-            ) : (
-              <SheetView 
-                sheetName={currentPage}
-                rates={rates}
-                loading={loading}
-                readOnly={!canWriteRates}
-                onEditRate={handleEditRate}
-              />
-            )}
+          <div key={`${effectiveRole}-${access.accessState}-${access.organizationId || 'none'}`} className="animate-page-enter">
+            {currentPage === 'Dashboard' && (effectiveRole === 'ADMIN'
+              ? <DashboardView rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />
+              : <RoleDashboardView role={effectiveRole} rates={dashboardRates} loading={loading} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />)}
+            {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage === 'Compare Rates' && <CompareView allRates={rates} />}
+            {effectiveRole === 'ADMIN' && currentPage === 'Deal Calculator' && <DealCalculatorView rates={rates} />}
+            {effectiveRole === 'ADMIN' && currentPage === 'Users & Activity' && <UserManagementView />}
+            {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage !== 'Compare Rates' && currentPage !== 'Deal Calculator' && currentPage !== 'Users & Activity' && <SheetView sheetName={currentPage} rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} />}
           </div>
         </main>
       </div>
+
+      <ChatAssistantLauncher
+        open={isChatOpen}
+        onOpenChange={setIsChatOpen}
+        scopeKey={`${user?.uid || ''}:${effectiveRole}:${access.accessState}:${access.organizationId || ''}`}
+        onViewDashboard={() => {
+          setCurrentPage('Dashboard');
+          window.setTimeout(() => document.getElementById('dashboard-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+        }}
+      >
+        <ChatExperience
+          key={`${user?.uid || ''}:${effectiveRole}:${access.accessState}:${access.organizationId || ''}`}
+          rates={rates}
+          loading={loading}
+          role={effectiveRole}
+          updates={activityUpdates}
+          onUpdatesChange={setActivityUpdates}
+          dataMayBeStale={isLocalOnly && hasLocalCopy}
+          lastSyncedAt={lastSyncedAt}
+          dashboardFilters={dashboardFilters}
+          onDashboardFiltersChange={setDashboardFilters}
+          onViewDashboard={() => {
+            setIsChatOpen(false);
+            setCurrentPage('Dashboard');
+            window.setTimeout(() => document.getElementById('dashboard-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+          }}
+        />
+      </ChatAssistantLauncher>
 
       {/* Role-Dynamic System Tutorial Modal */}
       <UserTutorialModal
@@ -777,13 +764,13 @@ export const AppLayout: React.FC = () => {
         </>
       )}
 
-      {showQuotaToast && isQuotaOfflineMode && currentPage !== 'Chat' && (
+      {showQuotaToast && isQuotaMode && (
         <div role="status" aria-live="polite" className="fixed left-3 right-3 top-3 z-[120] mx-auto max-w-lg rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950 shadow-xl dark:border-amber-800 dark:bg-[#201b13] dark:text-amber-100 sm:left-1/2 sm:right-auto sm:w-full sm:-translate-x-1/2">
           You are using offline mode. Firestore quota was reached; we’ll check access again automatically.
         </div>
       )}
 
-      {ratesError && !isQuotaOfflineMode && !isOffline && isRatesErrorOpen && (
+      {ratesError && !isQuotaMode && !isOffline && isRatesErrorOpen && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsRatesErrorOpen(false); }}>
           <section role="alertdialog" aria-modal="true" aria-labelledby="rates-error-title" aria-describedby="rates-error-description" className="w-full max-w-md rounded-2xl border border-amber-300 bg-white p-5 text-slate-900 shadow-2xl dark:border-amber-800 dark:bg-[#0E1526] dark:text-slate-100">
             <div className="flex items-start justify-between gap-4">
