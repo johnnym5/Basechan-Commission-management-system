@@ -309,7 +309,7 @@ export function processChatTurn(
     if (pendingClarification?.field !== 'country' && !inputNamesCountry && previousIntent.country) contextParts.push(previousIntent.country);
     if (previousIntent.countryTerms?.length && !inputNamesCountry) contextParts.push(...previousIntent.countryTerms);
     if (pendingClarification?.field !== 'level' && !submittedIntent.level && previousIntent.level) contextParts.push(previousIntent.level === 'PG' ? 'postgraduate' : previousIntent.level === 'UG' ? 'undergraduate' : 'foundation');
-    if (pendingClarification?.field !== 'intake' && !submittedIntent.intakeTerms.length && previousIntent.intake) contextParts.push(previousIntent.intake);
+    if (pendingClarification?.field !== 'intake' && !submittedIntent.intakeTerms.length && !submittedIntent.intakeYearRange && previousIntent.intake) contextParts.push(previousIntent.intake);
     if (!submittedIntent.intakeYearRange && previousIntent.intakeYearRange) contextParts.push(`from ${previousIntent.intakeYearRange.startYear} to ${previousIntent.intakeYearRange.endYear}`);
     if (!submittedIntent.aggregatorTerms.length && !submittedIntent.suggestedAggregators.length) contextParts.push(...(previousIntent.aggregatorTerms || []));
     if (previousIntent.quantity) contextParts.push(previousIntent.quantity === 'schools' ? 'how many schools' : 'how many routes');
@@ -321,11 +321,11 @@ export function processChatTurn(
   }
   const previousLevel = state.conversation.activeLevel;
   const inputHasLevel = /\b(post\s*grad|postgraduate|master'?s|msc|phd|doctoral|under\s*grad|undergraduate|bachelor'?s|bsc|foundation|fd)\b/i.test(input);
-  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !inputHasLevel && previousLevel) {
+  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !submittedIntent.intakeYearRange && !inputHasLevel && previousLevel) {
     contextParts.push(previousLevel === 'PG' ? 'postgraduate' : previousLevel === 'UG' ? 'undergraduate' : 'foundation');
   }
   const containsDatedIntake = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/i.test(input) || submittedIntent.intakeSuggestions.length > 0;
-  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !containsDatedIntake && state.conversation.activeIntake) contextParts.push(state.conversation.activeIntake);
+  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !containsDatedIntake && !submittedIntent.intakeYearRange && !submittedIntent.intakeTerms.length && state.conversation.activeIntake) contextParts.push(state.conversation.activeIntake);
   const expandedInput = `${input} ${Array.from(new Set(contextParts)).join(' ')}`.trim();
   const intent = parseChatIntent(expandedInput, schoolNames, countryNames, aggregatorNames, role, intakeNames);
   if (pendingClarification?.field === 'intake' && rates.some((rate) => rate.intake.toLowerCase() === input.toLowerCase())) {
@@ -372,9 +372,9 @@ export function processChatTurn(
       intentResults = dated.filter((item) => item.key === extremeKey).map((item) => item.rate);
     } else intentResults = [];
   }
-  const broadScope = intent.broadSearch || intent.intakeOrder !== undefined || (intent.countryTerms.length > 0 && intent.schoolTerms.length === 0);
-  const defaultIntake = intent.intakeTerms[0] || (!broadScope ? getDefaultIntake(intentResults, new Date(now)) : undefined);
-  if (!intent.intakeTerms.length && defaultIntake) {
+  const broadScope = intent.broadSearch || intent.intakeOrder !== undefined || Boolean(intent.intakeYearRange) || (intent.countryTerms.length > 0 && intent.schoolTerms.length === 0);
+  const defaultIntake = intent.intakeTerms[0] || (!broadScope && !intent.intakeYearRange ? getDefaultIntake(intentResults, new Date(now)) : undefined);
+  if (!intent.intakeTerms.length && !intent.intakeYearRange && defaultIntake) {
     intentResults = intentResults.filter((rate) => rate.intake === defaultIntake);
   }
   const results = intent.sortBy === 'rate_desc'
@@ -460,9 +460,15 @@ export function processChatTurn(
     updatedAt: new Date(now).toISOString(),
     messages,
     queryCount: conversationQueryCount + 1,
-    ...(intent.level ? { activeLevel: intent.level } : {}),
-    ...(defaultIntake ? { activeIntake: defaultIntake } : {}),
-    ...(intent.schoolTerms.length ? { activeSchoolIds: Array.from(new Set(intent.schoolTerms.flatMap((school) => rates.filter((rate) => rate.universityName.toLowerCase() === school.toLowerCase()).map((rate) => rate.universityId)))) } : {}),
+    ...(isFreshEntitySearch ? {
+      activeLevel: intent.level,
+      activeIntake: defaultIntake,
+      activeSchoolIds: intent.schoolTerms.length ? Array.from(new Set(intent.schoolTerms.flatMap((school) => rates.filter((rate) => rate.universityName.toLowerCase() === school.toLowerCase()).map((rate) => rate.universityId)))) : undefined,
+    } : {
+      ...(intent.level ? { activeLevel: intent.level } : {}),
+      ...(defaultIntake ? { activeIntake: defaultIntake } : {}),
+      ...(intent.schoolTerms.length ? { activeSchoolIds: Array.from(new Set(intent.schoolTerms.flatMap((school) => rates.filter((rate) => rate.universityName.toLowerCase() === school.toLowerCase()).map((rate) => rate.universityId)))) } : {}),
+    }),
     ...(finalResults.length ? { lastResultSchoolIds: Array.from(new Set(finalResults.map((rate) => rate.universityId))).slice(0, MAX_COMPARISON_SCHOOLS) } : {}),
     searchIntent: toStoredIntent(intent, rates),
     ...(clarification ? { pendingClarification: clarification } : followUpFilter ? {

@@ -152,8 +152,8 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
   const suggestedAggregators = aggregatorMatches.suggested;
   const exactIntakeTerms = sanitizeChatInput(input).match(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/gi) || [];
   const containsYearRangeText = /\b20\d{2}\s*(?:[-–—]|to|through|and)\s*20\d{2}\b/i.test(text);
-  const intakeMatches = exactIntakeTerms.length || containsYearRangeText ? { exact: [], suggested: [] } : matchLocalNames(text, knownIntakes);
-  const intakeSuggestions = intakeMatches.suggested;
+  const intakeMatches = matchLocalNames(text, knownIntakes);
+  const intakeSuggestions = exactIntakeTerms.length || containsYearRangeText ? [] : intakeMatches.suggested;
   const minimumMatch = canReadPayout ? text.match(/\b(?:at least|minimum|min|over|above|more than|greater than|>=?)\s*[£$]?\s*(\d+(?:\.\d+)?)\s*(%|percent)?/i) : null;
   const maximumMatch = canReadPayout ? text.match(/\b(?:up to|maximum|max|under|below|less than|fewer than|<=?)\s*[£$]?\s*(\d+(?:\.\d+)?)\s*(%|percent)?/i) : null;
   const thresholdMatch = minimumMatch || maximumMatch;
@@ -193,7 +193,7 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
   const wordMatches = normalizedSchools.filter((name) => name.toLowerCase().split(/\s+/).some((word) => word.length >= 5 && !genericSchoolWords.has(word) && includesPhrase(schoolText, word)));
   const schoolTerms = (exactSchoolTerms.length ? exactSchoolTerms : wordMatches).sort((a, b) => b.length - a.length).slice(0, MAX_COMPARISON_SCHOOLS);
   const ambiguousSchools = exactSchoolTerms.length > MAX_COMPARISON_SCHOOLS ? exactSchoolTerms : [];
-  const intakeTerms = sanitizeChatInput(input).match(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter)\s*(?:[-/]\s*)?20\d{2}\b/gi) || [];
+  const intakeTerms = Array.from(new Set([...exactIntakeTerms, ...intakeMatches.exact]));
   const yearRangeMatch = text.match(/\b(?:from\s+|between\s+)?(20\d{2})\s*(?:[-–—]|to|through|and)\s*(20\d{2})\b/i);
   const intakeYearRange: IntakeYearRange | undefined = yearRangeMatch && Number(yearRangeMatch[1]) <= Number(yearRangeMatch[2])
     ? { startYear: Number(yearRangeMatch[1]), endYear: Number(yearRangeMatch[2]) }

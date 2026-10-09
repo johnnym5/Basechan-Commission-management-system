@@ -203,6 +203,12 @@ describe('natural language chat query', () => {
     expect(getIntakeDateKey('Current intake')).toBeNull();
   });
 
+  it('recognizes exact local intake labels that do not contain a date', () => {
+    const intent = parseChatIntent('Legacy', [], [], [], 'STAFF', ['Current intake', 'Legacy']);
+    expect(intent.intakeTerms).toEqual(['Legacy']);
+    expect(filterRatesByIntent([{ ...rates[0], intake: 'Legacy' }, rates[1]], intent).map((rate) => rate.intake)).toEqual(['Legacy']);
+  });
+
   it('parses inclusive intake year ranges in common wording', () => {
     for (const query of ['from 2021 to 2025', 'between 2021 and 2025', '2021-2025']) {
       expect(parseChatIntent(query, []).intakeYearRange).toEqual({ startYear: 2021, endYear: 2025 });

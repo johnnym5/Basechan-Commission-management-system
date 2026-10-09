@@ -304,4 +304,25 @@ describe('chat session query policy', () => {
     expect(canada.state.conversation.searchIntent).toMatchObject({ country: 'Canada', aggregatorTerms: [] });
     expect(canada.state.conversation.searchIntent?.intakeYearRange).toBeUndefined();
   });
+
+  it('lets an explicit year range replace an implicitly active default intake', () => {
+    const schoolRates = [
+      { ...rates[0], id: 'old-cycle', intake: '2021 - 2022' },
+      { ...rates[0], id: 'new-cycle', intake: '2026 - 2027' },
+    ];
+    const first = processChatTurn(createInitialChatState('u1'), 'Aberdeen University postgraduate', schoolRates, new Date('2026-10-01').getTime(), 'STAFF');
+    const years = processChatTurn(first.state, 'from 2021 to 2025', schoolRates, new Date('2026-10-02').getTime(), 'STAFF');
+    expect(years.matchingRates.map((rate) => rate.id)).toEqual(['old-cycle']);
+  });
+
+  it('clears stored school, level, and intake context when starting a new country search', () => {
+    const first = processChatTurn(createInitialChatState('u1'), 'North University postgraduate', progressiveRates, 1_000, 'STAFF');
+    const canada = processChatTurn(first.state, 'show schools in Canada', progressiveRates, 2_000, 'STAFF');
+    const refined = processChatTurn(canada.state, 'Gamma Group', progressiveRates, 3_000, 'STAFF');
+    expect(first.state.conversation.activeSchoolIds).toContain('uk-a');
+    expect(canada.state.conversation.activeSchoolIds).toBeUndefined();
+    expect(canada.state.conversation.activeLevel).toBeUndefined();
+    expect(canada.state.conversation.activeIntake).toBeUndefined();
+    expect(refined.matchingRates.map((rate) => rate.id)).toEqual(['ca-26']);
+  });
 });
