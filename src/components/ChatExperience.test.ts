@@ -149,6 +149,22 @@ describe('chat search results flow', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Compare selected' })).toBeTruthy());
   });
 
+  it('triggers send when pressing Enter on PC without Shift', async () => {
+    render(React.createElement(ChatExperience, {
+      rates: [rate({ id: 'aberdeen-pg', universityName: 'University of Aberdeen' })],
+      loading: false,
+      role: 'AGENT',
+      updates: [],
+      onUpdatesChange: vi.fn(),
+    }));
+
+    const composer = screen.getByRole('textbox', { name: 'Your message' });
+    fireEvent.change(composer, { target: { value: 'Show me University of Aberdeen postgraduate' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+
+    expect(await screen.findByRole('button', { name: 'Open all results' })).toBeTruthy();
+  });
+
   it('renders the next available filter prompt with choices under the result message', async () => {
     const scopedRates = [
       rate({ id: 'uk-a', universityId: 'uk-a', universityName: 'A University', country: 'UK', intake: 'Jan 2027' }),

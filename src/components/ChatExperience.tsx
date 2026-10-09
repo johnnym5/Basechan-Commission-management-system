@@ -603,7 +603,51 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
   );
 };
 
-const ChatComposer: React.FC<{ value: string; onChange: (value: string) => void; onSubmit: (event: React.FormEvent) => void; busy: boolean; placeholder: string; completions: Array<{ label: string; completion: string }>; onChooseCompletion: (completion: string) => void; inputRef?: React.Ref<HTMLTextAreaElement> }> = ({ value, onChange, onSubmit, busy, placeholder, completions, onChooseCompletion, inputRef }) => <form onSubmit={onSubmit} className="chat-composer-form"><div className="chat-composer-row"><textarea ref={inputRef} value={value} maxLength={500} onChange={(event) => onChange(event.target.value)} aria-label="Your message" placeholder={placeholder} rows={2} className="chat-composer-input" /><div className="flex flex-col items-end gap-1"><span className="text-[10px] text-slate-400">{value.length}/500</span><button type="submit" disabled={!value.trim() || busy} aria-label={busy ? 'Sending message' : 'Send message'} className="chat-send-button">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}<span>Send</span></button></div></div>{completions.length > 0 && <div className="chat-suggestions" aria-label="Suggested query completions"><span className="text-[10px] text-slate-400">Suggestions</span>{completions.map(({ label, completion }) => <button key={completion} type="button" onClick={() => onChooseCompletion(completion)} className="chat-suggestion-button">{label}</button>)}</div>}</form>;
+const ChatComposer: React.FC<{ value: string; onChange: (value: string) => void; onSubmit: (event: React.FormEvent) => void; busy: boolean; placeholder: string; completions: Array<{ label: string; completion: string }>; onChooseCompletion: (completion: string) => void; inputRef?: React.Ref<HTMLTextAreaElement> }> = ({ value, onChange, onSubmit, busy, placeholder, completions, onChooseCompletion, inputRef }) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      if (value.trim() && !busy) {
+        onSubmit(event as unknown as React.FormEvent);
+      }
+    }
+  };
+
+  return (
+    <form onSubmit={onSubmit} className="chat-composer-form">
+      <div className="chat-composer-row">
+        <textarea
+          ref={inputRef}
+          value={value}
+          maxLength={500}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={handleKeyDown}
+          aria-label="Your message"
+          placeholder={placeholder}
+          rows={2}
+          className="chat-composer-input"
+        />
+        <div className="flex flex-col items-end gap-1">
+          <span className="text-[10px] text-slate-400">{value.length}/500</span>
+          <button type="submit" disabled={!value.trim() || busy} aria-label={busy ? 'Sending message' : 'Send message'} className="chat-send-button">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            <span>Send</span>
+          </button>
+        </div>
+      </div>
+      {completions.length > 0 && (
+        <div className="chat-suggestions" aria-label="Suggested query completions">
+          <span className="text-[10px] text-slate-400">Suggestions</span>
+          {completions.map(({ label, completion }) => (
+            <button key={completion} type="button" onClick={() => onChooseCompletion(completion)} className="chat-suggestion-button">
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </form>
+  );
+};
 
 const ChatBubble: React.FC<{ message: ChatMessage; onContinue: (reply: string) => void }> = ({ message, onContinue }) => <div className={`chat-message ${message.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}`}><p>{message.text}</p>{message.status === 'clarifying' && message.role === 'assistant' && message.clarification?.choices.length ? <div className="mt-2 flex flex-wrap gap-2">{message.clarification.choices.map(({ label, value }) => <button key={`${label}-${value}`} onClick={() => onContinue(value)} className="chat-suggestion-button">{label}</button>)}</div> : null}{message.role === 'assistant' && message.followUpFilter && <div className="mt-2" aria-label="Available result filters"><p className="mb-2 text-xs text-slate-400">{message.followUpFilter.question}</p><div className="flex flex-wrap gap-2">{message.followUpFilter.choices.map(({ label, value }) => <button key={`${label}-${value}`} onClick={() => onContinue(value)} className="chat-suggestion-button">{label}</button>)}</div></div>}<p className="mt-1 text-[10px] text-slate-400">{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</p></div>;
 

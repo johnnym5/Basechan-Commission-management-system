@@ -1,7 +1,37 @@
 /**
- * Local, deterministic wording aliases for Basechan chat queries.
- * Keep these focused on query language; school names come from the user's data.
+ * Local, deterministic wording aliases and semantic grammar lexicon for Basechan chat queries.
  */
+
+export const GRAMMAR_LEXICON = {
+  // Relational & Linker Adjectives / Prepositions
+  RELATIONAL_ADJECTIVES: new Set([
+    'related', 'associated', 'connected', 'linked', 'via', 'under',
+    'through', 'using', 'pertaining', 'concerning', 'about', 'with',
+    'for', 'on', 'from', 'belonging', 'offered'
+  ]),
+
+  // Action Verbs
+  ACTION_VERBS: new Set([
+    'show', 'find', 'fetch', 'display', 'list', 'pull', 'extract',
+    'check', 'see', 'lookup', 'get', 'give', 'filter', 'bring',
+    'calculate', 'compare', 'verify', 'count', 'number'
+  ]),
+
+  // Domain Nouns
+  DOMAIN_NOUNS: new Set([
+    'school', 'schools', 'university', 'universities', 'institution',
+    'institutions', 'route', 'routes', 'portal', 'portals', 'aggregator',
+    'aggregators', 'intake', 'intakes', 'level', 'levels', 'country',
+    'countries', 'payout', 'payouts', 'commission', 'commissions', 'rate', 'rates'
+  ]),
+
+  // Guidance & Status Adjectives
+  GUIDANCE_ADJECTIVES: new Set([
+    'focus', 'preferred', 'priority', 'green', 'allowed', 'permitted',
+    'restricted', 'avoid', 'do not use', 'red'
+  ]),
+};
+
 const phraseAliases: Array<[RegExp, string]> = [
   [/\bhow\s+much\s+(?:do\s+)?(?:they|dem)\s+dey\s+pay\b/gi, 'payout'],
   [/\bhow\s+much\s+(?:e|them|dem)\s+(?:dey|they)\s+pay\b/gi, 'payout'],

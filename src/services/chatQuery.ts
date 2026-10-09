@@ -1,6 +1,6 @@
 import type { CommissionRate, StudyLevel, UserRole } from '../types';
 import type { IntakeYearRange } from '../types/chat';
-import { normalizeChatEntityName, normalizeChatVocabulary } from './chatVocabulary';
+import { GRAMMAR_LEXICON, normalizeChatEntityName, normalizeChatVocabulary } from './chatVocabulary';
 
 export const MAX_CHAT_INPUT_LENGTH = 500;
 export const MAX_COMPARISON_SCHOOLS = 4;
@@ -71,6 +71,10 @@ const entitySearchStopWords = new Set([
   'all', 'any', 'every', 'available', 'active', 'listed', 'partner', 'school', 'schools', 'university', 'universities',
   'institution', 'institutions', 'route', 'routes', 'record', 'records', 'in', 'on', 'of', 'for', 'with', 'and', 'or',
   'the', 'a', 'an', 'from', 'between', 'to', 'through', 'intake', 'intakes', 'aggregator', 'aggregators', 'filter',
+  ...Array.from(GRAMMAR_LEXICON.RELATIONAL_ADJECTIVES),
+  ...Array.from(GRAMMAR_LEXICON.ACTION_VERBS),
+  ...Array.from(GRAMMAR_LEXICON.DOMAIN_NOUNS),
+  ...Array.from(GRAMMAR_LEXICON.GUIDANCE_ADJECTIVES),
 ]);
 
 function matchLocalNames(text: string, knownNames: string[]): { exact: string[]; suggested: string[] } {
@@ -202,7 +206,13 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
       ? ( /\b(conversion|success rate)\b/i.test(text) ? 'conversion rate' : 'processing time' )
     : undefined;
   const schoolText = [...countryMentions, ...countryTerms, ...aggregatorTerms, ...suggestedAggregators, ...intakeSuggestions].reduce((remaining, term) => remaining.replace(new RegExp(term.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'ig'), ' '), text);
-  const genericSchoolWords = new Set(['university', 'universities', 'school', 'schools', 'college', 'colleges', 'institute', 'institutes', 'international', 'group', 'campus', 'center', 'centre', 'foundation', 'undergraduate', 'postgraduate', 'bachelor', 'master', 'doctoral', 'focus', 'preferred', 'priority', 'allowed', 'permitted', 'restricted', 'compare', 'school', 'routes', 'available', 'partner', 'highest', 'lowest', 'recommended', 'processing', 'conversion', 'success', 'give', 'take', 'change', 'add', 'remove', 'update', 'increase', 'decrease', 'filter', 'adjust', 'set', 'show', 'find', 'check', 'get', 'make']);
+  const genericSchoolWords = new Set([
+    'university', 'universities', 'school', 'schools', 'college', 'colleges', 'institute', 'institutes', 'international', 'group', 'campus', 'center', 'centre', 'foundation', 'undergraduate', 'postgraduate', 'bachelor', 'master', 'doctoral', 'focus', 'preferred', 'priority', 'allowed', 'permitted', 'restricted', 'compare', 'school', 'routes', 'available', 'partner', 'highest', 'lowest', 'recommended', 'processing', 'conversion', 'success', 'give', 'take', 'change', 'add', 'remove', 'update', 'increase', 'decrease', 'filter', 'adjust', 'set', 'show', 'find', 'check', 'get', 'make',
+    ...Array.from(GRAMMAR_LEXICON.RELATIONAL_ADJECTIVES),
+    ...Array.from(GRAMMAR_LEXICON.ACTION_VERBS),
+    ...Array.from(GRAMMAR_LEXICON.DOMAIN_NOUNS),
+    ...Array.from(GRAMMAR_LEXICON.GUIDANCE_ADJECTIVES),
+  ]);
   const wordMatches = normalizedSchools.filter((name) => name.toLowerCase().split(/\s+/).some((word) => word.length >= 5 && !genericSchoolWords.has(word) && includesPhrase(schoolText, word)));
   const schoolTerms = (exactSchoolTerms.length ? exactSchoolTerms : wordMatches).sort((a, b) => b.length - a.length).slice(0, MAX_COMPARISON_SCHOOLS);
   const ambiguousSchools = exactSchoolTerms.length > MAX_COMPARISON_SCHOOLS ? exactSchoolTerms : [];
@@ -220,8 +230,13 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
   const guidance = guidances[0];
   const level = findLevel(text);
   const explicitBroadSearch = /\b(?:all|any|every|available|active|listed|partner)\s+(?:available\s+|active\s+|listed\s+|partner\s+)?(?:schools?|universit(?:y|ies)|institutions?|routes?)\b|\b(?:show|list|find)\s+(?:me\s+)?everything\b/i.test(text);
+
+  const relationalWordsRegex = Array.from(GRAMMAR_LEXICON.RELATIONAL_ADJECTIVES).join('|');
+  const actionWordsRegex = Array.from(GRAMMAR_LEXICON.ACTION_VERBS).join('|');
+  const domainNounsRegex = Array.from(GRAMMAR_LEXICON.DOMAIN_NOUNS).join('|');
+
   const scrubbed = schoolText
-    .replace(/\b(?:how|many|number|count|which|what|about|do|does|they|their|is|are|have|currently|current|presently|compare|versus|vs|difference|between|show|find|list|search|school|schools|university|universities|institution|institutions|route|routes|record|records|entry|entries|result|results|my|rate|rates|commission|commissions|payout|paying|paid|flat|fee|fixed|percentage|percent|highest|lowest|latest|earliest|newest|oldest|last|first|largest|smallest|top|bottom|best|fastest|processing|time|conversion|success|minimum|min|maximum|max|least|more|less|greater|than|above|below|over|under|at|up|to|from|with|without|same|also|instead|this|that|these|those|it|sort|by|for|me|please|want|need|help|check|choose|specific|particular|general|overall|everything|them|all|any|every|available|active|listed|partner|name|two|three|four|the|a|an|and|in|on|of|study|focus|preferred|priority|avoid|restricted|do not use|allowed|permitted|foundation|fd|undergrad(?:uate)?|bachelor'?s|bsc|post\s*grad(?:uate)?|master'?s|msc|phd|doctoral|levels?|intakes?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter|give|take|change|add|remove|update|increase|decrease|adjust|set|filter|get|make|20\d{2})\b/gi, ' ')
+    .replace(new RegExp(`\\b(?:${relationalWordsRegex}|${actionWordsRegex}|${domainNounsRegex}|how|many|number|count|which|what|about|do|does|they|their|is|are|have|currently|current|presently|compare|versus|vs|difference|between|show|find|list|search|school|schools|university|universities|institution|institutions|route|routes|record|records|entry|entries|result|results|my|rate|rates|commission|commissions|payout|paying|paid|flat|fee|fixed|percentage|percent|highest|lowest|latest|earliest|newest|oldest|last|first|largest|smallest|top|bottom|best|fastest|processing|time|conversion|success|minimum|min|maximum|max|least|more|less|greater|than|above|below|over|under|at|up|to|from|with|without|same|also|instead|this|that|these|those|it|sort|by|for|me|please|want|need|help|check|choose|specific|particular|general|overall|everything|them|all|any|every|available|active|listed|partner|name|two|three|four|the|a|an|and|in|on|of|study|focus|preferred|priority|avoid|restricted|do not use|allowed|permitted|foundation|fd|undergrad(?:uate)?|bachelor'?s|bsc|post\s*grad(?:uate)?|master'?s|msc|phd|doctoral|levels?|intakes?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|spring|summer|fall|autumn|winter|give|take|change|add|remove|update|increase|decrease|adjust|set|filter|get|make|20\\d{2})\\b`, 'gi'), ' ')
     .replace(/\b\d+(?:\.\d+)?\b|[£$%>=]+/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ').trim();
     
@@ -232,8 +247,6 @@ export function parseChatIntent(input: string, knownSchools: string[], knownCoun
       return editDistance(term, entityName) <= (entityName.length >= 7 ? 2 : 1);
     }));
   const hasNonSchoolFilter = countryTerms.length > 0 || aggregatorTerms.length > 0 || suggestedAggregators.length > 0 || intakeSuggestions.length > 0 || guidances.length > 0 || rateMinimum !== undefined || rateMaximum !== undefined || feeType !== undefined || sortBy !== undefined || rankingUnclear || intakeOrder !== undefined || intakeYearRange !== undefined || invalidIntakeYearRange;
-  // A filter-only query such as “show focus postgraduate” is an intentional
-  // search across matching routes; requiring a school name defeats that filter.
   const broadSearch = explicitBroadSearch || quantity !== undefined || intakeOrder !== undefined || (hasNonSchoolFilter && (Boolean(level) || intakeTerms.length > 0 || guidances.length > 0));
   const suggestedSchools = Array.from(new Set(unmatchedSchoolLikeTerms.flatMap((term) => {
     const candidates = normalizedSchools
