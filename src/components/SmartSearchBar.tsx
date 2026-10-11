@@ -429,7 +429,7 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
             </div>
 
             {/* Detailed Filters Grid (University, Country, Level, Intake, Status, Portal, Sort By) */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-2.5">
               <div>
                 <label htmlFor="advance-university-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">University</label>
                 <select

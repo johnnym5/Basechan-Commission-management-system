@@ -156,7 +156,7 @@ const UniversityMatrix: React.FC<{
   const renderTableRows = (rowList: MatrixRow[]) => {
     return rowList.map((row) => (
       <tr key={row.rowKey} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-        <td className="p-2.5 border-r border-slate-200 dark:border-slate-800 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+        <td className="p-2.5 border-r border-slate-200 dark:border-slate-800 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap sticky left-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs shadow-[1px_0_4px_rgba(0,0,0,0.05)] dark:shadow-[1px_0_4px_rgba(0,0,0,0.3)]">
           <div className="flex flex-col">
             <span className="text-xs">{row.intake}</span>
             <span className="text-[10px] text-slate-400 font-semibold">
@@ -246,7 +246,7 @@ const UniversityMatrix: React.FC<{
         <table className="w-full text-left border-collapse min-w-max text-xs">
           <thead>
             <tr>
-              <th className="p-2.5 border-b border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 text-[11px] font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+              <th className="p-2.5 border-b border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 text-[11px] font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider sticky left-0 z-20 backdrop-blur-xs shadow-[1px_0_4px_rgba(0,0,0,0.05)] dark:shadow-[1px_0_4px_rgba(0,0,0,0.3)]">
                 Intake & Level
               </th>
               {aggregators.map((agg) => (

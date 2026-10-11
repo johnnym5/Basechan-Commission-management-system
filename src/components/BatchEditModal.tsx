@@ -82,10 +82,15 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
     guidance !== '';
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+      <div className="bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[90vh]">
+        {/* Mobile Sheet Handle */}
+        <div className="sm:hidden flex items-center justify-center pt-2.5 pb-1 shrink-0 bg-slate-900">
+          <div className="w-10 h-1.5 rounded-full bg-slate-700" />
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-slate-800 shrink-0">
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-800 shrink-0">
           <div>
             <h2 className="text-xl font-bold text-white">Batch Edit</h2>
             <p className="text-sm text-slate-400 mt-1">

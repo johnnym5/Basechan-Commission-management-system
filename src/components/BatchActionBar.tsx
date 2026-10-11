@@ -44,14 +44,14 @@ export const BatchActionBar: React.FC<BatchActionBarProps> = ({
   const isSingle = selectedCount === 1;
 
   return (
-    <div className="fixed bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 z-50 animate-slide-up w-[95%] sm:w-auto max-w-4xl">
-      <div className="bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 shadow-2xl shadow-slate-950/80 rounded-2xl px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm">
+    <div className="fixed bottom-3 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 animate-slide-up w-[calc(100%-1.5rem)] sm:w-auto max-w-4xl">
+      <div className="bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 shadow-2xl shadow-slate-950/80 rounded-2xl p-2.5 sm:px-6 sm:py-3 flex flex-wrap items-center justify-between gap-2 sm:gap-3 text-xs sm:text-sm">
         {/* Selected Counter */}
-        <div className="flex items-center gap-2 sm:gap-3 pr-3 sm:pr-4 border-r border-slate-700 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-3 pr-2 sm:pr-4 border-r border-slate-700 shrink-0">
           <span className="flex items-center justify-center bg-emerald-500 text-white font-bold h-6 w-6 rounded-full text-xs font-mono shadow-xs">
             {selectedCount}
           </span>
-          <span className="text-white font-semibold whitespace-nowrap">
+          <span className="text-white font-semibold whitespace-nowrap text-xs">
             {isSingle ? 'Selected' : 'Selected'}
           </span>
         </div>
