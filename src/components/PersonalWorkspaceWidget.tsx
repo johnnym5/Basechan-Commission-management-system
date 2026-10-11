@@ -114,7 +114,7 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
     if (role === 'ADMIN') return 'Admin Intelligence';
     if (role === 'STAFF') return 'Staff Application Guide';
     if (orgName) return `${orgName} Partner`;
-    return 'SI-UK Ghana Partner';
+    return 'Partner Agent';
   }, [role, orgName]);
 
   const handleScrollToResults = () => {

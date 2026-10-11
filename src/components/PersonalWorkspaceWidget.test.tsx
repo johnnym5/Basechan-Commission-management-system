@@ -81,4 +81,16 @@ describe('PersonalWorkspaceWidget', () => {
     fireEvent.click(screen.getByRole('button', { name: /View Rates/i }));
     expect(onScrollToResults).toHaveBeenCalledTimes(1);
   });
+
+  it('renders neutral Partner Agent badge when agent has no organization name', () => {
+    mockUseAuth.mockReturnValue({
+      user: { uid: 'agent-2', displayName: 'Independent Agent' },
+      role: 'AGENT',
+      access: { role: 'AGENT', accessState: 'approved' },
+      accessRequest: null,
+    });
+
+    render(<PersonalWorkspaceWidget favoriteCount={0} />);
+    expect(screen.getByTestId('role-agency-badge')).toHaveTextContent('Partner Agent');
+  });
 });

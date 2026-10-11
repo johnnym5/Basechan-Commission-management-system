@@ -4,6 +4,7 @@ import type { DashboardFilters } from '../types/dashboard';
 import { filtersFromChatIntent } from './dashboardFilters';
 import { buildClarifyingQuestions, detectAggregatorYieldQuery, detectGlobalListQuery, detectNavigationQuery, detectPromptJailbreak, detectRBACViolation, detectSystemCapabilityQuery, detectUniversityFactQuery, filterRatesByIntent, getDefaultIntake, getIntakeDateKey, getIntakeStartYear, MAX_COMPARISON_SCHOOLS, parseChatIntent, sanitizeChatInput } from './chatQuery';
 import { MAX_QUERIES_PER_MINUTE, MAX_QUERIES_PER_SESSION, PREFERENCE_LEARNING_THRESHOLD } from './chatPersistence';
+import { formatCommissionValue, formatCommissionDifference, findBestComparableRate } from '../utils/commissionFormatter';
 
 export interface AvailableChatFacets {
   intakes: string[];
@@ -494,11 +495,15 @@ export function processChatTurn(
 
     let payoutInfo = '';
     if (role === 'ADMIN') {
-      const bestRate = schoolRates.reduce((prev, curr) => (curr.diffMargin > prev.diffMargin ? curr : prev), schoolRates[0]);
-      payoutInfo = `\n• Best Yield Route: ${bestRate?.aggregator} (+${bestRate?.diffMargin}% net margin)`;
+      const { bestRate, isMixed } = findBestComparableRate(schoolRates);
+      if (bestRate) {
+        payoutInfo = `\n• Best Yield Route: ${bestRate.aggregator} (${formatCommissionDifference(bestRate.diffMargin, bestRate.isFlatFee)} net margin)`;
+      } else if (isMixed) {
+        payoutInfo = `\n• Routes contain mixed rate units (percentage and flat-fee). View individual route breakdown below.`;
+      }
     } else if (role === 'AGENT') {
       const topAgent = schoolRates.reduce((prev, curr) => (curr.agentRate > prev.agentRate ? curr : prev), schoolRates[0]);
-      payoutInfo = `\n• Guaranteed Commission: ${topAgent?.isFlatFee ? `£${topAgent?.agentRate}` : `${topAgent?.agentRate}%`}`;
+      payoutInfo = `\n• Guaranteed Commission: ${formatCommissionValue(topAgent?.agentRate, topAgent?.isFlatFee || false)}`;
     }
 
     const text = `📊 Institution Profile: ${schoolName}\n• Country: ${country}\n• Guidance Status: ${guidanceLabel}\n• Available Intakes: ${intakes}\n• Study Levels: ${levels}${portals ? `\n• Submission Portals: ${portals}` : ''}${payoutInfo}${notes ? `\n\n📌 Special Instructions: ${notes}` : ''}`;
@@ -537,19 +542,28 @@ export function processChatTurn(
 
     const portalBreakdown = schoolRates.map((r) => {
       if (role === 'ADMIN') {
-        return `• ${r.aggregator} (${r.intake} ${r.studyLevel}): Master ${r.masterRate}% - Agent ${r.agentRate}% = Net Margin +${r.diffMargin}%`;
+        const masterStr = formatCommissionValue(r.masterRate, r.isFlatFee);
+        const agentStr = formatCommissionValue(r.agentRate, r.isFlatFee);
+        const marginStr = formatCommissionDifference(r.diffMargin, r.isFlatFee);
+        return `• ${r.aggregator} (${r.intake} ${r.studyLevel}): Master ${masterStr} - Agent ${agentStr} = Net Margin ${marginStr}`;
       } else if (role === 'STAFF') {
         return `• ${r.aggregator} (${r.intake} ${r.studyLevel}): Portal Route [Status: ${r.guidance || 'ALLOWED'}]`;
       } else {
-        return `• ${r.aggregator} (${r.intake} ${r.studyLevel}): Guaranteed Payout ${r.isFlatFee ? `£${r.agentRate}` : `${r.agentRate}%`}`;
+        return `• ${r.aggregator} (${r.intake} ${r.studyLevel}): Guaranteed Payout ${formatCommissionValue(r.agentRate, r.isFlatFee)}`;
       }
     }).join('\n');
 
-    const bestRoute = role === 'ADMIN'
-      ? schoolRates.reduce((prev, curr) => (curr.diffMargin > prev.diffMargin ? curr : prev), schoolRates[0])
-      : schoolRates[0];
+    let recommendation = 'Refer to designated submission portals for active student applications.';
+    if (role === 'ADMIN') {
+      const { bestRate, isMixed } = findBestComparableRate(schoolRates);
+      if (bestRate) {
+        recommendation = `Use ${bestRate.aggregator} for highest net margin (${formatCommissionDifference(bestRate.diffMargin, bestRate.isFlatFee)}).`;
+      } else if (isMixed) {
+        recommendation = `Available routes contain mixed pricing structures (percentage and flat-fee). Compare routes with matching pricing units directly.`;
+      }
+    }
 
-    const text = `🔀 Aggregator Portal Comparison for ${schoolName}:\n\n${portalBreakdown}\n\n💡 Recommendation: ${role === 'ADMIN' ? `Use ${bestRoute?.aggregator} for highest net margin (+${bestRoute?.diffMargin}%).` : `Refer to designated submission portals for active student applications.`}`;
+    const text = `🔀 Aggregator Portal Comparison for ${schoolName}:\n\n${portalBreakdown}\n\n💡 Recommendation: ${recommendation}`;
 
     const assistantMsg = createMessage(
       'assistant',

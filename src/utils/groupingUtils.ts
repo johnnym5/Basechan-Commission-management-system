@@ -1,4 +1,6 @@
 import type { CommissionRate, StudyLevel, SchoolGuidance } from '../types';
+import { resolveUniversityCountry as baseResolveCountry } from './countryResolver';
+import { findBestComparableRate } from './commissionFormatter';
 
 export type GroupByMode = 'NONE' | 'UNIVERSITY' | 'COUNTRY' | 'AGGREGATOR';
 export type GroupSortMode = 'MOST_ROUTES' | 'HIGHEST_MARGIN' | 'ALPHABETICAL';
@@ -22,54 +24,36 @@ export interface GenericGroup {
   rates: CommissionRate[];
 }
 
-// Geographic keyword maps for fallback country resolution
-const COUNTRY_KEYWORD_PATTERNS: Array<{ country: string; keywords: string[] }> = [
-  { country: 'Canada', keywords: ['canada', 'toronto', 'mcgill', 'vancouver', 'alberta', 'waterloo', 'mcmaster', 'calgary', 'ottawa', 'montreal', 'quebec', 'yorku', 'ryerson', 'tmu', 'simon fraser', 'sfu', 'manitoba', 'saskatchewan', 'dalhousie', 'victoria'] },
-  { country: 'USA', keywords: ['usa', 'united states', 'harvard', 'mit', 'stanford', 'nyu', 'california', 'ucla', 'berkeley', 'texas', 'florida', 'chicago', 'columbia', 'yale', 'princeton', 'penn', 'michigan', 'cornell', 'duke', 'johns hopkins', 'northwestern', 'illinois', 'boston', 'purdue'] },
-  { country: 'Australia', keywords: ['australia', 'melbourne', 'sydney', 'monash', 'queensland', 'unsw', 'rmit', 'deakin', 'curtin', 'adelaide', 'western australia', 'macquarie', 'uts', 'griffith', 'utas', 'canberra', 'flinders', 'la trobe', 'wollongong', 'swinburne'] },
-  { country: 'UK', keywords: ['uk', 'united kingdom', 'england', 'scotland', 'wales', 'london', 'oxford', 'cambridge', 'manchester', 'edinburgh', 'glasgow', 'birmingham', 'leeds', 'sheffield', 'bristol', 'nottingham', 'southampton', 'newcastle', 'liverpool', 'cardiff', 'belfast', 'coventry', 'greenwich', 'leicester', 'aberdeen', 'dundee', 'stirling', 'strathclyde', 'exeter', 'york', 'bath', 'surrey', 'sussex', 'essex', 'reading', 'kent', 'swansea', 'aston', 'brunel', 'city', 'goldsmiths', 'kingston', 'lincoln', 'plymouth', 'portsmouth', 'salford', 'ulster', 'westminster', 'huddersfield', 'roehampton'] },
-];
-
 export const resolveUniversityCountry = (
   universityName: string,
   explicitCountry?: string,
   allRates: CommissionRate[] = []
 ): string => {
-  if (explicitCountry && explicitCountry.trim() && explicitCountry.trim().toUpperCase() !== 'UNKNOWN') {
-    return explicitCountry.trim();
-  }
-
-  const normUni = (universityName || '').toLowerCase().trim();
-  if (!normUni) return 'UK';
-
-  if (allRates && allRates.length > 0) {
-    const knownMatch = allRates.find(
-      (r) => r.universityName.toLowerCase().trim() === normUni && r.country && r.country.trim()
-    );
-    if (knownMatch && knownMatch.country) {
-      return knownMatch.country.trim();
-    }
-  }
-
-  for (const pattern of COUNTRY_KEYWORD_PATTERNS) {
-    if (pattern.keywords.some((kw) => normUni.includes(kw))) {
-      return pattern.country;
-    }
-  }
-
-  return 'UK';
+  return baseResolveCountry(universityName, explicitCountry, allRates);
 };
 
-// Normalize school names so "University of Leicester" & "Leicester University" group together
+// Collision-resistant normalization for grouping key (keeps country / stable ID if available)
+export const buildUniversityGroupKey = (rate: CommissionRate, allRates: CommissionRate[]): string => {
+  if (rate.universityId && rate.universityId.trim()) {
+    return rate.universityId.trim().toLowerCase();
+  }
+  const normName = normalizeUniversityName(rate.universityName);
+  const country = resolveUniversityCountry(rate.universityName, rate.country, allRates);
+  return `${normName}__${country.toLowerCase()}`;
+};
+
+// Normalize school names so "University of Leicester" & "Leicester University" group together without collapsing different schools
 export const normalizeUniversityName = (name: string): string => {
-  if (!name) return 'Unknown University';
-  return name
+  if (!name) return 'unknown_institution';
+  const clean = name
     .toLowerCase()
+    .trim()
+    .replace(/^the\s+/i, '')
     .replace(/^university of\s+/i, '')
     .replace(/\s+university$/i, '')
     .replace(/\s+scholarship.*$/i, '')
-    .replace(/\s+campus.*$/i, '')
     .trim();
+  return clean || name.toLowerCase().trim();
 };
 
 // Group commission rates by University
@@ -77,16 +61,16 @@ export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversi
   const map = new Map<string, CommissionRate[]>();
 
   rates.forEach((rate) => {
-    const norm = normalizeUniversityName(rate.universityName);
-    if (!map.has(norm)) {
-      map.set(norm, []);
+    const groupKey = buildUniversityGroupKey(rate, rates);
+    if (!map.has(groupKey)) {
+      map.set(groupKey, []);
     }
-    map.get(norm)!.push(rate);
+    map.get(groupKey)!.push(rate);
   });
 
   const groupedList: GroupedUniversity[] = [];
 
-  map.forEach((items, normKey) => {
+  map.forEach((items, groupKey) => {
     // Pick cleanest display name (prefer longer official title)
     const displayName = items.reduce((prev, curr) =>
       curr.universityName.length > prev.universityName.length ? curr : prev
@@ -94,12 +78,9 @@ export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversi
 
     const country = items.find((i) => i.country)?.country || resolveUniversityCountry(displayName, undefined, items);
 
-    // Find best yielding route
-    const bestRoute = items.reduce((prev, curr) =>
-      curr.diffMargin > prev.diffMargin ? curr : prev
-    , items[0]);
-
-    const maxMargin = bestRoute ? bestRoute.diffMargin : 0;
+    // Find best yielding route strictly among comparable rates
+    const { bestRate } = findBestComparableRate(items);
+    const maxMargin = bestRate && typeof bestRate.diffMargin === 'number' && isFinite(bestRate.diffMargin) ? bestRate.diffMargin : 0;
 
     // Collect unique study levels & aggregators
     const studyLevels = Array.from(new Set(items.map((i) => i.studyLevel))).sort() as StudyLevel[];
@@ -114,12 +95,12 @@ export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversi
     }
 
     groupedList.push({
-      groupKey: normKey,
+      groupKey,
       displayName,
       country,
       rates: items,
       totalRoutes: items.length,
-      bestRoute,
+      bestRoute: bestRate,
       maxMargin,
       studyLevels,
       aggregators,
@@ -129,6 +110,8 @@ export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversi
 
   return groupedList;
 };
+
+
 
 // Group commission rates by Country
 export const groupRatesByCountry = (rates: CommissionRate[]): GenericGroup[] => {
@@ -201,19 +184,51 @@ export const sortGroupedUniversities = (
   });
 };
 
+const MONTH_MAP: Record<string, number> = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+};
+
 /**
  * Determines if an intake belongs to a past/historical cycle.
- * Detects 4-digit years in the intake string (e.g. "Sept 2018", "Jan 2024", "2025")
- * and compares against referenceYear (defaults to current calendar year).
+ * Detects 4-digit years and optional month name (e.g. "Sept 2026", "Jan 2026", "2025")
+ * and compares against referenceYear and referenceMonth (1-12, defaults to current calendar date).
  */
 export const isHistoricalIntake = (
   intake?: string,
-  referenceYear: number = new Date().getFullYear()
+  referenceYear: number = new Date().getFullYear(),
+  referenceMonth: number = new Date().getMonth() + 1
 ): boolean => {
   if (!intake) return false;
-  const match = intake.match(/\b(19\d{2}|20\d{2})\b/);
-  if (!match) return false;
-  const year = parseInt(match[0], 10);
-  return year < referenceYear;
+  const yearMatch = intake.match(/\b(19\d{2}|20\d{2})\b/);
+  if (!yearMatch) return false;
+  const year = parseInt(yearMatch[0], 10);
+
+  if (year < referenceYear) return true;
+  if (year > referenceYear) return false;
+
+  // Same year: inspect if a month prefix or keyword exists
+  const lower = intake.toLowerCase();
+  for (const [mName, mNum] of Object.entries(MONTH_MAP)) {
+    // Check word boundary or start of intake
+    const regex = new RegExp(`\\b${mName}\\b`, 'i');
+    if (regex.test(lower)) {
+      return mNum < referenceMonth;
+    }
+  }
+
+  // Year-only intake in current year: not classified as historical
+  return false;
 };
+
 

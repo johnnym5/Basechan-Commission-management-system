@@ -49,8 +49,14 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
 
   // Convert DashboardRate[] to CommissionRate[] for MasterTable
   const commissionRates: CommissionRate[] = useMemo(() => {
-    return visibleRates.map(r => {
-      const anyRate = r as any;
+    return visibleRates.map((r) => {
+      const aggregator = 'aggregator' in r ? r.aggregator : '';
+      const agentRate = 'agentRate' in r ? r.agentRate : 0;
+      const masterRate = 'masterRate' in r ? r.masterRate : 0;
+      const diffMargin = 'diffMargin' in r ? r.diffMargin : ('agentRate' in r ? r.agentRate : 0);
+      const isFlatFee = 'isFlatFee' in r ? r.isFlatFee : false;
+      const netOrGross = 'netOrGross' in r ? r.netOrGross : 'GROSS';
+
       return {
         id: r.id,
         universityId: r.universityId,
@@ -58,12 +64,12 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
         country: r.country,
         intake: r.intake,
         studyLevel: r.studyLevel,
-        aggregator: anyRate.aggregator || '',
-        agentRate: anyRate.agentRate || 0,
-        masterRate: anyRate.masterRate || 0,
-        diffMargin: anyRate.agentRate ?? anyRate.diffMargin ?? 0,
-        isFlatFee: anyRate.isFlatFee || false,
-        netOrGross: anyRate.netOrGross || 'GROSS',
+        aggregator,
+        agentRate,
+        masterRate,
+        diffMargin,
+        isFlatFee,
+        netOrGross,
         guidance: r.guidance || 'ALLOWED',
         notes: r.notes || '',
       };

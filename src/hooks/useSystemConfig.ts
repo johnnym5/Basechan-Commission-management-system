@@ -23,7 +23,7 @@ export function useSystemConfig() {
       (snap) => {
         if (snap.exists()) {
           const data = snap.data();
-          if (Array.isArray(data.activeIntakes) && data.activeIntakes.length > 0) {
+          if (Array.isArray(data.activeIntakes)) {
             setActiveIntakesState(data.activeIntakes);
           }
         }
@@ -43,7 +43,7 @@ export function useSystemConfig() {
           if (data.defaultStudyLevel) setDefaultStudyLevel(data.defaultStudyLevel);
           if (data.defaultViewMode) setDefaultViewMode(data.defaultViewMode);
           if (data.defaultSortBy) setDefaultSortBy(data.defaultSortBy);
-          if (Array.isArray(data.activeIntakes) && data.activeIntakes.length > 0) {
+          if (Array.isArray(data.activeIntakes)) {
             setActiveIntakesState(data.activeIntakes);
           }
         }

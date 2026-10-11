@@ -28,9 +28,10 @@ import { formatCurrencyValue } from '../utils/currencyUtils';
 import { useSystemConfig } from '../hooks/useSystemConfig';
 import { BatchEditModal } from './BatchEditModal';
 import { ShareRateCardModal } from './ShareRateCardModal';
-import { doc, writeBatch, updateDoc } from 'firebase/firestore';
+import { doc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { writeRateOperation } from '../services/adminRateWriteService';
 import {
   ArrowUpDown,
   Search,
@@ -90,7 +91,7 @@ const COMMON_AGGREGATORS = ['SI-UK', 'EDVOY', 'UAP', 'CRIZAC', 'BASECHAN', 'Dire
 
 // Interactive School Status Cell for Admin Users
 const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const isAdmin = role === 'ADMIN';
   const [isOpen, setIsOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -102,8 +103,16 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
     if (newGuidance === g) return;
     try {
       setUpdating(true);
-      const rateRef = doc(db, 'rates', rate.id);
-      await updateDoc(rateRef, { guidance: newGuidance, updatedAt: new Date().toISOString() });
+      const nextRate: CommissionRate = {
+        ...rate,
+        guidance: newGuidance,
+        updatedAt: new Date().toISOString(),
+      };
+      await writeRateOperation({
+        adminEmail: user?.email || 'admin@basechan.com',
+        category: 'guidance',
+        mutations: [{ previous: rate, next: nextRate }],
+      });
     } catch (err) {
       console.error('Failed to update guidance status:', err);
     } finally {
@@ -213,7 +222,7 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
 
 // Interactive Aggregator Selector Dropdown for Admin
 const AggregatorRouteCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const isAdmin = role === 'ADMIN';
   const [updating, setUpdating] = useState(false);
 
@@ -221,8 +230,16 @@ const AggregatorRouteCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
     if (newAggregator === rate.aggregator) return;
     try {
       setUpdating(true);
-      const rateRef = doc(db, 'rates', rate.id);
-      await updateDoc(rateRef, { aggregator: newAggregator, updatedAt: new Date().toISOString() });
+      const nextRate: CommissionRate = {
+        ...rate,
+        aggregator: newAggregator,
+        updatedAt: new Date().toISOString(),
+      };
+      await writeRateOperation({
+        adminEmail: user?.email || 'admin@basechan.com',
+        category: 'routing',
+        mutations: [{ previous: rate, next: nextRate }],
+      });
     } catch (err) {
       console.error('Failed to update aggregator route:', err);
     } finally {
@@ -290,11 +307,6 @@ const GroupRoutesModal: React.FC<{
         active.push(rate);
       }
     });
-
-    // If all routes were marked previous, keep them in active so user is never presented with an empty modal
-    if (active.length === 0 && previous.length > 0) {
-      return { activeRoutes: previous, previousRoutes: [] };
-    }
 
     return { activeRoutes: active, previousRoutes: previous };
   }, [group]);
@@ -405,7 +417,13 @@ const GroupRoutesModal: React.FC<{
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
               Active Intakes ({activeRoutes.length}):
             </span>
-            {activeRoutes.map((rate) => renderRouteCard(rate))}
+            {activeRoutes.length > 0 ? (
+              activeRoutes.map((rate) => renderRouteCard(rate))
+            ) : (
+              <p className="text-slate-400 italic text-[11px] py-1">
+                No active or upcoming intakes found.
+              </p>
+            )}
           </div>
 
           {/* Previous / Historical Intakes Collapsible Section */}

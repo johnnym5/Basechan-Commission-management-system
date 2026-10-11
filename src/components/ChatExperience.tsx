@@ -361,7 +361,7 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
     [favoriteSchoolUpdates]
   );
 
-  const favSchoolAlertName = useMemo(() => {
+  const favSchoolAlertText = useMemo(() => {
     if (!unreadFavoriteUpdates.length) return '';
     const firstUpdate = unreadFavoriteUpdates[0];
     const matchedFav = favorites.find(
@@ -373,10 +373,22 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
           (firstUpdate.title.toLowerCase().includes(f.universityName.toLowerCase()) ||
             firstUpdate.summary.toLowerCase().includes(f.universityName.toLowerCase())))
     );
-    if (matchedFav?.universityName) return matchedFav.universityName;
-    const rateMatch = rates.find((r) => firstUpdate.affectedSchoolIds?.includes(r.universityId));
-    if (rateMatch?.universityName) return rateMatch.universityName;
-    return 'your favorited school';
+    const schoolName = matchedFav?.universityName || rates.find((r) => firstUpdate.affectedSchoolIds?.includes(r.universityId))?.universityName || '';
+    const schoolLabel = schoolName ? ` (${schoolName})` : '';
+
+    if (firstUpdate.type === 'guidance') {
+      return `Guidance for your favorited school${schoolLabel} was updated!`;
+    }
+    if (firstUpdate.type === 'intake') {
+      return `Intake details for your favorited school${schoolLabel} were updated!`;
+    }
+    if (firstUpdate.type === 'routing') {
+      return `Application routing for your favorited school${schoolLabel} was updated!`;
+    }
+    if (firstUpdate.type === 'rates') {
+      return `Rates for your favorited school${schoolLabel} were updated!`;
+    }
+    return `Updates available for your favorited school${schoolLabel}!`;
   }, [unreadFavoriteUpdates, favorites, rates]);
 
   useEffect(() => {
@@ -662,11 +674,7 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
             >
               <div className="flex items-center gap-2 font-semibold">
                 <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
-                <span>
-                  {favSchoolAlertName === 'your favorited school'
-                    ? 'Rates for your favorited school were updated!'
-                    : `Rates for your favorited school (${favSchoolAlertName}) were updated!`}
-                </span>
+                <span>{favSchoolAlertText}</span>
               </div>
               <button
                 type="button"

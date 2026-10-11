@@ -33,85 +33,180 @@ const ACTION_STOP_WORDS = new Set([
   'the', 'a', 'an', 'for', 'in', 'at', 'with', 'school', 'schools', 'university', 'universities', 'route', 'routes'
 ]);
 
+interface RateIndex {
+  schools: Array<{ id: string; name: string; alias: string }>;
+  intakes: Array<{ id: string; name: string; alias: string }>;
+}
+
+let cachedRatesRef: CommissionRate[] | null = null;
+let cachedIndex: RateIndex | null = null;
+
+export function getRateIndex(rates: CommissionRate[]): RateIndex {
+  if (cachedRatesRef === rates && cachedIndex) {
+    return cachedIndex;
+  }
+
+  const seenSchools = new Set<string>();
+  const schools: Array<{ id: string; name: string; alias: string }> = [];
+  for (const r of rates) {
+    if (r.universityName && !seenSchools.has(r.universityName)) {
+      seenSchools.add(r.universityName);
+      schools.push({
+        id: r.universityId || r.universityName,
+        name: r.universityName,
+        alias: r.universityName.toLowerCase(),
+      });
+    }
+  }
+
+  const seenIntakes = new Set<string>();
+  const intakes: Array<{ id: string; name: string; alias: string }> = [];
+  for (const r of rates) {
+    if (r.intake && !seenIntakes.has(r.intake)) {
+      seenIntakes.add(r.intake);
+      intakes.push({
+        id: r.intake,
+        name: r.intake,
+        alias: r.intake.toLowerCase(),
+      });
+    }
+  }
+
+  cachedRatesRef = rates;
+  cachedIndex = { schools, intakes };
+  return cachedIndex;
+}
+
 export function parseNaturalLanguage(input: string, rates: CommissionRate[] = []): ParseResult {
   const result: ParseResult = { tokens: [], remainingText: '' };
   if (!input.trim()) return result;
 
-  const words = input.toLowerCase().split(/\s+/).filter(Boolean);
+  const { schools: knownSchools, intakes: knownIntakes } = getRateIndex(rates);
+
+  let workingInput = input.trim();
+
+  // 1. Multi-word phrase matching across all dictionaries (sorted longest phrase first)
+  const allPhrases: Array<{
+    phrase: string;
+    token: { id: string; type: 'level' | 'status' | 'country' | 'aggregator' | 'intake'; label: string; value: string };
+  }> = [];
+
+  for (const item of COUNTRY_DICTIONARY) {
+    for (const alias of item.aliases) {
+      if (alias.includes(' ')) {
+        allPhrases.push({ phrase: alias.toLowerCase(), token: { id: item.id, type: 'country', label: item.name, value: item.id } });
+      }
+    }
+  }
+
+  for (const item of AGGREGATOR_DICTIONARY) {
+    for (const alias of item.aliases) {
+      if (alias.includes(' ')) {
+        allPhrases.push({ phrase: alias.toLowerCase(), token: { id: item.id, type: 'aggregator', label: item.name, value: item.id } });
+      }
+    }
+  }
+
+  for (const item of STATUS_DICTIONARY) {
+    for (const alias of item.aliases) {
+      if (alias.includes(' ')) {
+        allPhrases.push({ phrase: alias.toLowerCase(), token: { id: item.id, type: 'status', label: item.name, value: item.id } });
+      }
+    }
+  }
+
+  for (const intake of knownIntakes) {
+    allPhrases.push({ phrase: intake.alias, token: { id: intake.id, type: 'intake', label: intake.name, value: intake.id } });
+  }
+
+  // Sort phrases by length descending so longer phrases match first (e.g. "sept 2027" before "sept")
+  allPhrases.sort((a, b) => b.phrase.length - a.phrase.length);
+
+  for (const { phrase, token } of allPhrases) {
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+    if (regex.test(workingInput)) {
+      if (!result.tokens.some((t) => t.id === token.id)) {
+        result.tokens.push(token);
+      }
+      workingInput = workingInput.replace(regex, ' ').trim();
+    }
+  }
+
+  // 2. Tokenize remaining words
+  const words = workingInput.toLowerCase().split(/\s+/).filter(Boolean);
   const unparsedWords: string[] = [];
-
-  const knownSchools = Array.from(new Set(rates.map((r) => r.universityName).filter(Boolean))).map((name) => ({
-    id: rates.find((r) => r.universityName === name)?.universityId || name,
-    name,
-    alias: name.toLowerCase(),
-  }));
-
-  const knownIntakes = Array.from(new Set(rates.map((r) => r.intake).filter(Boolean))).map((intake) => ({
-    id: intake,
-    name: intake,
-    alias: intake.toLowerCase(),
-  }));
 
   for (const word of words) {
     if (ACTION_STOP_WORDS.has(word)) {
-      continue; // Strip action verbs and generic stop words
+      continue;
     }
 
     let matched = false;
 
-    // 1. Check Level
+    // Level
     for (const item of STUDY_LEVEL_DICTIONARY) {
       if (item.aliases.includes(word)) {
-        result.tokens.push({ id: item.id, type: 'level', label: item.name, value: item.id });
+        if (!result.tokens.some((t) => t.id === item.id)) {
+          result.tokens.push({ id: item.id, type: 'level', label: item.name, value: item.id });
+        }
         matched = true;
         break;
       }
     }
     if (matched) continue;
 
-    // 2. Check Status Guidance
+    // Status
     for (const item of STATUS_DICTIONARY) {
       if (item.aliases.includes(word)) {
-        result.tokens.push({ id: item.id, type: 'status', label: item.name, value: item.id });
+        if (!result.tokens.some((t) => t.id === item.id)) {
+          result.tokens.push({ id: item.id, type: 'status', label: item.name, value: item.id });
+        }
         matched = true;
         break;
       }
     }
     if (matched) continue;
 
-    // 3. Check Country
+    // Country
     for (const item of COUNTRY_DICTIONARY) {
       if (item.aliases.includes(word)) {
-        result.tokens.push({ id: item.id, type: 'country', label: item.name, value: item.id });
+        if (!result.tokens.some((t) => t.id === item.id)) {
+          result.tokens.push({ id: item.id, type: 'country', label: item.name, value: item.id });
+        }
         matched = true;
         break;
       }
     }
     if (matched) continue;
 
-    // 4. Check Aggregator / Submission Portal Route
+    // Aggregator
     for (const item of AGGREGATOR_DICTIONARY) {
       if (item.aliases.includes(word) || item.name.toLowerCase() === word) {
-        result.tokens.push({ id: item.id, type: 'aggregator', label: item.name, value: item.id });
+        if (!result.tokens.some((t) => t.id === item.id)) {
+          result.tokens.push({ id: item.id, type: 'aggregator', label: item.name, value: item.id });
+        }
         matched = true;
         break;
       }
     }
     if (matched) continue;
 
-    // 5. Check Exact Intakes
-    for (const intake of knownIntakes) {
-      if (intake.alias === word || intake.alias.includes(word)) {
-        result.tokens.push({ id: intake.id, type: 'intake', label: intake.name, value: intake.id });
+    // Exact school match on single word if word is long enough
+    for (const school of knownSchools) {
+      if (school.alias === word) {
+        if (!result.tokens.some((t) => t.id === school.id)) {
+          result.tokens.push({ id: school.id, type: 'school', label: school.name, value: school.name });
+        }
         matched = true;
         break;
       }
     }
     if (matched) continue;
 
-    // 6. Check Fuzzy Match for Aggregators, Intakes, Countries, and Schools
+    // Fuzzy matching
     if (word.length >= 4 && !result.didYouMean) {
-      // 6a. Check Aggregators fuzzy match
+      // Aggregators fuzzy match
       for (const item of AGGREGATOR_DICTIONARY) {
         const minDistance = Math.min(...item.aliases.map((alias) => getLevenshteinDistance(word, alias)));
         if (minDistance <= 2) {
@@ -124,23 +219,7 @@ export function parseNaturalLanguage(input: string, rates: CommissionRate[] = []
         }
       }
 
-      // 6b. Check Intakes fuzzy match
-      if (!matched) {
-        for (const intake of knownIntakes) {
-          const wordsInIntake = intake.alias.split(/\s+/);
-          const minDistance = Math.min(...wordsInIntake.map((w) => getLevenshteinDistance(word, w)));
-          if (minDistance <= 2) {
-            result.didYouMean = {
-              original: word,
-              suggestion: { id: intake.id, type: 'intake', label: intake.name, value: intake.id },
-            };
-            matched = true;
-            break;
-          }
-        }
-      }
-
-      // 6c. Check Countries fuzzy match
+      // Countries fuzzy match
       if (!matched) {
         for (const item of COUNTRY_DICTIONARY) {
           const minDistance = Math.min(...item.aliases.map((alias) => getLevenshteinDistance(word, alias)));
@@ -155,7 +234,7 @@ export function parseNaturalLanguage(input: string, rates: CommissionRate[] = []
         }
       }
 
-      // 6d. Check Schools fuzzy match
+      // Schools fuzzy match
       if (!matched && word.length >= 3) {
         for (const school of knownSchools) {
           const wordsInSchool = school.alias
@@ -181,3 +260,4 @@ export function parseNaturalLanguage(input: string, rates: CommissionRate[] = []
   result.remainingText = unparsedWords.join(' ');
   return result;
 }
+

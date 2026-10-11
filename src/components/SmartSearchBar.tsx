@@ -196,9 +196,15 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
       onTokensChange([...activeTokens, ...newTokens]);
     }
 
-    // Auto-clear search box so user can immediately type another term
-    setLocalInput('');
-    onQueryTextChange('');
+    // If there were recognized tokens AND unparsed remaining text, retain the remaining text in the search input
+    if (parsed.tokens.length > 0 && parsed.remainingText.trim()) {
+      setLocalInput(parsed.remainingText.trim());
+      onQueryTextChange(parsed.remainingText.trim());
+    } else {
+      // Auto-clear search box when all terms were applied
+      setLocalInput('');
+      onQueryTextChange('');
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

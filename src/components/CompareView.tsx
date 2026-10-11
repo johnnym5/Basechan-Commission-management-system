@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { CommissionRate } from '../types';
 import { isHistoricalIntake } from '../utils/groupingUtils';
+import { areRatesComparable } from '../utils/commissionFormatter';
 
 interface CompareViewProps {
   allRates: CommissionRate[];
@@ -72,7 +73,7 @@ const UniversityMatrix: React.FC<{
     });
 
     const matrixRows: MatrixRow[] = [];
-    const levelBests = new Map<string, { agg: string; margin: number }>();
+    const levelBests = new Map<string, { agg: string; margin: number; isFlatFee: boolean; count: number }>();
 
     Array.from(rowMap.values())
       .sort((a, b) => {
@@ -81,16 +82,25 @@ const UniversityMatrix: React.FC<{
       })
       .forEach((rowData) => {
         const cells: Record<string, MatrixCell> = {};
+        
+        // Check if all rates in this row share the same fee type and netOrGross basis
+        const validRates = rowData.rates.filter(
+          (r) => typeof r.diffMargin === 'number' && !isNaN(r.diffMargin) && isFinite(r.diffMargin)
+        );
+        const first = validRates[0];
+        const allComparable = validRates.length > 1 && validRates.every((r) => areRatesComparable(first, r));
+
         let maxMargin = -Infinity;
         let minMargin = Infinity;
 
-        // Find max/min margins for the row
-        rowData.rates.forEach((r) => {
-          if (r.diffMargin > maxMargin) maxMargin = r.diffMargin;
-          if (r.diffMargin < minMargin) minMargin = r.diffMargin;
-        });
+        if (allComparable) {
+          validRates.forEach((r) => {
+            if (r.diffMargin > maxMargin) maxMargin = r.diffMargin;
+            if (r.diffMargin < minMargin) minMargin = r.diffMargin;
+          });
+        }
 
-        const hasVariety = maxMargin !== minMargin;
+        const hasVariety = allComparable && maxMargin !== minMargin;
 
         aggs.forEach((agg) => {
           const rate = rowData.rates.find((r) => r.aggregator === agg);
@@ -108,13 +118,17 @@ const UniversityMatrix: React.FC<{
           cells,
         });
 
-        // Compute overall best aggregator per study level
-        rowData.rates.forEach((r) => {
-          const currentBest = levelBests.get(r.studyLevel);
-          if (!currentBest || r.diffMargin > currentBest.margin) {
-            levelBests.set(r.studyLevel, { agg: r.aggregator, margin: r.diffMargin });
-          }
-        });
+        // Compute best aggregator per intake & study level cohort
+        const cohortKey = `${rowData.studyLevel} (${rowData.intake})`;
+        if (allComparable && validRates.length > 0) {
+          const bestRate = validRates.reduce((prev, curr) => (curr.diffMargin > prev.diffMargin ? curr : prev), first);
+          levelBests.set(cohortKey, {
+            agg: bestRate.aggregator,
+            margin: bestRate.diffMargin,
+            isFlatFee: bestRate.isFlatFee,
+            count: validRates.length,
+          });
+        }
       });
 
     return { aggregators: aggs, rows: matrixRows, bestByLevel: levelBests };
@@ -133,10 +147,6 @@ const UniversityMatrix: React.FC<{
         active.push(row);
       }
     });
-
-    if (active.length === 0 && previous.length > 0) {
-      return { activeRows: previous, previousRows: [] };
-    }
 
     return { activeRows: active, previousRows: previous };
   }, [rows]);
@@ -216,17 +226,17 @@ const UniversityMatrix: React.FC<{
 
       <div className="px-4 py-2.5 bg-emerald-50/40 dark:bg-emerald-950/30 border-b border-slate-200 dark:border-slate-800">
         <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 mb-1.5 flex items-center gap-1">
-          <Award className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Best Margins by Level
+          <Award className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Best Margins by Cohort
         </div>
         <div className="flex flex-wrap gap-2">
-          {Array.from(bestByLevel.entries()).map(([level, data]) => (
+          {Array.from(bestByLevel.entries()).map(([cohortKey, data]) => (
             <div
-              key={level}
+              key={cohortKey}
               className="bg-white dark:bg-slate-800 px-2 py-1 rounded-md border border-emerald-200 dark:border-emerald-800 text-xs shadow-2xs"
             >
-              <span className="font-semibold text-slate-700 dark:text-slate-300">{level}:</span>{' '}
+              <span className="font-semibold text-slate-700 dark:text-slate-300">{cohortKey}:</span>{' '}
               <span className="text-emerald-700 dark:text-emerald-400 font-bold">{data.agg}</span>{' '}
-              <span className="text-slate-400 text-[10px]">({data.margin})</span>
+              <span className="text-slate-400 text-[10px]">({data.isFlatFee ? `£${data.margin}` : `${data.margin}%`})</span>
             </div>
           ))}
         </div>
@@ -250,7 +260,15 @@ const UniversityMatrix: React.FC<{
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {renderTableRows(activeRows)}
+            {activeRows.length > 0 ? (
+              renderTableRows(activeRows)
+            ) : (
+              <tr>
+                <td colSpan={aggregators.length + 1} className="p-4 text-center text-xs text-slate-400 italic">
+                  No active or upcoming intakes found for this university.
+                </td>
+              </tr>
+            )}
             {showPreviousIntakes && previousRows.length > 0 && (
               <tr className="bg-slate-100/70 dark:bg-slate-800/70 font-semibold">
                 <td colSpan={aggregators.length + 1} className="p-2 text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">

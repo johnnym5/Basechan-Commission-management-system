@@ -27,19 +27,28 @@ describe('groupingUtils - Country Resolution', () => {
   });
 
   describe('isHistoricalIntake', () => {
+    // Pass referenceMonth=8 (August) so these tests are deterministic regardless of
+    // which real-world month they run in. Sept 2026 with referenceMonth=8 is future
+    // (month 9 > 8), and Sept 2025 with referenceYear 2026 is always historical.
     it('correctly classifies historical years across 2010s and 2020s', () => {
-      expect(isHistoricalIntake('Sept 2018', 2026)).toBe(true);
-      expect(isHistoricalIntake('Jan 2019', 2026)).toBe(true);
-      expect(isHistoricalIntake('Jan 2024', 2026)).toBe(true);
-      expect(isHistoricalIntake('Sept 2025', 2026)).toBe(true);
-      expect(isHistoricalIntake('Sept 2026', 2026)).toBe(false);
-      expect(isHistoricalIntake('Jan 2027', 2026)).toBe(false);
+      expect(isHistoricalIntake('Sept 2018', 2026, 8)).toBe(true);
+      expect(isHistoricalIntake('Jan 2019', 2026, 8)).toBe(true);
+      expect(isHistoricalIntake('Jan 2024', 2026, 8)).toBe(true);
+      expect(isHistoricalIntake('Sept 2025', 2026, 8)).toBe(true);
+      expect(isHistoricalIntake('Sept 2026', 2026, 8)).toBe(false); // Sept is future relative to Aug
+      expect(isHistoricalIntake('Jan 2027', 2026, 8)).toBe(false);
+    });
+
+    it('classifies same-year intakes before the reference month as historical', () => {
+      expect(isHistoricalIntake('Jan 2026', 2026, 8)).toBe(true);  // Jan < Aug
+      expect(isHistoricalIntake('Sept 2026', 2026, 10)).toBe(true); // Sept < Oct
+      expect(isHistoricalIntake('Sept 2026', 2026, 9)).toBe(false); // Sept = Sept (current)
     });
 
     it('safely handles missing, empty, or undefined intake strings without throwing', () => {
-      expect(isHistoricalIntake(undefined, 2026)).toBe(false);
-      expect(isHistoricalIntake('', 2026)).toBe(false);
-      expect(isHistoricalIntake('Standard Intake', 2026)).toBe(false);
+      expect(isHistoricalIntake(undefined, 2026, 8)).toBe(false);
+      expect(isHistoricalIntake('', 2026, 8)).toBe(false);
+      expect(isHistoricalIntake('Standard Intake', 2026, 8)).toBe(false);
     });
   });
 });
