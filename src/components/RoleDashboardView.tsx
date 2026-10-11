@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
-import { Building2, CheckCircle2, Globe2, Route, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Building2, CheckCircle2, Globe2, Route, X, BarChart3, ChevronDown } from 'lucide-react';
 import type { CommissionRate, SchoolGuidance, StudyLevel } from '../types';
 import type { DashboardFilters, DashboardRate } from '../types/dashboard';
+import type { SearchToken } from '../types/search';
 import { applyDashboardFilters, createEmptyDashboardFilters } from '../services/dashboardFilters';
 import { getDashboardFilterOptions, getDashboardKpis } from '../services/dashboardData';
 import { DashboardShell } from './DashboardShell';
@@ -29,6 +30,11 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
   favoriteCount,
   onOpenChat,
 }) => {
+  const [isOverviewOpen, setIsOverviewOpen] = useState<boolean>(true);
+  const [isAdvanceFilterOpen, setIsAdvanceFilterOpen] = useState<boolean>(false);
+  const [activeTokens, setActiveTokens] = useState<SearchToken[]>([]);
+  const [selectedUniversity, setSelectedUniversity] = useState<string>('ALL');
+  const [selectedSortBy, setSelectedSortBy] = useState<string>('ALPHABETICAL');
   const options = useMemo(() => getDashboardFilterOptions(rates), [rates]);
   const visibleRates = useMemo(() => applyDashboardFilters(role, rates, filters), [role, rates, filters]);
   const kpis = useMemo(() => getDashboardKpis(visibleRates), [visibleRates]);
@@ -95,79 +101,126 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
       title={isAgent ? 'Your commission dashboard' : 'Staff application dashboard'}
       description={isAgent ? 'Explore approved routes and your effective payout across available schools.' : 'Find authorized application routes and guidance for your school searches.'}
     >
-      {/* "Jump Back In" Personal Workspace Widget */}
+      {/* "Jump Back In" Personal Workspace Widget with Smart Search Bar */}
       <PersonalWorkspaceWidget
+        rates={commissionRates}
+        activeTokens={activeTokens}
+        onTokensChange={setActiveTokens}
+        queryText={filters.query}
+        onQueryTextChange={(q) => changeFilters({ query: q })}
+        selectedUniversity={selectedUniversity}
+        onUniversityChange={setSelectedUniversity}
+        selectedCountry={filters.countries[0] || 'ALL'}
+        onCountryChange={(c) => changeFilters({ countries: c === 'ALL' ? [] : [c] })}
+        selectedLevel={filters.levels[0] || 'ALL'}
+        onLevelChange={(l) => changeFilters({ levels: l === 'ALL' ? [] : [l as any] })}
+        selectedIntake={filters.intakes[0] || 'ALL'}
+        onIntakeChange={(i) => changeFilters({ intakes: i === 'ALL' ? [] : [i] })}
+        selectedStatus={filters.guidances[0] || 'ALL'}
+        onStatusChange={(s) => changeFilters({ guidances: s === 'ALL' ? [] : [s as any] })}
+        selectedAggregator={filters.aggregators[0] || 'ALL'}
+        onAggregatorChange={(a) => changeFilters({ aggregators: a === 'ALL' ? [] : [a] })}
+        selectedSortBy={selectedSortBy}
+        onSortByChange={setSelectedSortBy}
         favoriteCount={favoriteCount}
         onOpenChat={onOpenChat}
         onScrollToResults={scrollToTable}
+        onToggleAdvanceFilters={() => setIsAdvanceFilterOpen(!isAdvanceFilterOpen)}
+        advanceFiltersOpen={isAdvanceFilterOpen}
+        onResetFilters={() => {
+          setActiveTokens([]);
+          setSelectedUniversity('ALL');
+          setSelectedSortBy('ALPHABETICAL');
+          onFiltersChange(createEmptyDashboardFilters());
+        }}
       />
 
-      {/* 4 KPI Cards side-by-side in 1 Horizontal Row (2x2 on mobile, 4x1 on tablet & desktop) */}
-      <div className="dashboard-summary grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
-        {metricData.map(([label, value], index) => {
-          const Icon = KPI_ICONS[index];
-          return (
-            <article key={label} className="rounded-2xl border border-slate-200/80 dark:border-[#26334b] bg-white dark:bg-[#0e1526] p-3.5 sm:p-4 shadow-2xs hover:border-blue-400/60 transition-all">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] sm:text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">{label}</p>
-                <div className="p-1.5 sm:p-2 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-lg shrink-0">
-                  <Icon aria-hidden="true" className="h-4 w-4" />
-                </div>
-              </div>
-              <p className="mt-2 text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono">{value}</p>
-            </article>
-          );
-        })}
-      </div>
+      {/* Collapsible Overview & Analytics Filters Accordion Trigger (CLOSED BY DEFAULT) */}
+      <div className="space-y-4">
+        <button
+          type="button"
+          onClick={() => setIsOverviewOpen(!isOverviewOpen)}
+          className="w-full flex items-center justify-between p-4 bg-[#0E1526] text-white rounded-2xl border border-[#222F43] shadow-md font-bold text-xs sm:text-sm cursor-pointer transition hover:bg-[#141d33] active:scale-98"
+        >
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-amber-400" />
+            <span>Overview & Analytics Filters</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-400 text-xs">
+            <span>{isOverviewOpen ? 'Collapse Overview' : 'Expand Overview Filters'}</span>
+            <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isOverviewOpen ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
 
-      {/* Collapsible Route Guidance Analytics */}
-      <section className="dashboard-summary rounded-2xl border border-[#26334b] bg-[#0e1526] p-4 sm:p-5">
-        <h2 className="text-sm font-extrabold text-slate-100">Route guidance</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {analytics.map((guidance) => (
-            <button
-              key={guidance}
-              type="button"
-              onClick={() => onFiltersChange({ ...filters, guidances: filters.guidances.includes(guidance) ? [] : [guidance] })}
-              className="rounded-xl border border-[#2d3b56] px-3 py-2 text-xs font-bold text-slate-200 hover:border-blue-400 hover:bg-blue-950/40 cursor-pointer"
-            >
-              {guidance.replace('_', ' ')} <span className="ml-2 text-blue-300">{visibleRates.filter((rate) => (rate.guidance || 'ALLOWED') === guidance).length}</span>
-            </button>
-          ))}
-        </div>
-        {!isAgent && (
-          <div className="mt-3 flex flex-wrap gap-2" aria-label="Portal route counts">
-            {options.aggregators.map((portal) => (
-              <button
-                key={portal}
-                type="button"
-                onClick={() => onFiltersChange({ ...filters, aggregators: filters.aggregators.includes(portal) ? [] : [portal] })}
-                className="rounded-xl border border-[#2d3b56] px-3 py-2 text-xs text-slate-300 hover:border-blue-400 cursor-pointer"
-              >
-                {portal} <span className="ml-1 text-blue-300">{visibleRates.filter((rate) => rate.role === 'STAFF' && rate.aggregator === portal).length}</span>
-              </button>
-            ))}
+        <div className={isOverviewOpen ? 'space-y-4 animate-in fade-in duration-200' : 'hidden'}>
+            {/* 4 KPI Cards side-by-side in 1 Horizontal Row */}
+            <div className="dashboard-summary grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
+              {metricData.map(([label, value], index) => {
+                const Icon = KPI_ICONS[index];
+                return (
+                  <article key={label} className="rounded-2xl border border-slate-200/80 dark:border-[#26334b] bg-white dark:bg-[#0e1526] p-3.5 sm:p-4 shadow-2xs hover:border-blue-400/60 transition-all">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] sm:text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">{label}</p>
+                      <div className="p-1.5 sm:p-2 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-lg shrink-0">
+                        <Icon aria-hidden="true" className="h-4 w-4" />
+                      </div>
+                    </div>
+                    <p className="mt-2 text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono">{value}</p>
+                  </article>
+                );
+              })}
+            </div>
+
+            {/* Collapsible Route Guidance Analytics */}
+            <section className="dashboard-summary rounded-2xl border border-[#26334b] bg-[#0e1526] p-4 sm:p-5">
+              <h2 className="text-sm font-extrabold text-slate-100">Route guidance</h2>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {analytics.map((guidance) => (
+                  <button
+                    key={guidance}
+                    type="button"
+                    onClick={() => onFiltersChange({ ...filters, guidances: filters.guidances.includes(guidance) ? [] : [guidance] })}
+                    className="rounded-xl border border-[#2d3b56] px-3 py-2 text-xs font-bold text-slate-200 hover:border-blue-400 hover:bg-blue-950/40 cursor-pointer"
+                  >
+                    {guidance.replace('_', ' ')} <span className="ml-2 text-blue-300">{visibleRates.filter((rate) => (rate.guidance || 'ALLOWED') === guidance).length}</span>
+                  </button>
+                ))}
+              </div>
+              {!isAgent && (
+                <div className="mt-3 flex flex-wrap gap-2" aria-label="Portal route counts">
+                  {options.aggregators.map((portal) => (
+                    <button
+                      key={portal}
+                      type="button"
+                      onClick={() => onFiltersChange({ ...filters, aggregators: filters.aggregators.includes(portal) ? [] : [portal] })}
+                      className="rounded-xl border border-[#2d3b56] px-3 py-2 text-xs text-slate-300 hover:border-blue-400 cursor-pointer"
+                    >
+                      {portal} <span className="ml-1 text-blue-300">{visibleRates.filter((rate) => rate.role === 'STAFF' && rate.aggregator === portal).length}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {isAgent && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onFiltersChange({ ...filters, agentPayoutKind: filters.agentPayoutKind === 'PERCENTAGE' ? undefined : 'PERCENTAGE', payoutMinimum: undefined, payoutMaximum: undefined })}
+                    className="rounded-xl border border-[#2d3b56] px-3 py-2 text-xs text-slate-300 hover:border-blue-400 cursor-pointer"
+                  >
+                    Percentage payouts <span className="ml-1 text-blue-300">{visibleRates.filter((rate) => rate.role === 'AGENT' && !rate.isFlatFee).length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onFiltersChange({ ...filters, agentPayoutKind: filters.agentPayoutKind === 'FLAT_FEE' ? undefined : 'FLAT_FEE', payoutMinimum: undefined, payoutMaximum: undefined })}
+                    className="rounded-xl border border-[#2d3b56] px-3 py-2 text-xs text-slate-300 hover:border-blue-400 cursor-pointer"
+                  >
+                    Flat fee payouts <span className="ml-1 text-blue-300">{visibleRates.filter((rate) => rate.role === 'AGENT' && rate.isFlatFee).length}</span>
+                  </button>
+                </div>
+              )}
+            </section>
           </div>
-        )}
-        {isAgent && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => onFiltersChange({ ...filters, agentPayoutKind: filters.agentPayoutKind === 'PERCENTAGE' ? undefined : 'PERCENTAGE', payoutMinimum: undefined, payoutMaximum: undefined })}
-              className="rounded-xl border border-[#2d3b56] px-3 py-2 text-xs text-slate-300 hover:border-blue-400 cursor-pointer"
-            >
-              Percentage payouts <span className="ml-1 text-blue-300">{visibleRates.filter((rate) => rate.role === 'AGENT' && !rate.isFlatFee).length}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onFiltersChange({ ...filters, agentPayoutKind: filters.agentPayoutKind === 'FLAT_FEE' ? undefined : 'FLAT_FEE', payoutMinimum: undefined, payoutMaximum: undefined })}
-              className="rounded-xl border border-[#2d3b56] px-3 py-2 text-xs text-slate-300 hover:border-blue-400 cursor-pointer"
-            >
-              Flat fee payouts <span className="ml-1 text-blue-300">{visibleRates.filter((rate) => rate.role === 'AGENT' && rate.isFlatFee).length}</span>
-            </button>
-          </div>
-        )}
-      </section>
+      </div>
 
       {/* Active Filter Chips Bar */}
       {activeChips.length > 0 && (
@@ -212,6 +265,8 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
             onEditRate={() => {}}
             externalSearchQuery={filters.query}
             onExternalSearchChange={(q) => changeFilters({ query: q })}
+            externalUniversityFilter={selectedUniversity}
+            onExternalUniversityChange={setSelectedUniversity}
             externalGuidanceFilter={(filters.guidances[0] as SchoolGuidance) || 'ALL'}
             onExternalGuidanceChange={(g: SchoolGuidance | 'ALL') => changeFilters({ guidances: g === 'ALL' ? [] : [g] })}
             externalAggregatorFilter={filters.aggregators[0] || 'ALL'}
@@ -222,6 +277,10 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
             onExternalLevelChange={(lvl: StudyLevel | 'ALL') => changeFilters({ levels: lvl === 'ALL' ? [] : [lvl] })}
             externalCountryFilter={filters.countries[0] || 'ALL'}
             onExternalCountryChange={(country: string) => changeFilters({ countries: country === 'ALL' ? [] : [country] })}
+            externalSortBy={selectedSortBy}
+            onExternalSortByChange={setSelectedSortBy}
+            activeTokens={activeTokens}
+            onTokensChange={setActiveTokens}
             externalSchoolIdsFilter={filters.schoolIds}
           />
         )}

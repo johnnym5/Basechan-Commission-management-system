@@ -12,14 +12,22 @@ import {
   Wifi,
   HardDrive,
   Clock,
+  Shield,
 } from 'lucide-react';
 
 interface DataHealthTabProps {
   rates: CommissionRate[];
   onRefreshRates: () => void;
+  onOpenAuditLogs?: () => void;
+  onOpenLegalModal?: () => void;
 }
 
-export const DataHealthTab: React.FC<DataHealthTabProps> = ({ rates, onRefreshRates }) => {
+export const DataHealthTab: React.FC<DataHealthTabProps> = ({
+  rates,
+  onRefreshRates,
+  onOpenAuditLogs,
+  onOpenLegalModal,
+}) => {
   const { user } = useAuth();
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
@@ -148,33 +156,44 @@ export const DataHealthTab: React.FC<DataHealthTabProps> = ({ rates, onRefreshRa
         </div>
       </div>
 
-      {/* Embedded Audit Trail & History Log */}
+      {/* Embedded Audit Trail & Trust/Privacy Center */}
       <div className="p-5 rounded-3xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] shadow-sm space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#222F43] pb-3">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-blue-600 dark:text-amber-400" />
             <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
-              System Audit Trail & History
+              System Audit Trail & Legal Trust Center
             </h3>
           </div>
           <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-            AUDIT LOGS
+            AUDIT & PRIVACY
           </span>
         </div>
 
         <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-          Track all recent administrative modifications, rate edits, visibility toggles, and user access status changes in real-time.
+          Track all recent administrative modifications, rate edits, visibility toggles, and user access status changes in real-time, or inspect system privacy & compliance policies.
         </p>
 
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex items-center gap-3 pt-2 flex-wrap">
           <button
             type="button"
-            onClick={() => setIsAuditDrawerOpen(true)}
+            onClick={() => onOpenAuditLogs ? onOpenAuditLogs() : setIsAuditDrawerOpen(true)}
             className="px-5 py-2.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-950 font-extrabold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-2"
           >
-            <Clock className="w-4 h-4" />
+            <Clock className="w-4 h-4 text-amber-500 dark:text-amber-600" />
             <span>Open System Audit Log History</span>
           </button>
+
+          {onOpenLegalModal && (
+            <button
+              type="button"
+              onClick={onOpenLegalModal}
+              className="px-5 py-2.5 bg-blue-600 dark:bg-blue-950/80 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl border border-blue-500/30 transition cursor-pointer flex items-center gap-2"
+            >
+              <Shield className="w-4 h-4 text-amber-300" />
+              <span>Trust, Legal & Privacy Center</span>
+            </button>
+          )}
         </div>
       </div>
 

@@ -62,26 +62,21 @@ describe('PersonalWorkspaceWidget', () => {
     expect(screen.getByTestId('favorite-count-badge')).toHaveTextContent('1 Favorite School');
   });
 
-  it('triggers onOpenChat and onScrollToResults callbacks on button click', () => {
+  it('triggers onScrollToResults callback on button click', () => {
     mockUseAuth.mockReturnValue({
       user: { uid: 'agent-1', displayName: 'Kofi Agent' },
       role: 'AGENT',
       access: { role: 'AGENT', accessState: 'approved' },
     });
 
-    const onOpenChat = vi.fn();
     const onScrollToResults = vi.fn();
 
     render(
       <PersonalWorkspaceWidget
         favoriteCount={2}
-        onOpenChat={onOpenChat}
         onScrollToResults={onScrollToResults}
       />
     );
-
-    fireEvent.click(screen.getByRole('button', { name: /Ask AI/i }));
-    expect(onOpenChat).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole('button', { name: /View Rates/i }));
     expect(onScrollToResults).toHaveBeenCalledTimes(1);

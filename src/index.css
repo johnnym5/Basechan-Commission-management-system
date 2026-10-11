@@ -3,6 +3,8 @@
 @theme {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -19,6 +21,7 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
   }
 
   body {
@@ -27,7 +30,7 @@
     background-color: #FDFBF7; /* Light Mode: Soft Warm Beige */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color 0.28s var(--ease-smooth), color 0.28s var(--ease-smooth);
   }
 
   html.dark, html.dark body {
@@ -37,6 +40,12 @@
 
   input, button, select, textarea {
     font-family: inherit;
+  }
+
+  /* Smooth Active Tactile Press Feedback for all buttons */
+  button:active, a:active {
+    transform: scale(0.97) translateY(0);
+    transition: transform 0.12s var(--ease-spring);
   }
 }
 
@@ -53,6 +62,7 @@
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 9999px;
+  transition: background 0.2s var(--ease-smooth);
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -67,20 +77,22 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   background: #334155;
 }
 
-/* Page Transition Animations */
+/* Smooth Page & Surface Animations */
 @keyframes pageEnter {
   0% {
     opacity: 0;
-    transform: translateY(10px) scale(0.998);
+    transform: translateY(12px) scale(0.996);
+    filter: blur(4px);
   }
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
+    filter: blur(0px);
   }
 }
 
 .animate-page-enter {
-  animation: pageEnter 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: pageEnter 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Modal Backdrop Fade Animation */
@@ -96,39 +108,43 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 }
 
 .animate-backdrop-fade {
-  animation: backdropFade 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: backdropFade 0.26s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* Modal Pop-Up Scale & Spring Animation */
 @keyframes modalPop {
   0% {
     opacity: 0;
-    transform: scale(0.92) translateY(8px);
+    transform: scale(0.92) translateY(12px);
+    filter: blur(6px);
   }
   100% {
     opacity: 1;
     transform: scale(1) translateY(0);
+    filter: blur(0px);
   }
 }
 
 .animate-modal-pop {
-  animation: modalPop 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: modalPop 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* FAB Dropdown Entrance Animation */
+/* FAB & Dropdown Entrance Animation */
 @keyframes dropdownEnter {
   0% {
     opacity: 0;
-    transform: scale(0.94) translateY(-6px);
+    transform: scale(0.94) translateY(-8px);
+    filter: blur(4px);
   }
   100% {
     opacity: 1;
     transform: scale(1) translateY(0);
+    filter: blur(0px);
   }
 }
 
 .animate-dropdown-enter {
-  animation: dropdownEnter 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: dropdownEnter 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transform-origin: top right;
 }
 
@@ -151,6 +167,16 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 html.dark .skeleton-shimmer {
   background: linear-gradient(90deg, #0E1526 25%, #222F43 50%, #0E1526 75%);
   background-size: 200% 100%;
+}
+
+/* Accessibility: Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Executive Print & PDF Letterhead Styles */

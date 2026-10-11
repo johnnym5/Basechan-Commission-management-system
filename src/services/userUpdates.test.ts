@@ -86,8 +86,24 @@ describe('getFavoriteSchoolUpdates', () => {
   ];
 
   it('filters updates matching favorited school IDs via affectedSchoolIds or title/summary', () => {
-    const result = getFavoriteSchoolUpdates(sampleUpdates, ['uni-leicester', 'Coventry']);
+    const result = getFavoriteSchoolUpdates(sampleUpdates, ['UNI-LEICESTER', 'coventry']);
     expect(result.map((u) => u.id)).toEqual(['update-1', 'update-2']);
+  });
+
+  it('matches updates via summary content when title does not contain school name', () => {
+    const summaryOnlyUpdates: UserUpdate[] = [
+      {
+        id: 'update-summary',
+        title: 'New policy update',
+        summary: 'Rate increase applied for Oxford University.',
+        type: 'rates',
+        createdAt: '2026-10-09T13:00:00.000Z',
+        isRead: false,
+        affectedSchoolIds: [],
+      },
+    ];
+    const result = getFavoriteSchoolUpdates(summaryOnlyUpdates, ['Oxford']);
+    expect(result.map((u) => u.id)).toEqual(['update-summary']);
   });
 
   it('returns empty array when no favorites match or inputs are empty', () => {

@@ -7,7 +7,6 @@ import type { CommissionRate, UserRole, UserUpdate } from '../types';
 import { DashboardView } from './DashboardView';
 import { SheetView } from './SheetView';
 import { CompareView } from './CompareView';
-import { UserManagementView } from './UserManagementView';
 import { AgentAccessGate } from './AgentAccessGate';
 import { ChatExperience } from './ChatExperience';
 import { ChatAssistantLauncher } from './ChatAssistantLauncher';
@@ -31,83 +30,19 @@ import { UserTutorialModal } from './UserTutorialModal';
 import { isQuotaOffline, subscribeToFirestoreMode } from '../services/firestoreOfflineMode';
 import { markUpdateRead, subscribeToUserUpdates } from '../services/chatPersistence';
 import {
-  Copy,
   LogOut,
   Menu,
-  PlusCircle,
-  ShieldCheck,
-  UserCheck,
-  UserX,
   Eye,
   X,
   ChevronDown,
   Sun,
-  Moon,
-  Monitor,
   CheckCircle2,
   WifiOff,
-  History,
   HelpCircle,
   Bell,
   Settings,
+  UserCheck,
 } from 'lucide-react';
-
-// Interactive Icon Button with Floating Hover/Long-Press Tooltip
-const IconButtonWithTooltip: React.FC<{
-  title: string;
-  onClick: () => void;
-  icon: React.ReactNode;
-  active?: boolean;
-  activeClass?: string;
-  inactiveClass?: string;
-  className?: string;
-}> = ({ title, onClick, icon, active, activeClass, inactiveClass, className }) => {
-  const [showTooltip, setShowTooltip] = useState(false);
-  const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Mobile long-press handler
-  const handleTouchStart = () => {
-    touchTimerRef.current = setTimeout(() => {
-      setShowTooltip(true);
-    }, 350);
-  };
-
-  const handleTouchEnd = () => {
-    if (touchTimerRef.current) {
-      clearTimeout(touchTimerRef.current);
-    }
-    setTimeout(() => setShowTooltip(false), 1200);
-  };
-
-  return (
-    <div className="relative inline-block">
-      <button
-        type="button"
-        onClick={onClick}
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        title={title}
-        className={`p-2 rounded-xl transition cursor-pointer flex items-center justify-center relative ${
-          active
-            ? activeClass || 'bg-[#F7F4EF] dark:bg-[#0E1526] text-amber-600 dark:text-amber-400 shadow-2xs font-bold'
-            : inactiveClass || 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
-        } ${className || ''}`}
-      >
-        {icon}
-      </button>
-
-      {/* Floating Animated Tooltip Popover on Hover or Long Press */}
-      {showTooltip && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-950 font-extrabold text-[10px] rounded-lg shadow-xl whitespace-nowrap z-[100] animate-in fade-in zoom-in-95 duration-150 pointer-events-none">
-          {title}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-900 dark:border-t-slate-100" />
-        </div>
-      )}
-    </div>
-  );
-};
 
 export const AppLayout: React.FC = () => {
   const { user, role, access, signOut } = useAuth();
@@ -212,7 +147,7 @@ export const AppLayout: React.FC = () => {
   // Dynamic page state based on effective role
   const [currentPage, setCurrentPage] = useState<string>('Dashboard');
   const [dashboardFilters, setDashboardFilters] = useState<DashboardFilters>(createEmptyDashboardFilters);
-  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   
   const [editingRate, setEditingRate] = useState<CommissionRate | null>(null);
@@ -229,7 +164,6 @@ export const AppLayout: React.FC = () => {
   const dashboardRates = useMemo(() => buildDashboardRates(effectiveRole, rates), [effectiveRole, rates]);
   useEffect(() => {
     setDashboardFilters(createEmptyDashboardFilters());
-    setIsChatOpen(false);
   }, [user?.uid, effectiveRole, access.accessState, access.organizationId]);
 
   useEffect(() => {
@@ -460,142 +394,76 @@ export const AppLayout: React.FC = () => {
                     </div>
 
                     {/* Section 2: Management Actions */}
-                    {role === 'ADMIN' && effectiveRole === 'ADMIN' && canWriteRates && (
-                      <div className="p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43] flex items-center justify-around">
-                        <IconButtonWithTooltip
-                          title="System Settings"
+                    {role === 'ADMIN' && effectiveRole === 'ADMIN' && (
+                      <div className="p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43]">
+                        <button
+                          type="button"
                           onClick={() => {
                             setCurrentPage('Settings');
                             setIsHeaderMenuOpen(false);
                           }}
-                          icon={<Settings className="w-4 h-4 text-indigo-500 dark:text-amber-400" />}
-                        />
-
-                        <IconButtonWithTooltip
-                          title="Migrate / Clone Intake Sheet"
-                          onClick={() => {
-                            setIsMigrateModalOpen(true);
-                            setIsHeaderMenuOpen(false);
-                          }}
-                          icon={<Copy className="w-4 h-4 text-blue-600 dark:text-amber-400" />}
-                        />
-
-                        <IconButtonWithTooltip
-                          title="Add Rate / Intake"
-                          onClick={() => {
-                            setIsAddRateModalOpen(true);
-                            setIsHeaderMenuOpen(false);
-                          }}
-                          icon={<PlusCircle className="w-4 h-4 text-blue-600 dark:text-amber-400" />}
-                        />
+                          title="System Settings & Admin"
+                          aria-label="System Settings & Admin"
+                          className="w-full p-2 rounded-lg text-xs font-extrabold text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-center cursor-pointer"
+                        >
+                          <Settings className="w-4 h-4 text-amber-500" />
+                        </button>
                       </div>
                     )}
 
-                    {/* Section 3: Admin View Mode Switcher (Icon-Only Segmented Control) */}
+                    {/* Section 3: Admin View Mode Switcher (Dropdown with Icon) */}
                     {role === 'ADMIN' && (
-                      <div className="grid grid-cols-3 gap-1 p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43]">
-                        <IconButtonWithTooltip
-                          title="Preview as ADMIN"
-                          onClick={() => {
-                            handleViewAsChange('ADMIN');
+                      <div className="p-1.5 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43] flex items-center gap-2">
+                        <UserCheck className="w-4 h-4 text-amber-500 shrink-0 ml-1" />
+                        <select
+                          aria-label="Preview As Role"
+                          value={viewAsRole}
+                          onChange={(e) => {
+                            handleViewAsChange(e.target.value as UserRole);
                             setIsHeaderMenuOpen(false);
                           }}
-                          active={viewAsRole === 'ADMIN'}
-                          icon={<ShieldCheck className="w-4 h-4" />}
-                        />
-
-                        <IconButtonWithTooltip
-                          title="Preview as STAFF"
-                          onClick={() => {
-                            handleViewAsChange('STAFF');
-                            setIsHeaderMenuOpen(false);
-                          }}
-                          active={viewAsRole === 'STAFF'}
-                          activeClass="bg-[#F7F4EF] dark:bg-[#0E1526] text-blue-600 dark:text-blue-400 shadow-2xs font-bold"
-                          icon={<UserCheck className="w-4 h-4" />}
-                        />
-
-                        <IconButtonWithTooltip
-                          title="Preview as AGENT"
-                          onClick={() => {
-                            handleViewAsChange('AGENT');
-                            setIsHeaderMenuOpen(false);
-                          }}
-                          active={viewAsRole === 'AGENT'}
-                          icon={<UserX className="w-4 h-4" />}
-                        />
+                          className="w-full bg-slate-100 dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 font-extrabold text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-400"
+                        >
+                          <option value="ADMIN">Admin</option>
+                          <option value="STAFF">Staff</option>
+                          <option value="AGENT">Agent</option>
+                        </select>
                       </div>
                     )}
 
-                    {/* Section 4: Appearance Theme (Icon-Only Segmented Control) */}
-                    <div className="grid grid-cols-3 gap-1 p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43]">
-                      <IconButtonWithTooltip
-                        title="Light Mode"
-                        onClick={() => {
-                          setTheme('light');
+                    {/* Section 4: Appearance Theme Dropdown Select */}
+                    <div className="p-1.5 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43] flex items-center gap-2">
+                      <Sun className="w-4 h-4 text-amber-500 shrink-0 ml-1" />
+                      <select
+                        aria-label="Select Theme"
+                        value={theme}
+                        onChange={(e) => {
+                          setTheme(e.target.value as 'light' | 'dark' | 'system');
                           setIsHeaderMenuOpen(false);
                         }}
-                        active={theme === 'light'}
-                        activeClass="bg-[#F7F4EF] text-amber-500 shadow-2xs"
-                        icon={<Sun className="w-4 h-4" />}
-                      />
-
-                      <IconButtonWithTooltip
-                        title="Dark Mode"
-                        onClick={() => {
-                          setTheme('dark');
-                          setIsHeaderMenuOpen(false);
-                        }}
-                        active={theme === 'dark'}
-                        activeClass="bg-[#0E1526] text-amber-400 shadow-2xs"
-                        icon={<Moon className="w-4 h-4" />}
-                      />
-
-                      <IconButtonWithTooltip
-                        title="System Theme"
-                        onClick={() => {
-                          setTheme('system');
-                          setIsHeaderMenuOpen(false);
-                        }}
-                        active={theme === 'system'}
-                        activeClass="bg-[#F7F4EF] dark:bg-[#0E1526] text-emerald-500 shadow-2xs"
-                        icon={<Monitor className="w-4 h-4" />}
-                      />
+                        className="w-full bg-slate-100 dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 font-extrabold text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      >
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                        <option value="system">System</option>
+                      </select>
                     </div>
 
                     <hr className="my-1 border-slate-200 dark:border-[#222F43]" />
 
-                    {/* Section 5: Bottom Utility Actions (Icon-Only Row) */}
-                    <div className="p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43] flex items-center justify-around">
-                      {role === 'ADMIN' && (
-                        <IconButtonWithTooltip
-                          title="Audit History Logs"
-                          onClick={() => {
-                            setIsAuditLogsOpen(true);
-                            setIsHeaderMenuOpen(false);
-                          }}
-                          icon={<History className="w-4 h-4 text-blue-600 dark:text-amber-400" />}
-                        />
-                      )}
-
-                      <IconButtonWithTooltip
-                        title="Trust & Privacy Center"
-                        onClick={() => {
-                          setIsLegalModalOpen(true);
-                          setIsHeaderMenuOpen(false);
-                        }}
-                        icon={<ShieldCheck className="w-4 h-4 text-blue-600 dark:text-amber-400" />}
-                      />
-
-                      <IconButtonWithTooltip
-                        title="Sign Out"
+                    {/* Section 5: Bottom Utility Actions (Sign Out) */}
+                    <div className="p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43]">
+                      <button
+                        type="button"
                         onClick={() => {
                           signOut();
                           setIsHeaderMenuOpen(false);
                         }}
-                        icon={<LogOut className="w-4 h-4 text-rose-600 dark:text-rose-400" />}
-                        inactiveClass="text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60"
-                      />
+                        className="w-full p-2 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4 shrink-0" />
+                        <span>Sign Out</span>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -646,56 +514,57 @@ export const AppLayout: React.FC = () => {
 
           <div key={`${effectiveRole}-${access.accessState}-${access.organizationId || 'none'}`} className="animate-page-enter">
             {currentPage === 'Dashboard' && (effectiveRole === 'ADMIN'
-              ? <DashboardView rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} filters={dashboardFilters} onFiltersChange={setDashboardFilters} onOpenChat={() => setIsChatOpen(true)} />
-              : <RoleDashboardView role={effectiveRole} rates={dashboardRates} loading={loading} filters={dashboardFilters} onFiltersChange={setDashboardFilters} onOpenChat={() => setIsChatOpen(true)} />)}
+              ? <DashboardView rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />
+              : <RoleDashboardView role={effectiveRole} rates={dashboardRates} loading={loading} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />)}
             {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage === 'Compare Rates' && <CompareView allRates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Deal Calculator' && <DealCalculatorView rates={rates} />}
-            {effectiveRole === 'ADMIN' && currentPage === 'Users & Activity' && <UserManagementView />}
             {effectiveRole === 'ADMIN' && currentPage === 'Settings' && <SettingsView rates={rates} onRefreshRates={() => {}} />}
-            {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage !== 'Compare Rates' && currentPage !== 'Deal Calculator' && currentPage !== 'Users & Activity' && currentPage !== 'Settings' && <SheetView sheetName={currentPage} rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} />}
+            {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage !== 'Compare Rates' && currentPage !== 'Deal Calculator' && currentPage !== 'Settings' && <SheetView sheetName={currentPage} rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} />}
           </div>
         </main>
       </div>
 
-      <ChatAssistantLauncher
-        open={isChatOpen}
-        onOpenChange={setIsChatOpen}
-        scopeKey={`${user?.uid || ''}:${effectiveRole}:${access.accessState}:${access.organizationId || ''}`}
-        onViewDashboard={() => {
-          setCurrentPage('Dashboard');
-          window.setTimeout(() => document.getElementById('dashboard-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
-        }}
-      >
-        <ChatExperience
-          key={`${user?.uid || ''}:${effectiveRole}:${access.accessState}:${access.organizationId || ''}`}
-          rates={rates}
-          loading={loading}
-          role={effectiveRole}
-          updates={activityUpdates}
-          onUpdatesChange={setActivityUpdates}
-          dataMayBeStale={isLocalOnly && hasLocalCopy}
-          lastSyncedAt={lastSyncedAt}
-          dashboardFilters={dashboardFilters}
-          onDashboardFiltersChange={setDashboardFilters}
+      {currentPage !== 'Compare Rates' && (
+        <ChatAssistantLauncher
+          open={isChatOpen}
+          onOpenChange={setIsChatOpen}
+          scopeKey={`${user?.uid || ''}:${effectiveRole}:${access.accessState}:${access.organizationId || ''}`}
           onViewDashboard={() => {
-            setIsChatOpen(false);
             setCurrentPage('Dashboard');
             window.setTimeout(() => document.getElementById('dashboard-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
           }}
-          onNavigatePage={(page) => {
-            setIsChatOpen(false);
-            setCurrentPage(page);
-          }}
-          onOpenModal={(modal) => {
-            setIsChatOpen(false);
-            if (modal === 'upload') setIsUploadModalOpen(true);
-            if (modal === 'addRate') setIsAddRateModalOpen(true);
-            if (modal === 'migrateIntake') setIsMigrateModalOpen(true);
-            if (modal === 'auditLog') setIsAuditLogsOpen(true);
-            if (modal === 'legal') setIsLegalModalOpen(true);
-          }}
-        />
-      </ChatAssistantLauncher>
+        >
+          <ChatExperience
+            key={`${user?.uid || ''}:${effectiveRole}:${access.accessState}:${access.organizationId || ''}`}
+            rates={rates}
+            loading={loading}
+            role={effectiveRole}
+            updates={activityUpdates}
+            onUpdatesChange={setActivityUpdates}
+            dataMayBeStale={isLocalOnly && hasLocalCopy}
+            lastSyncedAt={lastSyncedAt}
+            dashboardFilters={dashboardFilters}
+            onDashboardFiltersChange={setDashboardFilters}
+            onViewDashboard={() => {
+              setIsChatOpen(false);
+              setCurrentPage('Dashboard');
+              window.setTimeout(() => document.getElementById('dashboard-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+            }}
+            onNavigatePage={(page) => {
+              setIsChatOpen(false);
+              setCurrentPage(page);
+            }}
+            onOpenModal={(modal) => {
+              setIsChatOpen(false);
+              if (modal === 'upload') setIsUploadModalOpen(true);
+              if (modal === 'addRate') setIsAddRateModalOpen(true);
+              if (modal === 'migrateIntake') setIsMigrateModalOpen(true);
+              if (modal === 'auditLog') setIsAuditLogsOpen(true);
+              if (modal === 'legal') setIsLegalModalOpen(true);
+            }}
+          />
+        </ChatAssistantLauncher>
+      )}
 
       {/* Role-Dynamic System Tutorial Modal */}
       <UserTutorialModal

@@ -3,13 +3,11 @@ import type { CommissionRate } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { SheetVisibilityTab } from './settings/SheetVisibilityTab';
 import { UserManagementTab } from './settings/UserManagementTab';
-import { IntakeMigrationTab } from './settings/IntakeMigrationTab';
 import { AnnouncementsTab } from './settings/AnnouncementsTab';
 import { DataHealthTab } from './settings/DataHealthTab';
 import {
   SlidersHorizontal,
   Users,
-  Copy,
   Megaphone,
   ShieldCheck,
   Lock,
@@ -18,11 +16,22 @@ import {
 interface SettingsViewProps {
   rates: CommissionRate[];
   onRefreshRates: () => void;
+  onOpenAddRate?: () => void;
+  onOpenMigrateIntake?: () => void;
+  onOpenAuditLogs?: () => void;
+  onOpenLegalModal?: () => void;
 }
 
-export type SettingsTab = 'sheets' | 'users' | 'migration' | 'announcements' | 'health';
+export type SettingsTab = 'sheets' | 'users' | 'announcements' | 'health';
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ rates, onRefreshRates }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({
+  rates,
+  onRefreshRates,
+  onOpenAddRate,
+  onOpenMigrateIntake,
+  onOpenAuditLogs,
+  onOpenLegalModal,
+}) => {
   const { role } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>('sheets');
 
@@ -56,7 +65,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ rates, onRefreshRate
             System Settings & Administration
           </h1>
           <p className="text-xs text-slate-300 mt-0.5">
-            Configure system defaults, manage sheet & role visibility, agency access requests, intake migration, announcements, and data health.
+            Configure system defaults, manage sheet & role visibility, intake migration, agency access requests, announcements, and data health.
           </p>
         </div>
       </div>
@@ -75,7 +84,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ rates, onRefreshRate
           }`}
         >
           <SlidersHorizontal className="w-4 h-4 shrink-0" />
-          <span>Sheet & Default Filters</span>
+          <span>Sheet, Intake & Migration</span>
         </button>
 
         <button
@@ -91,21 +100,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ rates, onRefreshRate
         >
           <Users className="w-4 h-4 shrink-0" />
           <span>Users & Agencies</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'migration'}
-          onClick={() => setActiveTab('migration')}
-          className={`px-4 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-2 whitespace-nowrap ${
-            activeTab === 'migration'
-              ? 'bg-white dark:bg-[#18181B] text-blue-600 dark:text-amber-400 shadow-xs border border-slate-200/80 dark:border-[#222F43]'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-          }`}
-        >
-          <Copy className="w-4 h-4 shrink-0" />
-          <span>Intake & Migration</span>
         </button>
 
         <button
@@ -141,11 +135,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ rates, onRefreshRate
 
       {/* Tab Contents */}
       <div className="pt-2">
-        {activeTab === 'sheets' && <SheetVisibilityTab rates={rates} />}
+        {activeTab === 'sheets' && (
+          <SheetVisibilityTab
+            rates={rates}
+            onRefreshRates={onRefreshRates}
+            onOpenAddRate={onOpenAddRate}
+            onOpenMigrateIntake={onOpenMigrateIntake}
+          />
+        )}
         {activeTab === 'users' && <UserManagementTab />}
-        {activeTab === 'migration' && <IntakeMigrationTab rates={rates} onRefreshRates={onRefreshRates} />}
         {activeTab === 'announcements' && <AnnouncementsTab />}
-        {activeTab === 'health' && <DataHealthTab rates={rates} onRefreshRates={onRefreshRates} />}
+        {activeTab === 'health' && (
+          <DataHealthTab
+            rates={rates}
+            onRefreshRates={onRefreshRates}
+            onOpenAuditLogs={onOpenAuditLogs}
+            onOpenLegalModal={onOpenLegalModal}
+          />
+        )}
       </div>
     </div>
   );

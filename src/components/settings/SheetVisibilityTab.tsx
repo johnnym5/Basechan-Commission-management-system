@@ -1,30 +1,38 @@
-import React, { useMemo } from 'react';
-import type { CommissionRate } from '../../types';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { useSheetVisibility } from '../../hooks/useSheetVisibility';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
-import { useAuth } from '../../context/AuthContext';
-import { COMMON_AGGREGATORS } from '../../constants/aggregators';
+import type { CommissionRate, StudyLevel } from '../../types';
+import { IntakeMigrationTab } from './IntakeMigrationTab';
 import {
-  EyeOff,
-  UserCheck,
-  UserX,
-  Layers3,
-  Check,
-  Star,
-  SlidersHorizontal,
   Calendar,
   Layers,
   GraduationCap,
-  Clock,
-  Archive,
+  Check,
+  Star,
+  Eye,
+  EyeOff,
+  Save,
   CheckCircle2,
+  AlertCircle,
+  RotateCcw,
+  PlusCircle,
+  Copy,
 } from 'lucide-react';
 
 interface SheetVisibilityTabProps {
   rates: CommissionRate[];
+  onRefreshRates?: () => void;
+  onOpenAddRate?: () => void;
+  onOpenMigrateIntake?: () => void;
 }
 
-export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({ rates }) => {
+export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({
+  rates,
+  onRefreshRates = () => {},
+  onOpenAddRate,
+  onOpenMigrateIntake,
+}) => {
   const { user } = useAuth();
   const { sheetSettings, updateSheetVisibility } = useSheetVisibility();
   const {
@@ -33,10 +41,73 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({ rates })
     defaultStudyLevel,
     defaultViewMode,
     defaultSortBy,
-    intakeLifecycles,
+    activeIntakes,
+    loading,
     updateSystemDefaults,
-    updateIntakeLifecycle,
   } = useSystemConfig();
+
+  // Local Staged State for Centralized Save Button
+  const [stagedActiveIntakes, setStagedActiveIntakes] = useState<string[]>([]);
+  const [stagedDefaultIntake, setStagedDefaultIntake] = useState<string>('ALL');
+  const [stagedDefaultAggregator, setStagedDefaultAggregator] = useState<string>('ALL');
+  const [stagedDefaultStudyLevel, setStagedDefaultStudyLevel] = useState<string>('ALL');
+  const [stagedDefaultViewMode, setStagedDefaultViewMode] = useState<'cards' | 'table'>('cards');
+  const [stagedDefaultSortBy, setStagedDefaultSortBy] = useState<string>('universityName');
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
+
+  const hasInitialized = useRef(false);
+
+  // Sync staged state ONLY ONCE when system config initially finishes loading/fetching
+  useEffect(() => {
+    if (!loading && !hasInitialized.current) {
+      if (activeIntakes) setStagedActiveIntakes(activeIntakes);
+      if (defaultIntake) setStagedDefaultIntake(defaultIntake);
+      if (defaultAggregator) setStagedDefaultAggregator(defaultAggregator);
+      if (defaultStudyLevel) setStagedDefaultStudyLevel(defaultStudyLevel);
+      if (defaultViewMode) setStagedDefaultViewMode(defaultViewMode);
+      if (defaultSortBy) setStagedDefaultSortBy(defaultSortBy);
+      hasInitialized.current = true;
+    }
+  }, [loading, activeIntakes, defaultIntake, defaultAggregator, defaultStudyLevel, defaultViewMode, defaultSortBy]);
+
+  // Check if any local staged setting differs from Firestore saved config
+  const isDirty = useMemo(() => {
+    if (!hasInitialized.current) return false;
+    const sortedStaged = [...stagedActiveIntakes].sort();
+    const sortedActive = [...(activeIntakes || [])].sort();
+    if (JSON.stringify(sortedStaged) !== JSON.stringify(sortedActive)) return true;
+    if (stagedDefaultIntake !== (defaultIntake || 'ALL')) return true;
+    if (stagedDefaultAggregator !== (defaultAggregator || 'ALL')) return true;
+    if (stagedDefaultStudyLevel !== (defaultStudyLevel || 'ALL')) return true;
+    if (stagedDefaultViewMode !== (defaultViewMode || 'cards')) return true;
+    if (stagedDefaultSortBy !== (defaultSortBy || 'universityName')) return true;
+    return false;
+  }, [
+    stagedActiveIntakes,
+    stagedDefaultIntake,
+    stagedDefaultAggregator,
+    stagedDefaultStudyLevel,
+    stagedDefaultViewMode,
+    stagedDefaultSortBy,
+    activeIntakes,
+    defaultIntake,
+    defaultAggregator,
+    defaultStudyLevel,
+    defaultViewMode,
+    defaultSortBy,
+  ]);
+
+  // Reset staged draft to current persisted Firestore config
+  const handleResetDraft = () => {
+    setStagedActiveIntakes(activeIntakes || []);
+    setStagedDefaultIntake(defaultIntake || 'ALL');
+    setStagedDefaultAggregator(defaultAggregator || 'ALL');
+    setStagedDefaultStudyLevel(defaultStudyLevel || 'ALL');
+    setStagedDefaultViewMode(defaultViewMode || 'cards');
+    setStagedDefaultSortBy(defaultSortBy || 'universityName');
+  };
 
   // Unique intake sheets & counts
   const sheetSummary = useMemo(() => {
@@ -52,52 +123,210 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({ rates })
 
   // Unique aggregators
   const uniqueAggregators = useMemo(() => {
-    const set = new Set<string>(COMMON_AGGREGATORS);
-    rates.forEach((r) => {
-      if (r.aggregator) set.add(r.aggregator);
-    });
+    const set = new Set(rates.map((r) => r.aggregator || 'Direct').filter(Boolean));
     return Array.from(set).sort();
   }, [rates]);
 
+  const toggleIntakeActiveDefault = (intakeName: string) => {
+    const exists = stagedActiveIntakes.includes(intakeName);
+    if (exists) {
+      setStagedActiveIntakes(stagedActiveIntakes.filter((item) => item !== intakeName));
+    } else {
+      setStagedActiveIntakes([...stagedActiveIntakes, intakeName]);
+    }
+  };
+
+  const handleSaveSystemPreferences = async () => {
+    try {
+      setIsSaving(true);
+      setSaveSuccessNotice(null);
+
+      await updateSystemDefaults(
+        {
+          activeIntakes: stagedActiveIntakes,
+          defaultIntake: stagedDefaultIntake,
+          defaultAggregator: stagedDefaultAggregator,
+          defaultStudyLevel: stagedDefaultStudyLevel as StudyLevel | 'ALL',
+          defaultViewMode: stagedDefaultViewMode,
+          defaultSortBy: stagedDefaultSortBy,
+        },
+        user?.email || 'Admin'
+      );
+
+      setSaveSuccessNotice('System landing preferences saved and synchronized globally across all user roles.');
+    } catch (err) {
+      console.error('Error saving system defaults:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Executive Intro Notice */}
-      <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-400/30 text-blue-900 dark:text-blue-200 text-xs sm:text-sm flex items-start gap-3">
-        <SlidersHorizontal className="w-5 h-5 text-blue-500 dark:text-amber-400 shrink-0 mt-0.5" />
-        <div>
-          <h4 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 mb-1">
-            Global Default Filters & Sheet Visibility Controls
-          </h4>
-          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            Configure default landing filters for all users. Admin settings can lock defaults or leave them open to <b>Any / All</b> choices. Toggling sheet visibility selectively hides/shows intake terms for Staff or Agents without altering underlying rate data.
-          </p>
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Save Success Notice Banner */}
+      {saveSuccessNotice && (
+        <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-400/30 text-emerald-900 dark:text-emerald-200 text-xs font-bold flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+            <span>{saveSuccessNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSaveSuccessNotice(null)}
+            className="text-xs hover:underline cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Tab Explanation Banner with Quick Action Buttons */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-blue-950/40 border border-blue-800/80 text-blue-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+        <div className="flex items-start gap-3">
+          <Layers className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <h3 className="font-extrabold text-sm text-slate-100">
+              Sheet, Intake & Default Filter Administration
+            </h3>
+            <p className="text-slate-300 leading-relaxed">
+              Configure default landing filters, manage active intake sheets, control role visibility for Staff/Agents, and perform batch intake rate cloning or deadline configurations in one unified dashboard.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          {onOpenAddRate && (
+            <button
+              type="button"
+              onClick={onOpenAddRate}
+              className="px-3.5 py-2 rounded-xl bg-blue-600 dark:bg-amber-400 hover:bg-blue-500 dark:hover:bg-amber-300 text-white dark:text-slate-950 font-extrabold text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Add Rate / Intake</span>
+            </button>
+          )}
+
+          {onOpenMigrateIntake && (
+            <button
+              type="button"
+              onClick={onOpenMigrateIntake}
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-extrabold text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+            >
+              <Copy className="w-4 h-4 text-amber-400" />
+              <span>Clone Intake Sheet</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Global Default Landing Filters Grid */}
-      <div className="p-5 rounded-3xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#222F43] pb-3">
+      <div className="p-5 rounded-3xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] shadow-sm space-y-4 relative">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#222F43] pb-3 flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
             <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
               System Default Landing Filters
             </h3>
+            {isDirty && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center gap-1 animate-pulse">
+                <AlertCircle className="w-3 h-3" />
+                Unsaved Changes
+              </span>
+            )}
           </div>
-          <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400 text-slate-950">
-            GLOBAL LANDING PREFERENCES
-          </span>
+
+          <div className="flex items-center gap-2">
+            {isDirty && (
+              <button
+                type="button"
+                onClick={handleResetDraft}
+                className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset Draft</span>
+              </button>
+            )}
+
+            {/* Centralized Save Preferences Button */}
+            <button
+              type="button"
+              disabled={!isDirty || isSaving}
+              onClick={handleSaveSystemPreferences}
+              className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-md ${
+                isDirty
+                  ? 'bg-amber-400 text-slate-950 hover:bg-amber-300 active:scale-95 ring-2 ring-amber-400/40 font-extrabold'
+                  : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 opacity-60 cursor-not-allowed'
+              }`}
+            >
+              <Save className="w-4 h-4 shrink-0" />
+              <span>{isSaving ? 'Saving...' : 'Save Preferences'}</span>
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-          {/* Default Intake */}
+        {/* Multi-Intake Default Selector Pills */}
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-400/30 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <label className="font-extrabold text-xs text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
+              <Calendar className="w-4 h-4 text-amber-500 shrink-0" />
+              <span>Active Default Intakes (Multi-Select Support)</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => setStagedActiveIntakes([])}
+              className="text-[11px] font-bold text-amber-400 hover:text-amber-200 underline cursor-pointer"
+            >
+              Clear Intakes (Show All)
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Select one or multiple intakes to serve as active system defaults. Users landing on the dashboard will filter by these active intakes automatically.
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setStagedActiveIntakes([])}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                stagedActiveIntakes.length === 0
+                  ? 'bg-amber-400 text-slate-950 border-amber-400 font-extrabold shadow-2xs'
+                  : 'bg-slate-900/60 border-slate-700 text-slate-300 hover:border-amber-400/60'
+              }`}
+            >
+              <span>Show All Intakes (Open)</span>
+              {stagedActiveIntakes.length === 0 && <Check className="w-3.5 h-3.5" />}
+            </button>
+            {sheetSummary.map((s) => {
+              const isSelected = stagedActiveIntakes.includes(s.name);
+              return (
+                <button
+                  key={s.name}
+                  type="button"
+                  onClick={() => toggleIntakeActiveDefault(s.name)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                    isSelected
+                      ? 'bg-amber-400 text-slate-950 border-amber-400 font-black shadow-2xs'
+                      : 'bg-slate-900/60 border-slate-700 text-slate-300 hover:border-amber-400/60'
+                  }`}
+                >
+                  <span>{s.name}</span>
+                  <span className="text-[10px] opacity-75">({s.count})</span>
+                  {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs pt-2">
+          {/* Primary Default Intake Dropdown */}
           <div className="space-y-1.5">
             <label className="block font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-blue-500 dark:text-amber-400" />
-              <span>Default Main Intake</span>
+              <span>Primary Default Main Intake</span>
             </label>
             <select
-              value={defaultIntake}
-              onChange={(e) => updateSystemDefaults({ defaultIntake: e.target.value }, user?.email || 'Admin')}
+              value={stagedDefaultIntake}
+              onChange={(e) => setStagedDefaultIntake(e.target.value)}
               className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-[#222F43] bg-slate-50 dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-extrabold text-xs cursor-pointer focus:ring-2 focus:ring-amber-400"
             >
               <option value="ALL">Open to Any / Show All Intakes</option>
@@ -116,8 +345,8 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({ rates })
               <span>Default Aggregator</span>
             </label>
             <select
-              value={defaultAggregator}
-              onChange={(e) => updateSystemDefaults({ defaultAggregator: e.target.value }, user?.email || 'Admin')}
+              value={stagedDefaultAggregator}
+              onChange={(e) => setStagedDefaultAggregator(e.target.value)}
               className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-[#222F43] bg-slate-50 dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-extrabold text-xs cursor-pointer focus:ring-2 focus:ring-amber-400"
             >
               <option value="ALL">Open to Any / Show All Aggregators</option>
@@ -136,8 +365,8 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({ rates })
               <span>Default Study Level</span>
             </label>
             <select
-              value={defaultStudyLevel}
-              onChange={(e) => updateSystemDefaults({ defaultStudyLevel: e.target.value }, user?.email || 'Admin')}
+              value={stagedDefaultStudyLevel}
+              onChange={(e) => setStagedDefaultStudyLevel(e.target.value)}
               className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-[#222F43] bg-slate-50 dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-extrabold text-xs cursor-pointer focus:ring-2 focus:ring-amber-400"
             >
               <option value="ALL">Open to Any / All Levels</option>
@@ -157,28 +386,28 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({ rates })
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => updateSystemDefaults({ defaultViewMode: 'cards' }, user?.email || 'Admin')}
+                onClick={() => setStagedDefaultViewMode('cards')}
                 className={`flex-1 p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition ${
-                  defaultViewMode === 'cards'
-                    ? 'bg-blue-600 dark:bg-amber-400 text-white dark:text-slate-950 border-transparent shadow-xs'
+                  stagedDefaultViewMode === 'cards'
+                    ? 'bg-blue-600 dark:bg-amber-400 text-white dark:text-slate-950 border-transparent shadow-xs font-black'
                     : 'bg-slate-50 dark:bg-[#18181B] border-slate-200 dark:border-[#222F43] text-slate-700 dark:text-slate-300'
                 }`}
               >
                 <span>Grid Cards View</span>
-                {defaultViewMode === 'cards' && <Check className="w-4 h-4" />}
+                {stagedDefaultViewMode === 'cards' && <Check className="w-4 h-4" />}
               </button>
 
               <button
                 type="button"
-                onClick={() => updateSystemDefaults({ defaultViewMode: 'table' }, user?.email || 'Admin')}
+                onClick={() => setStagedDefaultViewMode('table')}
                 className={`flex-1 p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition ${
-                  defaultViewMode === 'table'
-                    ? 'bg-blue-600 dark:bg-amber-400 text-white dark:text-slate-950 border-transparent shadow-xs'
+                  stagedDefaultViewMode === 'table'
+                    ? 'bg-blue-600 dark:bg-amber-400 text-white dark:text-slate-950 border-transparent shadow-xs font-black'
                     : 'bg-slate-50 dark:bg-[#18181B] border-slate-200 dark:border-[#222F43] text-slate-700 dark:text-slate-300'
                 }`}
               >
                 <span>Compact Table View</span>
-                {defaultViewMode === 'table' && <Check className="w-4 h-4" />}
+                {stagedDefaultViewMode === 'table' && <Check className="w-4 h-4" />}
               </button>
             </div>
           </div>
@@ -188,152 +417,134 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({ rates })
               Default Sorting Preference
             </label>
             <select
-              value={defaultSortBy}
-              onChange={(e) => updateSystemDefaults({ defaultSortBy: e.target.value }, user?.email || 'Admin')}
+              value={stagedDefaultSortBy}
+              onChange={(e) => setStagedDefaultSortBy(e.target.value)}
               className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-[#222F43] bg-slate-50 dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-extrabold text-xs cursor-pointer focus:ring-2 focus:ring-amber-400"
             >
               <option value="universityName">Sort Alphabetically by University</option>
-              <option value="agentRate">Sort Highest Commission Rate First</option>
-              <option value="guidance">Sort Focus Routes First</option>
+              <option value="agentRate">Sort by Agent Rate (Highest First)</option>
+              <option value="diffMargin">Sort by Master Margin / Yield</option>
             </select>
           </div>
         </div>
-      </div>
 
-      {/* Active Intake Sheets Manager List */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-            Active Intake Sheets ({sheetSummary.length}):
-          </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            Changes apply in real-time across user roles
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3">
-          {sheetSummary.map((sheet) => {
-            const setting = sheetSettings.find((s) => s.sheetName === sheet.name || s.id === sheet.name);
-            const isHiddenStaff = setting?.disabledForStaff || false;
-            const isHiddenAgents = setting?.disabledForAgents || false;
-            const isDefault = defaultIntake === sheet.name;
-            const lifecycle = intakeLifecycles[sheet.name]?.status || 'active';
-
-            return (
-              <div
-                key={sheet.name}
-                className={`p-4 rounded-2xl border space-y-3 transition-colors ${
-                  isDefault
-                    ? 'bg-amber-500/10 border-amber-400/50'
-                    : 'bg-white dark:bg-[#0E1526] border-slate-200 dark:border-[#222F43]'
-                }`}
+        {/* Bottom Action Bar when Changes Exist */}
+        {isDirty && (
+          <div className="pt-3 border-t border-slate-100 dark:border-[#222F43] flex items-center justify-between flex-wrap gap-2 animate-in fade-in duration-150">
+            <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4" />
+              You have unsaved landing filter preferences. Click Save Preferences to apply globally.
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleResetDraft}
+                className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <Layers3 className="w-4 h-4 text-blue-600 dark:text-amber-400 shrink-0" />
-                    <span className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
-                      {sheet.name}
-                    </span>
-                    {isDefault && (
-                      <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400 text-slate-950">
-                        Default Intake
-                      </span>
-                    )}
+                Discard
+              </button>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleSaveSystemPreferences}
+                className="px-5 py-2 rounded-xl text-xs font-black bg-amber-400 text-slate-950 hover:bg-amber-300 transition cursor-pointer shadow-md flex items-center gap-1.5 active:scale-95"
+              >
+                <Save className="w-4 h-4 shrink-0" />
+                <span>{isSaving ? 'Saving Changes...' : 'Save Preferences'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
-                    {/* Status Badge */}
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1 ${
-                        lifecycle === 'active'
-                          ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
-                          : lifecycle === 'closing'
-                          ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
-                          : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      {lifecycle === 'active' && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
-                      {lifecycle === 'closing' && <Clock className="w-3 h-3 text-amber-500" />}
-                      {lifecycle === 'archived' && <Archive className="w-3 h-3 text-slate-500" />}
-                      <span className="capitalize">{lifecycle}</span>
-                    </span>
-                  </div>
+      {/* Role-Based Sheet Visibility Table */}
+      <div className="p-5 rounded-3xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#222F43] pb-3">
+          <div>
+            <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
+              Role-Based Sheet Visibility Settings
+            </h3>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Toggle access to whole intake sheets for Staff and Agent users. Changes take effect immediately in Firestore.
+            </p>
+          </div>
+          <span className="text-xs font-bold text-slate-400">
+            {sheetSummary.length} Sheets Available
+          </span>
+        </div>
 
-                  <div className="flex items-center gap-2">
-                    {/* Lifecycle Toggle */}
-                    <select
-                      value={lifecycle}
-                      onChange={(e) =>
-                        updateIntakeLifecycle(
-                          sheet.name,
-                          { status: e.target.value as 'active' | 'closing' | 'archived' },
-                          user?.email || 'Admin'
-                        )
-                      }
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222F43] bg-slate-50 dark:bg-[#18181B] text-slate-800 dark:text-slate-200 text-xs font-semibold cursor-pointer"
-                    >
-                      <option value="active">Active Enrollment</option>
-                      <option value="closing">Closing Soon</option>
-                      <option value="archived">Archived</option>
-                    </select>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-[#222F43] text-slate-400 font-bold uppercase text-[10px]">
+                <th className="py-2.5 px-3">Intake Sheet</th>
+                <th className="py-2.5 px-3">Rates Count</th>
+                <th className="py-2.5 px-3">Staff Visibility</th>
+                <th className="py-2.5 px-3">Agent Visibility</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-[#222F43]">
+              {sheetSummary.map(({ name, count }) => {
+                const setting = sheetSettings.find((s) => s.sheetName === name || s.id === name);
+                const staffDisabled = setting?.disabledForStaff ?? false;
+                const agentDisabled = setting?.disabledForAgents ?? false;
 
-                    <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300">
-                      {sheet.count} {sheet.count === 1 ? 'Rate' : 'Rates'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Role Visibility Control Toggles */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-[#222F43]">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateSheetVisibility(
-                        sheet.name,
-                        'STAFF',
-                        !isHiddenStaff,
-                        user?.email || 'Admin'
-                      )
-                    }
-                    className={`p-2.5 rounded-xl border font-bold text-xs flex items-center justify-between transition cursor-pointer ${
-                      isHiddenStaff
-                        ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
-                        : 'bg-slate-50 dark:bg-[#18181B] border-slate-200 dark:border-[#222F43] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <UserCheck className="w-3.5 h-3.5" />
-                      <span>Hide for Staff</span>
-                    </span>
-                    {isHiddenStaff ? <EyeOff className="w-3.5 h-3.5 text-rose-500" /> : <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateSheetVisibility(
-                        sheet.name,
-                        'AGENT',
-                        !isHiddenAgents,
-                        user?.email || 'Admin'
-                      )
-                    }
-                    className={`p-2.5 rounded-xl border font-bold text-xs flex items-center justify-between transition cursor-pointer ${
-                      isHiddenAgents
-                        ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
-                        : 'bg-slate-50 dark:bg-[#18181B] border-slate-200 dark:border-[#222F43] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <UserX className="w-3.5 h-3.5" />
-                      <span>Hide for Agents</span>
-                    </span>
-                    {isHiddenAgents ? <EyeOff className="w-3.5 h-3.5 text-rose-500" /> : <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+                return (
+                  <tr key={name} className="hover:bg-slate-50 dark:hover:bg-[#18181B] transition">
+                    <td className="py-3 px-3 font-extrabold text-slate-900 dark:text-slate-100">
+                      {name}
+                      {stagedDefaultIntake === name && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400/20 text-amber-500 border border-amber-400/40">
+                          Main Default
+                        </span>
+                      )}
+                      {stagedActiveIntakes.includes(name) && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-blue-500/20 text-blue-400 border border-blue-500/40">
+                          Active Default
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3 font-mono font-bold text-slate-500 dark:text-slate-400">
+                      {count} rates
+                    </td>
+                    <td className="py-3 px-3">
+                      <button
+                        type="button"
+                        onClick={() => updateSheetVisibility(name, 'STAFF', !staffDisabled, user?.email || 'Admin')}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                          !staffDisabled
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                        }`}
+                      >
+                        {!staffDisabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                        <span>{!staffDisabled ? 'Visible to Staff' : 'Hidden from Staff'}</span>
+                      </button>
+                    </td>
+                    <td className="py-3 px-3">
+                      <button
+                        type="button"
+                        onClick={() => updateSheetVisibility(name, 'AGENT', !agentDisabled, user?.email || 'Admin')}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                          !agentDisabled
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                        }`}
+                      >
+                        {!agentDisabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                        <span>{!agentDisabled ? 'Visible to Agents' : 'Hidden from Agents'}</span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
+
+      {/* Merged Intake Rate Cloning & Migration Tools Section */}
+      <IntakeMigrationTab rates={rates} onRefreshRates={onRefreshRates} />
     </div>
   );
 };

@@ -380,6 +380,10 @@ describe('chat search results flow', () => {
 
     expect(await screen.findByText(/Rates for your favorited school \(Leicester University\) were updated!/i)).toBeTruthy();
 
+    fireEvent.click(screen.getByRole('button', { name: /Activity/ }));
+    const activityDialog = await screen.findByRole('dialog', { name: 'Activity' });
+    expect(within(activityDialog).getByText(/Rates for your favorited school \(Leicester University\) were updated!/i)).toBeTruthy();
+
     const viewButton = screen.getByRole('button', { name: /View updated school/i });
     fireEvent.click(viewButton);
 

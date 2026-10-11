@@ -11,9 +11,11 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Clock,
 } from 'lucide-react';
 import type { CommissionRate } from '../types';
+import { isHistoricalIntake } from '../utils/groupingUtils';
 
 interface CompareViewProps {
   allRates: CommissionRate[];
@@ -118,7 +120,86 @@ const UniversityMatrix: React.FC<{
     return { aggregators: aggs, rows: matrixRows, bestByLevel: levelBests };
   }, [uniRates]);
 
+  const [showPreviousIntakes, setShowPreviousIntakes] = useState(false);
+
+  const { activeRows, previousRows } = useMemo(() => {
+    const active: MatrixRow[] = [];
+    const previous: MatrixRow[] = [];
+
+    rows.forEach((row) => {
+      if (isHistoricalIntake(row.intake)) {
+        previous.push(row);
+      } else {
+        active.push(row);
+      }
+    });
+
+    if (active.length === 0 && previous.length > 0) {
+      return { activeRows: previous, previousRows: [] };
+    }
+
+    return { activeRows: active, previousRows: previous };
+  }, [rows]);
+
   if (uniRates.length === 0) return null;
+
+  const renderTableRows = (rowList: MatrixRow[]) => {
+    return rowList.map((row) => (
+      <tr key={row.rowKey} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
+        <td className="p-2.5 border-r border-slate-200 dark:border-slate-800 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+          <div className="flex flex-col">
+            <span className="text-xs">{row.intake}</span>
+            <span className="text-[10px] text-slate-400 font-semibold">
+              {row.studyLevel}
+            </span>
+          </div>
+        </td>
+        {aggregators.map((agg) => {
+          const cell = row.cells[agg];
+          if (!cell?.rate) {
+            return (
+              <td key={agg} className="p-2.5 text-center text-slate-300 dark:text-slate-600">
+                -
+              </td>
+            );
+          }
+
+          return (
+            <td
+              key={agg}
+              className={`p-2.5 text-center ${
+                cell.isHighest
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40'
+                  : cell.isLowest
+                  ? 'bg-rose-50/60 dark:bg-rose-950/40'
+                  : ''
+              }`}
+            >
+              <div className="flex flex-col items-center">
+                <div
+                  className={`font-bold font-mono ${
+                    cell.isHighest
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : cell.isLowest
+                      ? 'text-rose-700 dark:text-rose-400'
+                      : 'text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  {cell.rate.diffMargin}
+                  <span className="text-[9px] ml-0.5 font-normal">
+                    {cell.rate.isFlatFee ? '£' : '%'}
+                  </span>
+                </div>
+                <div className="text-[9px] font-mono text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                  {cell.rate.masterRate} / {cell.rate.agentRate}
+                </div>
+              </div>
+            </td>
+          );
+        })}
+      </tr>
+    ));
+  };
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
@@ -169,63 +250,33 @@ const UniversityMatrix: React.FC<{
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {rows.map((row) => (
-              <tr key={row.rowKey} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                <td className="p-2.5 border-r border-slate-200 dark:border-slate-800 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                  <div className="flex flex-col">
-                    <span className="text-xs">{row.intake}</span>
-                    <span className="text-[10px] text-slate-400 font-semibold">
-                      {row.studyLevel}
-                    </span>
-                  </div>
+            {renderTableRows(activeRows)}
+            {showPreviousIntakes && previousRows.length > 0 && (
+              <tr className="bg-slate-100/70 dark:bg-slate-800/70 font-semibold">
+                <td colSpan={aggregators.length + 1} className="p-2 text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  Previous / Historical Intakes ({previousRows.length})
                 </td>
-                {aggregators.map((agg) => {
-                  const cell = row.cells[agg];
-                  if (!cell.rate) {
-                    return (
-                      <td key={agg} className="p-2.5 text-center text-slate-300 dark:text-slate-600">
-                        -
-                      </td>
-                    );
-                  }
-
-                  return (
-                    <td
-                      key={agg}
-                      className={`p-2.5 text-center ${
-                        cell.isHighest
-                          ? 'bg-emerald-50 dark:bg-emerald-950/40'
-                          : cell.isLowest
-                          ? 'bg-rose-50/60 dark:bg-rose-950/40'
-                          : ''
-                      }`}
-                    >
-                      <div className="flex flex-col items-center">
-                        <div
-                          className={`font-bold font-mono ${
-                            cell.isHighest
-                              ? 'text-emerald-700 dark:text-emerald-400'
-                              : cell.isLowest
-                              ? 'text-rose-700 dark:text-rose-400'
-                              : 'text-slate-700 dark:text-slate-300'
-                          }`}
-                        >
-                          {cell.rate.diffMargin}
-                          <span className="text-[9px] ml-0.5 font-normal">
-                            {cell.rate.isFlatFee ? '£' : '%'}
-                          </span>
-                        </div>
-                        <div className="text-[9px] font-mono text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                          {cell.rate.masterRate} / {cell.rate.agentRate}
-                        </div>
-                      </div>
-                    </td>
-                  );
-                })}
               </tr>
-            ))}
+            )}
+            {showPreviousIntakes && renderTableRows(previousRows)}
           </tbody>
         </table>
+
+        {previousRows.length > 0 && (
+          <div className="p-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40">
+            <button
+              type="button"
+              onClick={() => setShowPreviousIntakes(!showPreviousIntakes)}
+              className="w-full flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer font-bold text-[11px]"
+            >
+              <div className="flex items-center gap-1.5">
+                <History className="w-3.5 h-3.5 text-amber-500" />
+                <span>{showPreviousIntakes ? 'Hide Previous Intakes' : `View Previous Intakes (${previousRows.length})`}</span>
+              </div>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showPreviousIntakes ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

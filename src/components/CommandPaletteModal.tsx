@@ -5,7 +5,7 @@ import {
   X,
   LayoutDashboard,
   TrendingUp,
-  Users,
+  Settings,
   Briefcase,
   Award,
   Calculator,
@@ -58,7 +58,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
       { name: 'Dashboard', icon: LayoutDashboard, category: 'Pages' },
       { name: 'Compare Rates', icon: TrendingUp, category: 'Pages' },
       { name: 'Deal Calculator', icon: Calculator, category: 'Tools' },
-      { name: 'Users & Activity', icon: Users, category: 'Management' },
+      { name: 'Settings', icon: Settings, category: 'Management' },
       { name: 'Application Directory', icon: Briefcase, category: 'Portals' },
       { name: 'Agent Commissions', icon: Award, category: 'Portals' },
     ];

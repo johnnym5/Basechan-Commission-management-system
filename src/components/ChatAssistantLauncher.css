@@ -1,4 +1,4 @@
-.chat-assistant-fab{position:fixed;z-index:90;right:max(1rem,env(safe-area-inset-right));bottom:max(1rem,env(safe-area-inset-bottom));display:inline-flex;min-height:3.25rem;align-items:center;gap:.55rem;border:1px solid #60a5fa;border-radius:999px;background:#2563eb;padding:0 1.15rem;color:#fff;font-size:.875rem;font-weight:800;box-shadow:0 10px 32px #0008;transition:transform .18s ease,background .18s ease}
+.chat-assistant-fab{display:none !important;}
 .chat-assistant-fab:hover{background:#1d4ed8;transform:translateY(-2px)}
 .chat-assistant-overlay{position:fixed;inset:0;z-index:100;background:#02061799;backdrop-filter:blur(3px)}
 .chat-assistant-panel{position:absolute;inset-block:0;right:0;display:flex;width:min(520px,48vw);min-width:360px;flex-direction:column;border-left:1px solid #26334b;background:#080b13;box-shadow:-18px 0 50px #0008;animation:chat-assistant-enter .2s cubic-bezier(.2,.8,.2,1)}

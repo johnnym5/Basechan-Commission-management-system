@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { CommissionRate, SchoolGuidance } from '../types';
 import type { DashboardFilters } from '../types/dashboard';
+import type { SearchToken } from '../types/search';
 import { createEmptyDashboardFilters } from '../services/dashboardFilters';
 import { applyDashboardFilters } from '../services/dashboardFilters';
 import { buildDashboardRates } from '../services/dashboardData';
@@ -58,6 +59,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [activeSearchQuery, setActiveSearchQuery] = useState<string>('');
   const [activeGuidanceFilter, setActiveGuidanceFilter] = useState<SchoolGuidance | 'ALL'>('ALL');
   const [activeAggregatorFilter, setActiveAggregatorFilter] = useState<string>('ALL');
+  const [activeTokens, setActiveTokens] = useState<SearchToken[]>([]);
+  const [selectedUniversity, setSelectedUniversity] = useState<string>('ALL');
+  const [selectedSortBy, setSelectedSortBy] = useState<string>('ALPHABETICAL');
+  const [advanceFiltersOpen, setAdvanceFiltersOpen] = useState<boolean>(false);
+
   const controlledFilters = filters ?? {
     ...createEmptyDashboardFilters(), query: activeSearchQuery,
     guidances: activeGuidanceFilter === 'ALL' ? [] : [activeGuidanceFilter],
@@ -68,8 +74,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const changeGuidance = (value: SchoolGuidance | 'ALL') => { setActiveGuidanceFilter(value); changeFilters({ guidances: value === 'ALL' ? [] : [value] }); };
   const changeAggregator = (value: string) => { setActiveAggregatorFilter(value); changeFilters({ aggregators: value === 'ALL' ? [] : [value] }); };
 
-  // Mobile Collapsible Summary Accordion (Closed by default on mobile so user accesses Master Table without scrolling)
-  const [isSummaryOpenMobile, setIsSummaryOpenMobile] = useState<boolean>(false);
+  // Overview & Analytics Filters Collapsible (Closed by default)
+  const [isOverviewOpen, setIsOverviewOpen] = useState<boolean>(false);
 
   // Helper to scroll smoothly to the table
   const scrollToTable = () => {
@@ -104,6 +110,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   const handleClearAllFilters = () => {
+    setActiveTokens([]);
+    setSelectedUniversity('ALL');
+    setSelectedSortBy('ALPHABETICAL');
     setActiveSearchQuery('');
     setActiveGuidanceFilter('ALL');
     setActiveAggregatorFilter('ALL');
@@ -167,32 +176,55 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <DashboardShell role="ADMIN">
     <div className="space-y-6 sm:space-y-8">
-      {/* "Jump Back In" Personal Workspace Widget */}
+      {/* "Jump Back In" Personal Workspace Widget with Smart Search Bar */}
       <PersonalWorkspaceWidget
+        rates={rates}
+        activeTokens={activeTokens}
+        onTokensChange={setActiveTokens}
+        queryText={controlledFilters.query}
+        onQueryTextChange={changeSearch}
         favoriteCount={favoriteCount}
         onOpenChat={onOpenChat}
         onScrollToResults={scrollToTable}
+        onToggleAdvanceFilters={() => setAdvanceFiltersOpen(!advanceFiltersOpen)}
+        advanceFiltersOpen={advanceFiltersOpen}
+        selectedUniversity={selectedUniversity}
+        onUniversityChange={setSelectedUniversity}
+        selectedCountry={controlledFilters.countries[0] || 'ALL'}
+        onCountryChange={(c) => changeFilters({ countries: c === 'ALL' ? [] : [c] })}
+        selectedLevel={controlledFilters.levels[0] || 'ALL'}
+        onLevelChange={(l) => changeFilters({ levels: l === 'ALL' ? [] : [l as any] })}
+        selectedIntake={controlledFilters.intakes[0] || 'ALL'}
+        onIntakeChange={(i) => changeFilters({ intakes: i === 'ALL' ? [] : [i] })}
+        selectedStatus={controlledFilters.guidances[0] || 'ALL'}
+        onStatusChange={(s) => changeFilters({ guidances: s === 'ALL' ? [] : [s as any] })}
+        selectedAggregator={controlledFilters.aggregators[0] || 'ALL'}
+        onAggregatorChange={(a) => changeFilters({ aggregators: a === 'ALL' ? [] : [a] })}
+        selectedSortBy={selectedSortBy}
+        onSortByChange={setSelectedSortBy}
+        onResetFilters={handleClearAllFilters}
       />
 
-      {/* Mobile Collapsible Header Bar Trigger (Shows on mobile only to toggle top summary) */}
-      <div className="block sm:hidden">
+      {/* Collapsible Overview & Analytics Filters Accordion Trigger (CLOSED BY DEFAULT) */}
+      <div className="space-y-4">
         <button
-          onClick={() => setIsSummaryOpenMobile(!isSummaryOpenMobile)}
-          className="w-full flex items-center justify-between p-3.5 bg-[#0E1526] text-white rounded-2xl border border-[#222F43] shadow-md font-bold text-xs cursor-pointer transition active:scale-98"
+          type="button"
+          onClick={() => setIsOverviewOpen(!isOverviewOpen)}
+          className="w-full flex items-center justify-between p-4 bg-[#0E1526] text-white rounded-2xl border border-[#222F43] shadow-md font-bold text-xs sm:text-sm cursor-pointer transition hover:bg-[#141d33] active:scale-98"
         >
           <div className="flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-amber-400" />
-            <span>Overview & Yield Analytics</span>
+            <span>Overview & Analytics Filters</span>
           </div>
-          <div className="flex items-center gap-1.5 text-slate-400 text-[11px]">
-            <span>{isSummaryOpenMobile ? 'Collapse' : 'Show Summary'}</span>
-            <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isSummaryOpenMobile ? 'rotate-180' : ''}`} />
+          <div className="flex items-center gap-1.5 text-slate-400 text-xs">
+            <span>{isOverviewOpen ? 'Collapse Overview' : 'Expand Overview Filters'}</span>
+            <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isOverviewOpen ? 'rotate-180' : ''}`} />
           </div>
         </button>
-      </div>
 
-      {/* Top Executive Summary Container */}
-      <div className={`space-y-6 sm:space-y-8 ${isSummaryOpenMobile ? 'block' : 'hidden sm:block'}`}>
+        {/* Collapsible Overview Content Container */}
+        {isOverviewOpen && (
+          <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-200">
         {/* Executive Hero Banner */}
         <div className="relative overflow-hidden rounded-3xl bg-slate-900 dark:bg-[#0E1526] text-white p-5 sm:p-8 shadow-2xl border border-slate-800 dark:border-[#222F43]">
           <div className="absolute -top-24 -right-24 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -438,6 +470,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           )}
         </div>
       </div>
+      )}
+      </div>
 
       {/* Active Filter Indication Banner if user clicked a school, status badge, or aggregator card */}
       {(controlledFilters.query || controlledFilters.countries.length > 0 || controlledFilters.levels.length > 0 || controlledFilters.intakes.length > 0 || controlledFilters.guidances.length > 0 || controlledFilters.aggregators.length > 0) && (
@@ -494,6 +528,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onEditRate={onEditRate}
           externalSearchQuery={controlledFilters.query}
           onExternalSearchChange={changeSearch}
+          externalUniversityFilter={selectedUniversity}
+          onExternalUniversityChange={setSelectedUniversity}
           externalGuidanceFilter={controlledFilters.guidances[0] as SchoolGuidance | undefined || 'ALL'}
           onExternalGuidanceChange={changeGuidance}
           externalAggregatorFilter={controlledFilters.aggregators[0] || 'ALL'}
@@ -504,6 +540,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onExternalLevelChange={value => changeFilters({ levels: value === 'ALL' ? [] : [value] })}
           externalIntakeFilter={controlledFilters.intakes[0] || 'ALL'}
           onExternalIntakeChange={value => changeFilters({ intakes: value === 'ALL' ? [] : [value] })}
+          externalSortBy={selectedSortBy}
+          onExternalSortByChange={setSelectedSortBy}
+          activeTokens={activeTokens}
+          onTokensChange={setActiveTokens}
           externalSchoolIdsFilter={controlledFilters.schoolIds}
         />
       </section>

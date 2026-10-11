@@ -30,11 +30,10 @@ vi.mock('../hooks/useSystemConfig', () => ({
 }));
 
 describe('SettingsView', () => {
-  it('renders 5 setting tabs for Admin users', () => {
+  it('renders setting tabs for Admin users', () => {
     render(<SettingsView rates={[]} onRefreshRates={() => {}} />);
-    expect(screen.getByRole('tab', { name: /Sheet & Default Filters/i })).toBeDefined();
+    expect(screen.getByRole('tab', { name: /Sheet, Intake & Migration|Sheet & Default Filters/i })).toBeDefined();
     expect(screen.getByRole('tab', { name: /Users & Agencies/i })).toBeDefined();
-    expect(screen.getByRole('tab', { name: /Intake & Migration/i })).toBeDefined();
     expect(screen.getByRole('tab', { name: /Announcements/i })).toBeDefined();
     expect(screen.getByRole('tab', { name: /Data Health & Audit/i })).toBeDefined();
   });

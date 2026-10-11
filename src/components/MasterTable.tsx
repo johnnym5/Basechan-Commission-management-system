@@ -10,6 +10,7 @@ import {
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState, RowSelectionState } from '@tanstack/react-table';
 import type { CommissionRate, StudyLevel, SchoolGuidance } from '../types';
+import type { SearchToken } from '../types/search';
 import type {
   GroupByMode,
   GroupSortMode,
@@ -18,6 +19,8 @@ import type {
 import {
   groupRatesByUniversity,
   sortGroupedUniversities,
+  resolveUniversityCountry,
+  isHistoricalIntake,
 } from '../utils/groupingUtils';
 import { getWatchlist, toggleWatchlist, isStarred } from '../utils/watchlistUtils';
 import type { CurrencyCode } from '../utils/currencyUtils';
@@ -31,7 +34,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   ArrowUpDown,
   Search,
-  SlidersHorizontal,
+  History as HistoryIcon,
   Pencil,
   CheckCircle2,
   AlertTriangle,
@@ -41,12 +44,11 @@ import {
   X,
   Globe,
   Star,
-  Layers3,
-  LayoutGrid,
-  TableProperties,
   Share2,
   ChevronLeft,
   ChevronRight,
+  Target,
+  GraduationCap,
 } from 'lucide-react';
 
 interface MasterTableProps {
@@ -67,7 +69,21 @@ interface MasterTableProps {
   onExternalLevelChange?: (level: StudyLevel | 'ALL') => void;
   externalCountryFilter?: string;
   onExternalCountryChange?: (country: string) => void;
+  externalUniversityFilter?: string;
+  onExternalUniversityChange?: (university: string) => void;
+  externalSortBy?: string;
+  onExternalSortByChange?: (sortBy: string) => void;
+  activeTokens?: SearchToken[];
+  onTokensChange?: (tokens: SearchToken[]) => void;
   externalSchoolIdsFilter?: string[];
+  externalViewMode?: 'grid' | 'table' | 'cards';
+  onExternalViewModeChange?: (mode: 'cards' | 'table') => void;
+  externalOnlyShowStarred?: boolean;
+  onExternalToggleStarred?: () => void;
+  externalGroupByMode?: GroupByMode;
+  onExternalGroupByModeChange?: (mode: GroupByMode) => void;
+  externalActiveCurrency?: CurrencyCode;
+  onExternalCurrencyChange?: (code: CurrencyCode) => void;
 }
 
 const COMMON_AGGREGATORS = ['SI-UK', 'EDVOY', 'UAP', 'CRIZAC', 'BASECHAN', 'Direct'];
@@ -251,15 +267,95 @@ const GroupRoutesModal: React.FC<{
   onEdit: (rate: CommissionRate) => void;
   onShare: (rate: CommissionRate) => void;
 }> = ({ group, currency, onClose, onEdit, onShare }) => {
+  const [showPreviousIntakes, setShowPreviousIntakes] = useState(false);
+
   useEffect(() => {
     if (!group) return;
+    setShowPreviousIntakes(false);
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = '';
     };
   }, [group]);
 
+  const { activeRoutes, previousRoutes } = useMemo(() => {
+    if (!group) return { activeRoutes: [], previousRoutes: [] };
+    const active: CommissionRate[] = [];
+    const previous: CommissionRate[] = [];
+
+    group.rates.forEach((rate) => {
+      if (isHistoricalIntake(rate.intake)) {
+        previous.push(rate);
+      } else {
+        active.push(rate);
+      }
+    });
+
+    // If all routes were marked previous, keep them in active so user is never presented with an empty modal
+    if (active.length === 0 && previous.length > 0) {
+      return { activeRoutes: previous, previousRoutes: [] };
+    }
+
+    return { activeRoutes: active, previousRoutes: previous };
+  }, [group]);
+
   if (!group) return null;
+
+  const renderRouteCard = (rate: CommissionRate) => {
+    const isBest = group.bestRoute?.id === rate.id;
+    return (
+      <div
+        key={rate.id}
+        className={`p-3.5 rounded-2xl border transition-all flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 ${
+          isBest
+            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 shadow-xs'
+            : 'bg-slate-50 dark:bg-[#18181B]/80 border-slate-200 dark:border-[#222F43]'
+        }`}
+      >
+        <div className="space-y-1.5 min-w-[160px]">
+          <div className="flex items-center gap-2">
+            <AggregatorRouteCell rate={rate} />
+            {isBest && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400 text-slate-950">
+                BEST ROUTE
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+            Intake: <strong className="text-slate-800 dark:text-slate-200">{rate.intake}</strong> • Level: <strong className="text-indigo-600 dark:text-indigo-400">{rate.studyLevel}</strong>
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <span className="text-[9px] font-bold uppercase text-slate-400 block">Profit Yield</span>
+            <span className="font-mono font-black text-emerald-600 dark:text-amber-400 text-sm">
+              {formatCurrencyValue(rate.diffMargin, currency, rate.isFlatFee)}
+            </span>
+          </div>
+
+          <button
+            onClick={() => onShare(rate)}
+            className="p-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-400/30 rounded-xl transition cursor-pointer"
+            title="Share Rate Card"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            onClick={() => {
+              onClose();
+              onEdit(rate);
+            }}
+            className="p-2 bg-white dark:bg-[#0E1526] hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#222F43] rounded-xl text-slate-600 dark:text-slate-200 transition cursor-pointer"
+            title="Edit Rate"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return createPortal(
     <div
@@ -291,7 +387,7 @@ const GroupRoutesModal: React.FC<{
         </div>
 
         {/* Scrollable Routes List */}
-        <div className="p-4 sm:p-5 space-y-3 overflow-y-auto flex-1 text-xs">
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs">
           {/* Best Route Banner */}
           {group.bestRoute && (
             <div className="p-3 bg-amber-500/15 border border-amber-400/40 rounded-2xl flex items-center justify-between text-amber-800 dark:text-amber-300">
@@ -304,68 +400,36 @@ const GroupRoutesModal: React.FC<{
             </div>
           )}
 
-          {/* List of side-by-side routes */}
+          {/* Active / Current Intakes Section */}
           <div className="space-y-2">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-              All Submissions Routes ({group.rates.length}):
+              Active Intakes ({activeRoutes.length}):
             </span>
-
-            {group.rates.map((rate) => {
-              const isBest = group.bestRoute?.id === rate.id;
-              return (
-                <div
-                  key={rate.id}
-                  className={`p-3.5 rounded-2xl border transition-all flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 ${
-                    isBest
-                      ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 shadow-xs'
-                      : 'bg-slate-50 dark:bg-[#18181B]/80 border-slate-200 dark:border-[#222F43]'
-                  }`}
-                >
-                  <div className="space-y-1.5 min-w-[160px]">
-                    <div className="flex items-center gap-2">
-                      <AggregatorRouteCell rate={rate} />
-                      {isBest && (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400 text-slate-950">
-                          BEST ROUTE
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                      Intake: {rate.intake} • Level: <strong className="text-indigo-600 dark:text-indigo-400">{rate.studyLevel}</strong>
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <span className="text-[9px] font-bold uppercase text-slate-400 block">Profit Yield</span>
-                      <span className="font-mono font-black text-emerald-600 dark:text-amber-400 text-sm">
-                        {formatCurrencyValue(rate.diffMargin, currency, rate.isFlatFee)}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={() => onShare(rate)}
-                      className="p-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-400/30 rounded-xl transition cursor-pointer"
-                      title="Share Rate Card"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        onClose();
-                        onEdit(rate);
-                      }}
-                      className="p-2 bg-white dark:bg-[#0E1526] hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#222F43] rounded-xl text-slate-600 dark:text-slate-200 transition cursor-pointer"
-                      title="Edit Rate"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+            {activeRoutes.map((rate) => renderRouteCard(rate))}
           </div>
+
+          {/* Previous / Historical Intakes Collapsible Section */}
+          {previousRoutes.length > 0 && (
+            <div className="pt-2 border-t border-slate-200 dark:border-[#222F43]">
+              <button
+                type="button"
+                onClick={() => setShowPreviousIntakes(!showPreviousIntakes)}
+                className="w-full flex items-center justify-between p-3 rounded-2xl bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#26334b] text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer font-bold text-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <HistoryIcon className="w-4 h-4 text-amber-500" />
+                  <span>View Previous Intakes ({previousRoutes.length})</span>
+                </div>
+                <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showPreviousIntakes ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showPreviousIntakes && (
+                <div className="space-y-2 mt-3 animate-in fade-in duration-150">
+                  {previousRoutes.map((rate) => renderRouteCard(rate))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>,
@@ -389,9 +453,19 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   onExternalLevelChange,
   externalCountryFilter,
   onExternalCountryChange,
+  externalUniversityFilter,
+  onExternalUniversityChange: _onExternalUniversityChange,
+  externalSortBy,
+  onExternalSortByChange: _onExternalSortByChange,
+  activeTokens = [],
+  onTokensChange: _onTokensChange,
   externalSchoolIdsFilter,
+  externalViewMode,
+  externalOnlyShowStarred,
+  externalGroupByMode,
+  externalActiveCurrency,
 }) => {
-  const { defaultIntake } = useSystemConfig();
+  const { defaultIntake, activeIntakes } = useSystemConfig();
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'diffMargin', desc: true },
   ]);
@@ -399,16 +473,18 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const [isBatchEditOpen, setIsBatchEditOpen] = useState(false);
 
   // View Mode: 'grid' or 'table'
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [internalViewMode] = useState<'grid' | 'table'>('grid');
+  const viewMode = externalViewMode === 'cards' ? 'grid' : (externalViewMode || internalViewMode);
 
   // QOL STATES & CARD PAGINATION
-  const [groupByMode, setGroupByMode] = useState<GroupByMode>('NONE');
-  const [groupSortMode, setGroupSortMode] = useState<GroupSortMode>('MOST_ROUTES');
-  const [activeCurrency, setActiveCurrency] = useState<CurrencyCode>('GBP');
   const [watchlist, setWatchlist] = useState<string[]>(() => getWatchlist());
-  const [onlyShowStarred, setOnlyShowStarred] = useState<boolean>(false);
+  const [internalOnlyShowStarred, setInternalOnlyShowStarred] = useState<boolean>(false);
+  const onlyShowStarred = externalOnlyShowStarred !== undefined ? externalOnlyShowStarred : internalOnlyShowStarred;
+  void setInternalOnlyShowStarred;
   const [cardPage, setCardPage] = useState<number>(1);
   const CARDS_PER_PAGE = 24;
+  const [groupSortMode] = useState<GroupSortMode>('HIGHEST_MARGIN');
+  const activeCurrency = externalActiveCurrency || 'GBP';
 
   // Filter Popover Drawer State
   const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
@@ -417,20 +493,37 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const [activeGroupRate, setActiveGroupRate] = useState<GroupedUniversity | null>(null);
   const [sharingRate, setSharingRate] = useState<CommissionRate | null>(null);
 
+  const [internalGroupByMode] = useState<GroupByMode>('UNIVERSITY');
+  const groupByMode = externalGroupByMode || internalGroupByMode;
+
   const [internalSearchQuery, setInternalSearchQuery] = useState<string>('');
   const [internalIntake, setInternalIntake] = useState<string>('ALL');
   const [internalLevel, setInternalLevel] = useState<StudyLevel | 'ALL'>('ALL');
   const [internalCountry, setInternalCountry] = useState<string>('ALL');
+  const [internalUniversity, setInternalUniversity] = useState<string>('ALL');
   const [internalGuidanceFilter, setInternalGuidanceFilter] = useState<SchoolGuidance | 'ALL'>('ALL');
   const [internalAggregatorFilter, setInternalAggregatorFilter] = useState<string>('ALL');
+  const [internalSortBy, setInternalSortBy] = useState<string>('ALPHABETICAL');
 
   const selectedIntake = externalIntakeFilter ?? internalIntake;
   const selectedLevel = externalLevelFilter ?? internalLevel;
   const selectedCountry = externalCountryFilter ?? internalCountry;
+  const selectedUniversity = externalUniversityFilter ?? internalUniversity;
+  const selectedSortBy = externalSortBy ?? internalSortBy;
 
   const setSelectedIntake = (value: string) => { setInternalIntake(value); onExternalIntakeChange?.(value); };
   const setSelectedLevel = (value: StudyLevel | 'ALL') => { setInternalLevel(value); onExternalLevelChange?.(value); };
   const setSelectedCountry = (value: string) => { setInternalCountry(value); onExternalCountryChange?.(value); };
+  const setSelectedUniversity = (value: string) => { setInternalUniversity(value); _onExternalUniversityChange?.(value); };
+  const setSelectedSortBy = (value: string) => { setInternalSortBy(value); _onExternalSortByChange?.(value); };
+  void setSelectedUniversity;
+  void setSelectedSortBy;
+
+  const effectiveGroupByMode: GroupByMode = useMemo(() => {
+    if (selectedSortBy === 'UNIVERSITY') return 'UNIVERSITY';
+    if (selectedSortBy === 'COUNTRY') return 'COUNTRY';
+    return groupByMode;
+  }, [selectedSortBy, groupByMode]);
 
   const [batchActionLoading, setBatchActionLoading] = useState(false);
 
@@ -471,12 +564,38 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     selectedIntake,
     selectedLevel,
     selectedCountry,
+    selectedUniversity,
+    selectedSortBy,
     selectedGuidance,
     selectedAggregator,
+    activeTokens,
     groupByMode,
-    groupSortMode,
     onlyShowStarred,
   ]);
+
+  const hasActiveSearchOrFilter = Boolean(
+    (searchQuery && searchQuery.trim().length > 0) ||
+    (externalSearchQuery && externalSearchQuery.trim().length > 0) ||
+    (activeTokens && activeTokens.length > 0) ||
+    (selectedUniversity && selectedUniversity !== 'ALL') ||
+    (selectedIntake && selectedIntake !== 'ALL') ||
+    (selectedLevel && selectedLevel !== 'ALL') ||
+    (selectedCountry && selectedCountry !== 'ALL') ||
+    (selectedAggregator && selectedAggregator !== 'ALL') ||
+    (selectedGuidance && selectedGuidance !== 'ALL') ||
+    (externalSchoolIdsFilter && externalSchoolIdsFilter.length > 0) ||
+    onlyShowStarred
+  );
+  void hasActiveSearchOrFilter;
+
+  // Recent Search History Loader
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('basechan_recent_searches_v1');
+      if (stored) setRecentSearches(JSON.parse(stored).slice(0, 5));
+    } catch (e) {}
+  }, [externalSearchQuery, searchQuery]);
 
   // Toggle Watchlist Star Handler
   const handleToggleStar = (schoolName: string, e?: React.MouseEvent) => {
@@ -485,18 +604,6 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     setWatchlist(updated);
   };
 
-  // Active Filter Count Calculation
-  const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (selectedGuidance !== 'ALL') count++;
-    if (selectedIntake !== 'ALL') count++;
-    if (selectedLevel !== 'ALL') count++;
-    if (selectedCountry !== 'ALL') count++;
-    if (selectedAggregator !== 'ALL') count++;
-    if (onlyShowStarred) count++;
-    return count;
-  }, [selectedGuidance, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, onlyShowStarred]);
-
   // Extract unique options for filter dropdowns
   const intakes = useMemo(() => {
     const set = new Set(data.map((r) => r.intake).filter(Boolean));
@@ -504,7 +611,11 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   }, [data]);
 
   const countries = useMemo(() => {
-    const set = new Set(data.map((r) => r.country || 'UK').filter(Boolean));
+    const set = new Set<string>(['UK', 'Canada', 'USA', 'Australia']);
+    data.forEach((r) => {
+      const c = resolveUniversityCountry(r.universityName, r.country, data);
+      if (c) set.add(c);
+    });
     return Array.from(set).sort();
   }, [data]);
 
@@ -523,7 +634,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       row.aggregator,
       row.intake,
       row.studyLevel,
-      row.country || '',
+      resolveUniversityCountry(row.universityName, row.country, data),
       row.guidance || 'ALLOWED',
     ]
       .join(' ')
@@ -550,6 +661,34 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         return false;
       }
 
+      if (activeTokens && activeTokens.length > 0) {
+        for (const token of activeTokens) {
+          const val = (token.value || token.label).toLowerCase().trim();
+          if (token.type === 'school') {
+            if (!row.universityName.toLowerCase().includes(val)) return false;
+          } else if (token.type === 'country') {
+            const rowCountry = resolveUniversityCountry(row.universityName, row.country, data);
+            if (rowCountry.toLowerCase() !== val && !(row.country || '').toLowerCase().includes(val)) return false;
+          } else if (token.type === 'level') {
+            if (row.studyLevel.toLowerCase() !== val && !row.studyLevel.toLowerCase().includes(val)) return false;
+          } else if (token.type === 'intake') {
+            if (row.intake.toLowerCase() !== val && !row.intake.toLowerCase().includes(val)) return false;
+          } else if (token.type === 'status') {
+            if ((row.guidance || 'ALLOWED').toLowerCase() !== val) return false;
+          } else if (token.type === 'aggregator') {
+            if ((row.aggregator || '').toLowerCase() !== val) return false;
+          } else {
+            const rowCountry = resolveUniversityCountry(row.universityName, row.country, data);
+            const corpus = `${row.universityName} ${rowCountry} ${row.intake} ${row.studyLevel} ${row.guidance || 'ALLOWED'} ${row.aggregator || ''}`.toLowerCase();
+            if (!corpus.includes(val)) return false;
+          }
+        }
+      }
+
+      if (selectedUniversity !== 'ALL' && row.universityName !== selectedUniversity) {
+        return false;
+      }
+
       if (selectedIntake !== 'ALL' && row.intake !== selectedIntake) {
         return false;
       }
@@ -558,8 +697,11 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         return false;
       }
 
-      if (selectedCountry !== 'ALL' && (row.country || 'UK') !== selectedCountry) {
-        return false;
+      if (selectedCountry !== 'ALL') {
+        const rowCountry = resolveUniversityCountry(row.universityName, row.country, data);
+        if (rowCountry !== selectedCountry && (row.country || 'UK') !== selectedCountry) {
+          return false;
+        }
       }
 
       if (selectedAggregator !== 'ALL' && row.aggregator !== selectedAggregator) {
@@ -577,14 +719,41 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
       return true;
     });
-  }, [data, searchQuery, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, selectedGuidance, externalSchoolIdsFilter, watchlist, onlyShowStarred]);
+  }, [data, searchQuery, activeTokens, selectedUniversity, selectedIntake, selectedLevel, selectedCountry, selectedAggregator, selectedGuidance, externalSchoolIdsFilter, watchlist, onlyShowStarred]);
+
+  // Apply Sort By mode
+  const sortedFilteredData = useMemo(() => {
+    const list = [...filteredData];
+    if (selectedSortBy === 'ALPHABETICAL' || selectedSortBy === 'UNIVERSITY') {
+      return list.sort((a, b) => a.universityName.localeCompare(b.universityName));
+    }
+    if (selectedSortBy === 'COUNTRY') {
+      return list.sort((a, b) => {
+        const c1 = a.country || 'UK';
+        const c2 = b.country || 'UK';
+        const comp = c1.localeCompare(c2);
+        if (comp !== 0) return comp;
+        return a.universityName.localeCompare(b.universityName);
+      });
+    }
+    if (selectedSortBy === 'HIGHEST_MARGIN') {
+      return list.sort((a, b) => b.diffMargin - a.diffMargin);
+    }
+    return list;
+  }, [filteredData, selectedSortBy]);
+
+  const hasUserSearched = Boolean(
+    sortedFilteredData.length > 0 ||
+    (searchQuery && searchQuery.trim().length > 0) ||
+    (externalSearchQuery && externalSearchQuery.trim().length > 0)
+  );
 
   // Grouped Data Calculations
   const groupedUniversities = useMemo(() => {
-    if (groupByMode !== 'UNIVERSITY') return [];
-    const grouped = groupRatesByUniversity(filteredData);
+    if (effectiveGroupByMode !== 'UNIVERSITY') return [];
+    const grouped = groupRatesByUniversity(sortedFilteredData);
     return sortGroupedUniversities(grouped, groupSortMode);
-  }, [filteredData, groupByMode, groupSortMode]);
+  }, [sortedFilteredData, effectiveGroupByMode, groupSortMode]);
 
   // CARD GRID PAGINATION SLICES
   const totalGroupPages = Math.ceil(groupedUniversities.length / CARDS_PER_PAGE) || 1;
@@ -593,11 +762,11 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     return groupedUniversities.slice(start, start + CARDS_PER_PAGE);
   }, [groupedUniversities, cardPage]);
 
-  const totalFlatPages = Math.ceil(filteredData.length / CARDS_PER_PAGE) || 1;
+  const totalFlatPages = Math.ceil(sortedFilteredData.length / CARDS_PER_PAGE) || 1;
   const paginatedFlatData = useMemo(() => {
     const start = (cardPage - 1) * CARDS_PER_PAGE;
-    return filteredData.slice(start, start + CARDS_PER_PAGE);
-  }, [filteredData, cardPage]);
+    return sortedFilteredData.slice(start, start + CARDS_PER_PAGE);
+  }, [sortedFilteredData, cardPage]);
 
   // Selection states across ALL filtered rows
   const isAllFilteredSelected = useMemo(() => {
@@ -868,12 +1037,15 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const renderRateCard = (rate: CommissionRate) => {
     const isSelected = rowSelection[rate.id] || false;
     const starred = isStarred(watchlist, rate.universityName);
+    const isHistorical = activeIntakes && activeIntakes.length > 0 && !activeIntakes.includes(rate.intake);
 
     return (
       <div
         key={rate.id}
         onClick={() => onEditRate(rate)}
         className={`p-3 sm:p-4 rounded-2xl border transition-all duration-200 cursor-pointer relative flex flex-col justify-between gap-2.5 select-none ${
+          isHistorical ? 'opacity-85 grayscale-25' : ''
+        } ${
           isSelected
             ? 'bg-blue-50 dark:bg-amber-950/60 border-blue-500 dark:border-amber-400 shadow-md ring-1 ring-blue-500/30'
             : 'bg-white dark:bg-[#0E1526] border-slate-200 dark:border-[#222F43] hover:border-slate-300 dark:hover:border-slate-600 shadow-xs hover:-translate-y-0.5'
@@ -881,9 +1053,16 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       >
         {/* Top Row: Level Badge Left, Multi-Select Checkbox TOP-RIGHT */}
         <div className="flex items-center justify-between gap-2">
-          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-            {rate.studyLevel}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+              {rate.studyLevel}
+            </span>
+            {isHistorical && (
+              <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-950/80 text-amber-300 border border-amber-800/80">
+                🕰️ Historical
+              </span>
+            )}
+          </div>
 
           {/* Multi-Select Checkbox TOP-RIGHT */}
           <div onClick={(e) => e.stopPropagation()} className="shrink-0 ml-auto">
@@ -951,153 +1130,93 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
   return (
     <div id="master-intelligence-table-container" className="space-y-4">
-      {/* Control Bar */}
-      <div className="bg-white dark:bg-[#0E1526] p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-[#222F43] shadow-xs flex flex-wrap items-center justify-between gap-2.5 transition-colors relative">
-        {/* Search Input */}
-        <div className="relative flex-1 min-w-[220px] flex items-center">
-          <Search className="w-4 h-4 absolute left-3 text-slate-400 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search universities (e.g. Aberdeen)..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-20 py-2 text-xs sm:text-sm border border-slate-200 dark:border-[#222F43] rounded-xl bg-slate-50 dark:bg-[#18181B] text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 dark:focus:ring-amber-400 transition"
-          />
-
-          <div className="absolute right-2 flex items-center gap-1">
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="p-1 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
-              >
-                ✕
-              </button>
-            )}
-
-            <button
-              type="button"
-              aria-label="Detailed Filters"
-              title="Detailed Filters"
-              onClick={() => setIsFilterPopoverOpen(!isFilterPopoverOpen)}
-              className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center gap-1 ${
-                activeFilterCount > 0 || isFilterPopoverOpen
-                  ? 'bg-blue-600 dark:bg-amber-400 text-white dark:text-slate-950 font-bold'
-                  : 'bg-white dark:bg-[#0E1526] text-slate-600 dark:text-slate-300 border-slate-300 dark:border-[#222F43]'
-              }`}
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              {activeFilterCount > 0 && (
-                <span className="w-4 h-4 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center -ml-0.5">
-                  {activeFilterCount}
-                </span>
-              )}
-            </button>
+      {!hasUserSearched ? (
+        <div className="p-10 sm:p-16 text-center text-slate-400 bg-white dark:bg-[#0E1526] rounded-3xl border border-slate-200 dark:border-[#222F43] space-y-4 shadow-md animate-in fade-in duration-200">
+          <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-amber-950/60 text-blue-600 dark:text-amber-400 border border-blue-200 dark:border-amber-400/30 flex items-center justify-center mx-auto shadow-inner">
+            <Search className="w-7 h-7" />
           </div>
-        </div>
-
-        {/* Grouping, Sorting, Country Selector, Watchlist & Currency Controls */}
-        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-          {/* View Mode Switcher */}
-          <div className="hidden md:flex items-center bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43]">
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              title="Grid Cards View"
-              className={`p-1.5 rounded-lg transition cursor-pointer ${
-                viewMode === 'grid'
-                  ? 'bg-white dark:bg-[#0E1526] text-blue-600 dark:text-amber-400 shadow-2xs font-bold'
-                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('table')}
-              title="List Table View"
-              className={`p-1.5 rounded-lg transition cursor-pointer ${
-                viewMode === 'table'
-                  ? 'bg-white dark:bg-[#0E1526] text-blue-600 dark:text-amber-400 shadow-2xs font-bold'
-                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-              }`}
-            >
-              <TableProperties className="w-3.5 h-3.5" />
-            </button>
+          <div className="space-y-1.5 max-w-md mx-auto">
+            <h3 className="font-extrabold text-base sm:text-xl text-slate-900 dark:text-slate-100 tracking-tight">
+              Search results will appear here
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-mono">
+              Type a school name, intake (e.g. Sept 2026), study level (UG/PG), or country in the search bar above, then press <kbd className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-blue-700 dark:text-amber-300 font-extrabold border border-slate-300 dark:border-slate-700">Enter</kbd> to view matching rates.
+            </p>
           </div>
 
-          {/* Watchlist Filter Toggle Button */}
-          <button
-            type="button"
-            onClick={() => setOnlyShowStarred(!onlyShowStarred)}
-            title={onlyShowStarred ? 'Show All Schools' : 'Show Starred Watchlist Only'}
-            className={`px-2.5 py-1.5 rounded-xl border text-xs font-extrabold flex items-center gap-1 transition cursor-pointer ${
-              onlyShowStarred
-                ? 'bg-amber-400 text-slate-950 border-amber-400 shadow-2xs'
-                : 'bg-white dark:bg-[#0E1526] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            <Star className={`w-3.5 h-3.5 ${onlyShowStarred ? 'fill-slate-950' : 'text-amber-400'}`} />
-            <span className="hidden sm:inline">Watchlist</span>
-            {watchlist.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 ml-0.5">
-                {watchlist.length}
+          {recentSearches.length > 0 && (
+            <div className="pt-4 border-t border-slate-100 dark:border-[#222F43] max-w-lg mx-auto space-y-2">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-center gap-1">
+                <HistoryIcon className="w-3.5 h-3.5 text-amber-400" />
+                Recent Searches
               </span>
-            )}
-          </button>
-
-          {/* Group By Selector */}
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43] text-xs">
-            <Layers3 className="w-3.5 h-3.5 text-slate-400 ml-1 hidden sm:inline" />
-            <select
-              value={groupByMode}
-              onChange={(e) => setGroupByMode(e.target.value as GroupByMode)}
-              className="bg-transparent font-bold text-slate-700 dark:text-slate-200 text-xs focus:outline-none cursor-pointer"
-            >
-              <option value="NONE">Group: None (Flat)</option>
-              <option value="UNIVERSITY">Group: University</option>
-              <option value="COUNTRY">Group: Country</option>
-              <option value="AGGREGATOR">Group: Portal</option>
-            </select>
-          </div>
-
-          {/* Group Sorting Selector */}
-          {groupByMode === 'UNIVERSITY' && (
-            <div className="hidden lg:flex items-center gap-1 bg-slate-100 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-[#222F43] text-xs">
-              <select
-                value={groupSortMode}
-                onChange={(e) => setGroupSortMode(e.target.value as GroupSortMode)}
-                className="bg-transparent font-bold text-slate-700 dark:text-slate-200 text-xs focus:outline-none cursor-pointer"
-              >
-                <option value="MOST_ROUTES">Sort: Most Routes</option>
-                <option value="HIGHEST_MARGIN">Sort: Highest Yield</option>
-                <option value="ALPHABETICAL">Sort: A - Z</option>
-              </select>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {recentSearches.map((term) => (
+                  <button
+                    key={term}
+                    type="button"
+                    onClick={() => {
+                      if (onExternalSearchChange) {
+                        onExternalSearchChange(term);
+                      } else {
+                        setSearchQuery(term);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#26334b] hover:border-amber-400 text-slate-700 dark:text-slate-200 text-xs font-semibold transition cursor-pointer active:scale-95"
+                  >
+                    {term}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
-
-          {/* Live Currency Switcher Toggle */}
-          <div className="flex items-center bg-slate-100 dark:bg-[#18181B] p-0.5 rounded-xl border border-slate-200 dark:border-[#222F43] text-[10px] font-extrabold">
-            {(['GBP', 'USD', 'EUR', 'NGN'] as CurrencyCode[]).map((code) => (
-              <button
-                key={code}
-                type="button"
-                onClick={() => setActiveCurrency(code)}
-                className={`px-2 py-1 rounded-lg transition cursor-pointer ${
-                  activeCurrency === code
-                    ? 'bg-white dark:bg-[#0E1526] text-blue-600 dark:text-amber-400 shadow-2xs font-black'
-                    : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                }`}
-              >
-                {code}
-              </button>
-            ))}
+        </div>
+      ) : !hasActiveSearchOrFilter ? (
+        <div className="p-8 sm:p-12 text-center text-slate-500 bg-white dark:bg-[#0E1526] rounded-3xl border border-dashed border-slate-200 dark:border-[#222F43] space-y-3 animate-in fade-in duration-200">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-400/20 flex items-center justify-center mx-auto">
+            <Search className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+              Search or filter to view university commission rates
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+              Type a school name, country, or intake in the search bar above, or select a filter to display authorized application routes.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mr-1">Quick searches:</span>
+            <button
+              type="button"
+              onClick={() => setSelectedCountry('UK')}
+              className="px-3 py-1.5 rounded-full text-xs font-bold bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#222F43] hover:border-blue-400 hover:text-blue-400 transition cursor-pointer flex items-center gap-1.5"
+            >
+              <Globe className="w-3.5 h-3.5 text-indigo-500 dark:text-amber-400" />
+              <span>United Kingdom</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedGuidance('FOCUS')}
+              className="px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition cursor-pointer flex items-center gap-1.5"
+            >
+              <Target className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Focus Routes</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedLevel('PG')}
+              className="px-3 py-1.5 rounded-full text-xs font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition cursor-pointer flex items-center gap-1.5"
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+              <span>Postgraduate (PG)</span>
+            </button>
           </div>
         </div>
-      </div>
-
-      {/* TOP SELECTION & BATCH ACTIONS BAR */}
-      <div className="flex flex-wrap items-center justify-between p-2.5 bg-[#F7F4EF] dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] text-xs font-semibold gap-3 transition-colors">
-        {/* Left: Select All Checkbox & Count Indicator */}
+      ) : (
+        <>
+          {/* TOP SELECTION & BATCH ACTIONS BAR */}
+          <div className="flex flex-wrap items-center justify-between p-2.5 bg-[#F7F4EF] dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] text-xs font-semibold gap-3 transition-colors">
+            {/* Left: Select All Checkbox & Count Indicator */}
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
@@ -1274,6 +1393,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               <label htmlFor="master-country-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Country</label>
               <select
                 id="master-country-filter"
+                aria-label="Country"
                 value={selectedCountry}
                 onChange={(e) => setSelectedCountry(e.target.value)}
                 className="w-full p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]"
@@ -1302,7 +1422,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       {(viewMode === 'grid' || window.innerWidth < 768) && (
         <div className="space-y-4">
           {/* GROUP BY UNIVERSITY */}
-          {groupByMode === 'UNIVERSITY' ? (
+          {effectiveGroupByMode === 'UNIVERSITY' ? (
             groupedUniversities.length === 0 ? (
               <div className="p-8 text-center text-slate-500 bg-white dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] text-xs">
                 No matching universities found.
@@ -1472,6 +1592,8 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             </table>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Grouped University Routes Pop-Up Modal */}

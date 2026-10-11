@@ -66,19 +66,20 @@ export function detectGlobalListQuery(input: string, knownCountries: string[] = 
   if (mentionsCountry) return false;
 
   return /\b(?:name|list|show)\s+all\s+(?:the\s+)?(?:schools?|universit(?:y|ies)|institutions?)\b/i.test(text)
-    || /\b(?:all\s+(?:the\s+)?(?:schools?|universities)|what\s+schools?|how\s+many\s+schools?)\s+(?:in|listed\s+in|are\s+in)\s+(?:the\s+)?(?:system|database|app|directory)\b/i.test(text)
-    || /^(?:can\s+you\s+)?(?:name|list)\s+all\s+(?:the\s+)?(?:schools|universities)/i.test(text);
+    || /\b(?:all\s+(?:the\s+)?(?:schools?|universities|institutions)|what\s+schools?|how\s+many\s+schools?|how\s+many\s+universities?|how\s+many\s+institutions?)\s+(?:in|listed\s+in|are\s+in|are\s+there\s+in|registered\s+in)\s+(?:the\s+)?(?:system|database|app|directory)\b/i.test(text)
+    || /\bhow\s+many\s+(?:schools|universities|institutions)\s+(?:are\s+)?(?:listed|registered|in\s+the\s+system)\b/i.test(text)
+    || /^(?:can\s+you\s+)?(?:name|list)\s+all\s+(?:the\s+)?(?:schools|universities|institutions)/i.test(text);
 }
 
 export function detectUniversityFactQuery(input: string, knownSchools: string[]): { isFactQuery: boolean; matchedSchoolName?: string } {
   const text = input.toLowerCase().trim();
-  if (/\b(?:tell\s+me\s+about|facts?\s+about|information\s+about|info\s+about|look\s+up\s+info|overview\s+of|details?\s+for)\b/i.test(text)) {
+  if (/\b(?:tell\s+me\s+about|facts?\s+(?:about|for|on)|information\s+(?:about|on|for)|info\s+(?:about|on|for)|look\s+up\s+info|overview\s+of|details?\s+for)\b/i.test(text)) {
     const matched = knownSchools.find((school) => text.includes(school.toLowerCase()));
     if (matched) return { isFactQuery: true, matchedSchoolName: matched };
 
     // Fuzzy word match
     const words = text.match(/[a-z0-9]+/g) || [];
-    const stopWords = new Set(['tell', 'me', 'about', 'facts', 'information', 'info', 'look', 'up', 'overview', 'details', 'for', 'the', 'this', 'school', 'university']);
+    const stopWords = new Set(['tell', 'me', 'about', 'facts', 'information', 'info', 'look', 'up', 'overview', 'details', 'for', 'the', 'this', 'school', 'university', 'on']);
     const candidateWords = words.filter((w) => !stopWords.has(w) && w.length >= 4);
     if (candidateWords.length > 0) {
       const fuzzyMatch = knownSchools.find((school) =>
@@ -94,7 +95,7 @@ export function detectUniversityFactQuery(input: string, knownSchools: string[])
 export function detectAggregatorYieldQuery(input: string, knownSchools: string[]): { isAggregatorYieldQuery: boolean; matchedSchoolName?: string } {
   const text = input.toLowerCase().trim();
   if (/\b(?:which\s+aggregator|which\s+portal|better\s+aggregator|better\s+portal|best\s+aggregator|best\s+portal|compare\s+aggregators?|compare\s+portals?)\b/i.test(text)
-    || /\b(?:aggregator\s+vs\s+aggregator|portal\s+vs\s+portal)\b/i.test(text)) {
+    || /\b(?:aggregator\s+vs\s+aggregator|portal\s+vs\s+portal|si-uk\s+vs\s+edvoy|edvoy\s+vs\s+uap|uap\s+vs\s+crizac)\b/i.test(text)) {
     const matched = knownSchools.find((school) => text.includes(school.toLowerCase()));
     return { isAggregatorYieldQuery: true, matchedSchoolName: matched };
   }

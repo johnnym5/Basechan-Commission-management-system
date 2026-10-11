@@ -932,12 +932,13 @@ export function processChatTurn(
     if (pendingClarification?.field !== 'intent' && !submittedIntent.guidances?.length) contextParts.push(...(previousIntent.guidances || (previousIntent.guidance ? [previousIntent.guidance] : [])).map((value) => value === 'DO_NOT_USE' ? 'restricted' : value));
     if (previousIntent.compare) contextParts.push('compare');
   }
-  const previousLevel = state.conversation.activeLevel;
+  const previousLevel = state.conversation.activeLevel || previousIntent?.level;
   if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !submittedIntent.intakeYearRange && !inputHasLevel && previousLevel) {
     contextParts.push(previousLevel === 'PG' ? 'postgraduate' : previousLevel === 'UG' ? 'undergraduate' : 'foundation');
   }
-  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !containsDatedIntake && !submittedIntent.intakeYearRange && !previousIntent?.intakeYearRange && !submittedIntent.intakeTerms.length && state.conversation.activeIntake) {
-    contextParts.push(state.conversation.activeIntake);
+  const previousIntake = state.conversation.activeIntake || previousIntent?.intake;
+  if (carriesPreviousFilters && pendingClarification?.field !== 'scope' && !containsDatedIntake && !submittedIntent.intakeYearRange && !previousIntent?.intakeYearRange && !submittedIntent.intakeTerms.length && previousIntake) {
+    contextParts.push(previousIntake);
   }
   const expandedInput = `${input} ${Array.from(new Set(contextParts)).join(' ')}`.trim();
   const intent = parseChatIntent(expandedInput, schoolNames, countryNames, aggregatorNames, role, intakeNames);
@@ -1100,8 +1101,8 @@ export function processChatTurn(
     messages,
     queryCount: conversationQueryCount + 1,
     ...(isFreshEntitySearch ? {
-      activeLevel: intent.level,
-      activeIntake: defaultIntake,
+      activeLevel: inputNamesCountry || submittedIntent.broadSearch ? intent.level : (intent.level || state.conversation.activeLevel),
+      activeIntake: inputNamesCountry || submittedIntent.broadSearch ? defaultIntake : (defaultIntake || state.conversation.activeIntake),
       activeSchoolIds: intent.schoolTerms.length ? Array.from(new Set(intent.schoolTerms.flatMap((school) => rates.filter((rate) => rate.universityName.toLowerCase() === school.toLowerCase()).map((rate) => rate.universityId)))) : undefined,
     } : {
       ...(intent.level ? { activeLevel: intent.level } : {}),

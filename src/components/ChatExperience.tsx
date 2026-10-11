@@ -348,7 +348,10 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
     return () => { mounted = false; };
   }, [user?.uid, cloudSyncRevision, cloudUsageRevision, localOnly]);
 
-  const favoriteSchoolIds = useMemo(() => favorites.map((f) => f.universityId), [favorites]);
+  const favoriteSchoolIds = useMemo(
+    () => favorites.flatMap((f) => [f.universityId, f.universityName].filter(Boolean) as string[]),
+    [favorites]
+  );
   const favoriteSchoolUpdates = useMemo(
     () => getFavoriteSchoolUpdates(updates, favoriteSchoolIds),
     [updates, favoriteSchoolIds]
@@ -377,7 +380,7 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
   }, [unreadFavoriteUpdates, favorites, rates]);
 
   useEffect(() => {
-    if (!user || updates.length === 0 || notice) return;
+    if (!user || updates.length === 0) return;
     if (unreadFavoriteUpdates.length > 0) {
       const firstUpdate = unreadFavoriteUpdates[0];
       const matchedFav = favorites.find(
@@ -390,9 +393,13 @@ export const ChatExperience: React.FC<ChatExperienceProps> = ({ rates, loading, 
               firstUpdate.summary.toLowerCase().includes(f.universityName.toLowerCase())))
       );
       const name = matchedFav?.universityName || rates.find((r) => firstUpdate.affectedSchoolIds?.includes(r.universityId))?.universityName;
-      setNotice(name ? `Rates for your favorited school (${name}) were updated!` : 'Rates for your favorited school were updated!');
+      const favoriteNoticeText = name ? `Rates for your favorited school (${name}) were updated!` : 'Rates for your favorited school were updated!';
+      if (notice !== favoriteNoticeText) {
+        setNotice(favoriteNoticeText);
+      }
       return;
     }
+    if (notice) return;
     const unread = updates.filter((item) => !item.isRead);
     if (unread.length > 0)
       setNotice(

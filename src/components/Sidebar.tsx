@@ -7,7 +7,6 @@ import {
   TrendingUp,
   FileSpreadsheet,
   Layers,
-  Users,
   Briefcase,
   Award,
   ShieldCheck,
@@ -213,15 +212,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <NavItem
                     name="Deal Calculator"
                     icon={Calculator}
-                    currentPage={currentPage}
-                    setCurrentPage={setCurrentPage}
-                    setIsOpen={setIsOpen}
-                    rates={[]}
-                    isExpanded={isExpandedDesktop}
-                  />
-                  <NavItem
-                    name="Users & Activity"
-                    icon={Users}
                     currentPage={currentPage}
                     setCurrentPage={setCurrentPage}
                     setIsOpen={setIsOpen}

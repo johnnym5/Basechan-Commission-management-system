@@ -63,7 +63,7 @@ export const ChatAssistantLauncher: React.FC<ChatAssistantLauncherProps> = ({ ch
   };
 
   return <>
-    <button ref={fabRef} type="button" aria-label="Open chat assistant" aria-expanded={isOpen} onClick={() => setOpen(true)} className="chat-assistant-fab">
+    <button ref={fabRef} type="button" aria-label="Open chat assistant" aria-expanded={isOpen} onClick={() => setOpen(true)} className="chat-assistant-fab hidden">
       <MessageCircle aria-hidden="true" className="h-5 w-5" /><span>Chat</span>
     </button>
     <div className={`chat-assistant-overlay${isOpen ? ' is-open' : ''}`} data-testid="chat-assistant-backdrop" hidden={!isOpen} onClick={event => { if (event.target === event.currentTarget) setOpen(false); }}>

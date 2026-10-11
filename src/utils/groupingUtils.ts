@@ -22,6 +22,44 @@ export interface GenericGroup {
   rates: CommissionRate[];
 }
 
+// Geographic keyword maps for fallback country resolution
+const COUNTRY_KEYWORD_PATTERNS: Array<{ country: string; keywords: string[] }> = [
+  { country: 'Canada', keywords: ['canada', 'toronto', 'mcgill', 'vancouver', 'alberta', 'waterloo', 'mcmaster', 'calgary', 'ottawa', 'montreal', 'quebec', 'yorku', 'ryerson', 'tmu', 'simon fraser', 'sfu', 'manitoba', 'saskatchewan', 'dalhousie', 'victoria'] },
+  { country: 'USA', keywords: ['usa', 'united states', 'harvard', 'mit', 'stanford', 'nyu', 'california', 'ucla', 'berkeley', 'texas', 'florida', 'chicago', 'columbia', 'yale', 'princeton', 'penn', 'michigan', 'cornell', 'duke', 'johns hopkins', 'northwestern', 'illinois', 'boston', 'purdue'] },
+  { country: 'Australia', keywords: ['australia', 'melbourne', 'sydney', 'monash', 'queensland', 'unsw', 'rmit', 'deakin', 'curtin', 'adelaide', 'western australia', 'macquarie', 'uts', 'griffith', 'utas', 'canberra', 'flinders', 'la trobe', 'wollongong', 'swinburne'] },
+  { country: 'UK', keywords: ['uk', 'united kingdom', 'england', 'scotland', 'wales', 'london', 'oxford', 'cambridge', 'manchester', 'edinburgh', 'glasgow', 'birmingham', 'leeds', 'sheffield', 'bristol', 'nottingham', 'southampton', 'newcastle', 'liverpool', 'cardiff', 'belfast', 'coventry', 'greenwich', 'leicester', 'aberdeen', 'dundee', 'stirling', 'strathclyde', 'exeter', 'york', 'bath', 'surrey', 'sussex', 'essex', 'reading', 'kent', 'swansea', 'aston', 'brunel', 'city', 'goldsmiths', 'kingston', 'lincoln', 'plymouth', 'portsmouth', 'salford', 'ulster', 'westminster', 'huddersfield', 'roehampton'] },
+];
+
+export const resolveUniversityCountry = (
+  universityName: string,
+  explicitCountry?: string,
+  allRates: CommissionRate[] = []
+): string => {
+  if (explicitCountry && explicitCountry.trim() && explicitCountry.trim().toUpperCase() !== 'UNKNOWN') {
+    return explicitCountry.trim();
+  }
+
+  const normUni = (universityName || '').toLowerCase().trim();
+  if (!normUni) return 'UK';
+
+  if (allRates && allRates.length > 0) {
+    const knownMatch = allRates.find(
+      (r) => r.universityName.toLowerCase().trim() === normUni && r.country && r.country.trim()
+    );
+    if (knownMatch && knownMatch.country) {
+      return knownMatch.country.trim();
+    }
+  }
+
+  for (const pattern of COUNTRY_KEYWORD_PATTERNS) {
+    if (pattern.keywords.some((kw) => normUni.includes(kw))) {
+      return pattern.country;
+    }
+  }
+
+  return 'UK';
+};
+
 // Normalize school names so "University of Leicester" & "Leicester University" group together
 export const normalizeUniversityName = (name: string): string => {
   if (!name) return 'Unknown University';
@@ -54,7 +92,7 @@ export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversi
       curr.universityName.length > prev.universityName.length ? curr : prev
     , items[0]).universityName;
 
-    const country = items.find((i) => i.country)?.country || 'UK';
+    const country = items.find((i) => i.country)?.country || resolveUniversityCountry(displayName, undefined, items);
 
     // Find best yielding route
     const bestRoute = items.reduce((prev, curr) =>
@@ -97,7 +135,7 @@ export const groupRatesByCountry = (rates: CommissionRate[]): GenericGroup[] => 
   const map = new Map<string, CommissionRate[]>();
 
   rates.forEach((rate) => {
-    const country = rate.country || 'United Kingdom';
+    const country = resolveUniversityCountry(rate.universityName, rate.country, rates);
     if (!map.has(country)) {
       map.set(country, []);
     }
@@ -162,3 +200,20 @@ export const sortGroupedUniversities = (
     return a.displayName.localeCompare(b.displayName);
   });
 };
+
+/**
+ * Determines if an intake belongs to a past/historical cycle.
+ * Detects 4-digit years in the intake string (e.g. "Sept 2018", "Jan 2024", "2025")
+ * and compares against referenceYear (defaults to current calendar year).
+ */
+export const isHistoricalIntake = (
+  intake?: string,
+  referenceYear: number = new Date().getFullYear()
+): boolean => {
+  if (!intake) return false;
+  const match = intake.match(/\b(19\d{2}|20\d{2})\b/);
+  if (!match) return false;
+  const year = parseInt(match[0], 10);
+  return year < referenceYear;
+};
+
