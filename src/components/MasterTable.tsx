@@ -688,7 +688,10 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         for (const token of activeTokens) {
           const val = (token.value || token.label).toLowerCase().trim();
           if (token.type === 'school') {
-            if (!row.universityName.toLowerCase().includes(val)) return false;
+            const val = (token.value || token.label).toLowerCase().trim();
+            const nameMatch = row.universityName.toLowerCase().includes(val) || val.includes(row.universityName.toLowerCase());
+            const idMatch = row.universityId.toLowerCase() === val || val.includes(row.universityId.toLowerCase());
+            if (!nameMatch && !idMatch) return false;
           } else if (token.type === 'country') {
             const rowCountry = resolveUniversityCountry(row.universityName, row.country, data);
             if (rowCountry.toLowerCase() !== val && !(row.country || '').toLowerCase().includes(val)) return false;

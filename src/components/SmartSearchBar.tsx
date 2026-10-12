@@ -438,10 +438,10 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                   value={selectedUniversity}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (onUniversityChange) onUniversityChange(val);
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `uni-${val}`, type: 'school', label: val, value: val });
                     } else {
+                      onUniversityChange?.('ALL');
                       onTokensChange(activeTokens.filter((t) => t.type !== 'school'));
                     }
                   }}
@@ -460,10 +460,10 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                   value={selectedCountry}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (onCountryChange) onCountryChange(val);
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `country-${val}`, type: 'country', label: val, value: val });
                     } else {
+                      onCountryChange?.('ALL');
                       onTokensChange(activeTokens.filter((t) => t.type !== 'country'));
                     }
                   }}
@@ -482,10 +482,10 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                   value={selectedLevel}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (onLevelChange) onLevelChange(val);
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `level-${val}`, type: 'level', label: val, value: val });
                     } else {
+                      onLevelChange?.('ALL');
                       onTokensChange(activeTokens.filter((t) => t.type !== 'level'));
                     }
                   }}
@@ -506,10 +506,10 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                   value={selectedIntake}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (onIntakeChange) onIntakeChange(val);
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `intake-${val}`, type: 'intake', label: val, value: val });
                     } else {
+                      onIntakeChange?.('ALL');
                       onTokensChange(activeTokens.filter((t) => t.type !== 'intake'));
                     }
                   }}
@@ -528,10 +528,10 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                   value={selectedStatus}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (onStatusChange) onStatusChange(val);
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `status-${val}`, type: 'status', label: val, value: val });
                     } else {
+                      onStatusChange?.('ALL');
                       onTokensChange(activeTokens.filter((t) => t.type !== 'status'));
                     }
                   }}
@@ -552,10 +552,10 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                   value={selectedAggregator}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (onAggregatorChange) onAggregatorChange(val);
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `portal-${val}`, type: 'aggregator', label: val, value: val });
                     } else {
+                      onAggregatorChange?.('ALL');
                       onTokensChange(activeTokens.filter((t) => t.type !== 'aggregator'));
                     }
                   }}
