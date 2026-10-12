@@ -458,7 +458,7 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({
         )}
       </div>
 
-      {/* Sheet Manager Card Grid Component */}
+      {/* Embedded SheetManager Card Grid Component */}
       <SheetManager
         rates={rates}
         sheetSettings={useMemo(() => {
