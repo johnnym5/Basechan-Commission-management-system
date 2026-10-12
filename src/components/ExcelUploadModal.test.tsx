@@ -4,6 +4,8 @@ import * as XLSX from 'xlsx';
 import { ExcelUploadModal } from './ExcelUploadModal';
 import { uploadRatesInBatches } from '../utils/firestoreBatcher';
 import { archivePreviousIntakes } from '../services/sheetManagementService';
+import { isQuotaOffline } from '../services/firestoreOfflineMode';
+import { saveLocalOfflineImport, stageRatesToLocalDatabase } from '../services/localRateDatabase';
 
 // Ensure File.prototype.arrayBuffer is available in test environment
 if (!File.prototype.arrayBuffer) {
@@ -18,7 +20,7 @@ if (!File.prototype.arrayBuffer) {
 
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({
-    user: { email: 'admin@basechan.com', displayName: 'Admin User' },
+    user: { uid: 'admin-uid', email: 'admin@basechan.com', displayName: 'Admin User' },
     role: 'ADMIN',
   }),
 }));
@@ -29,6 +31,15 @@ vi.mock('../utils/firestoreBatcher', () => ({
 
 vi.mock('../services/sheetManagementService', () => ({
   archivePreviousIntakes: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../services/firestoreOfflineMode', () => ({
+  isQuotaOffline: vi.fn().mockReturnValue(false),
+}));
+
+vi.mock('../services/localRateDatabase', () => ({
+  saveLocalOfflineImport: vi.fn().mockResolvedValue(undefined),
+  stageRatesToLocalDatabase: vi.fn().mockResolvedValue(undefined),
 }));
 
 function createMockExcelFile(filename: string, sheetsData: Record<string, any[][]>): File {
@@ -49,6 +60,7 @@ describe('ExcelUploadModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (isQuotaOffline as unknown as ReturnType<typeof vi.fn>).mockReturnValue(false);
     (uploadRatesInBatches as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       success: true,
       uploadedCount: 3,
@@ -203,5 +215,111 @@ describe('ExcelUploadModal', () => {
       expect(screen.getByText('Dropped_Master.xlsx')).toBeInTheDocument();
       expect(screen.getByText('2027 AGENT CONSOLIDATED MASTER')).toBeInTheDocument();
     });
+  });
+
+  it('handles offline import when navigator.onLine is false', async () => {
+    const originalOnLine = navigator.onLine;
+    Object.defineProperty(navigator, 'onLine', { value: false, writable: true, configurable: true });
+
+    const file = createMockExcelFile('Offline_Master.xlsx', {
+      'RAW DATA': [
+        ['University', 'Country', 'UG Rate', 'PG Rate'],
+        ['University of Manchester', 'UK', '15%', '18%'],
+      ],
+    });
+
+    render(
+      <ExcelUploadModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onUploadComplete={mockOnUploadComplete}
+      />
+    );
+
+    const input = screen.getByText(/Click or drag & drop/i).parentElement?.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Offline_Master.xlsx')).toBeInTheDocument();
+    });
+
+    const importBtn = screen.getByRole('button', { name: /Import/i });
+    fireEvent.click(importBtn);
+
+    await waitFor(() => {
+      expect(saveLocalOfflineImport).toHaveBeenCalledWith(
+        'admin-uid',
+        expect.objectContaining({
+          id: expect.stringMatching(/^import-/),
+          rates: expect.any(Array),
+          sheetNames: expect.arrayContaining(['RAW DATA']),
+          importedAt: expect.any(String),
+          importedBy: 'admin@basechan.com',
+        })
+      );
+      expect(stageRatesToLocalDatabase).toHaveBeenCalledWith('admin-uid', expect.any(Array));
+      expect(
+        screen.getByText(/Imported \d+ records locally to offline database\. They will sync to Cloud when connection returns\./i)
+      ).toBeInTheDocument();
+    });
+
+    expect(uploadRatesInBatches).not.toHaveBeenCalled();
+
+    await waitFor(
+      () => {
+        expect(mockOnUploadComplete).toHaveBeenCalledWith(2);
+        expect(mockOnClose).toHaveBeenCalled();
+      },
+      { timeout: 2000 }
+    );
+
+    Object.defineProperty(navigator, 'onLine', { value: originalOnLine, writable: true, configurable: true });
+  });
+
+  it('handles offline import when in quota mode (isQuotaOffline returns true)', async () => {
+    (isQuotaOffline as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    const file = createMockExcelFile('Quota_Master.xlsx', {
+      'RAW DATA': [
+        ['University', 'Country', 'UG Rate', 'PG Rate'],
+        ['University of Bristol', 'UK', '10%', '12%'],
+      ],
+    });
+
+    render(
+      <ExcelUploadModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onUploadComplete={mockOnUploadComplete}
+      />
+    );
+
+    const input = screen.getByText(/Click or drag & drop/i).parentElement?.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Quota_Master.xlsx')).toBeInTheDocument();
+    });
+
+    const importBtn = screen.getByRole('button', { name: /Import/i });
+    fireEvent.click(importBtn);
+
+    await waitFor(() => {
+      expect(saveLocalOfflineImport).toHaveBeenCalled();
+      expect(stageRatesToLocalDatabase).toHaveBeenCalled();
+      expect(
+        screen.getByText(/Imported \d+ records locally to offline database\. They will sync to Cloud when connection returns\./i)
+      ).toBeInTheDocument();
+    });
+
+    expect(uploadRatesInBatches).not.toHaveBeenCalled();
+
+    await waitFor(
+      () => {
+        expect(mockOnUploadComplete).toHaveBeenCalledWith(2);
+        expect(mockOnClose).toHaveBeenCalled();
+      },
+      { timeout: 2000 }
+    );
   });
 });

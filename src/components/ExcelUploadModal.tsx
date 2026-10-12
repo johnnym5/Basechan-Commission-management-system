@@ -19,6 +19,8 @@ import type { BatchUploadProgress } from '../utils/firestoreBatcher';
 import type { CommissionRate } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { archivePreviousIntakes } from '../services/sheetManagementService';
+import { isQuotaOffline } from '../services/firestoreOfflineMode';
+import { saveLocalOfflineImport, stageRatesToLocalDatabase } from '../services/localRateDatabase';
 
 export interface UploadedFile {
   id: string;
@@ -253,7 +255,42 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
     setUploading(true);
     setError(null);
 
+    const userId = user?.uid || 'admin';
+    const isOffline = !navigator.onLine || isQuotaOffline(user?.uid);
+
     try {
+      if (isOffline) {
+        const importId = `import-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        const sheetNames = Array.from(
+          new Set([
+            ...uploadedFiles.flatMap((f) => f.selectedSheets),
+            ...parsedRates.map((r) => r.sourceSheet || r.intake).filter(Boolean) as string[],
+          ])
+        );
+        const importedAt = new Date().toISOString();
+        const importedBy = user?.email || 'Admin';
+
+        await saveLocalOfflineImport(userId, {
+          id: importId,
+          rates: parsedRates,
+          sheetNames,
+          importedAt,
+          importedBy,
+        });
+
+        await stageRatesToLocalDatabase(userId, parsedRates);
+
+        setStatusMessage(
+          `Imported ${parsedRates.length} records locally to offline database. They will sync to Cloud when connection returns.`
+        );
+
+        setTimeout(() => {
+          onUploadComplete(parsedRates.length);
+          onClose();
+        }, 1500);
+        return;
+      }
+
       const res = await uploadRatesInBatches(
         parsedRates,
         (prog) => {
