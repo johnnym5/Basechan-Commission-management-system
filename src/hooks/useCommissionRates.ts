@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import type { AgentRateReadModel, CommissionRate, StaffRateReadModel } from '../types';
+import type { AgentRateReadModel, CommissionRate, RateSheetBucket, StaffRateReadModel } from '../types';
 import { mergeAgentRateLayers } from '../services/rateReadModels';
 import {
   beginQuotaProbe, completeQuotaProbe, enterQuotaOfflineMode, getQuotaRetryAt, lockFirestoreNetworkForQuota,
   isQuotaError, isQuotaOffline, isConnectivityError, subscribeToFirestoreMode,
 } from '../services/firestoreOfflineMode';
-import { getLocalAgentOverrides, getLocalRateMetadata, getLocalRates } from '../services/localRateDatabase';
-import { scopeForUser, syncLocalRateData, verifyServerRateAccess } from '../services/rateSyncService';
+import { getAllLocalSheetBuckets, getLocalAgentOverrides, getLocalRateMetadata, getLocalRates } from '../services/localRateDatabase';
+import { scopeForUser, syncRateSheetsCacheFirst, verifyServerRateAccess } from '../services/rateSyncService';
 import { selectRatesForScope } from '../services/rateSnapshot';
 
 export interface IndexedCommissionRate extends CommissionRate { _searchToken: string }
@@ -95,14 +95,27 @@ export function useCommissionRates() {
     setHasLocalCopy(false);
 
     const showLocal = async () => {
-      const [metadata, localRates, overrides] = await Promise.all([
-        getLocalRateMetadata(user.uid), getLocalRates(user.uid), getLocalAgentOverrides(user.uid),
+      const [buckets, metadata, localRates, overrides] = await Promise.all([
+        getAllLocalSheetBuckets(user.uid),
+        getLocalRateMetadata(user.uid),
+        getLocalRates(user.uid),
+        getLocalAgentOverrides(user.uid),
       ]);
       if (!active) return false;
+      const cachedBucketRates = buckets.flatMap((b: RateSheetBucket) => b.rates || []);
+      if (cachedBucketRates.length > 0) {
+        setRates(cachedBucketRates.map(indexRate));
+        setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
+        setLastSyncedAt(metadata?.lastSyncedAt || new Date().toISOString());
+        setHasLocalCopy(true);
+        setLoading(false);
+        return true;
+      }
       if (!metadata?.complete || metadata.role !== role || metadata.uid !== user.uid || metadata.organizationId !== scope.organizationId) return false;
       const values = role === 'AGENT'
         ? mergeAgentRateLayers(localRates.map(fromAgent), overrides.organization.map(fromAgent), overrides.personal.map(fromAgent))
-        : role === 'STAFF' ? localRates.map((rate) => fromStaff(rate as unknown as StaffRateReadModel)) : localRates;
+        : role === 'STAFF' ? localRates.map((rate: unknown) => fromStaff(rate as StaffRateReadModel)) : localRates;
+      if (values.length === 0) return false;
       setRates(values.map(indexRate));
       setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
       setLastSyncedAt(metadata.lastSyncedAt);
@@ -120,14 +133,13 @@ export function useCommissionRates() {
           await beginQuotaProbe(user.uid);
           await verifyServerRateAccess(scope);
         }
-        const result = await syncLocalRateData(scope);
+        const freshRates = await syncRateSheetsCacheFirst(scope);
         if (!active) return;
-        if (result.changed) {
-          await showLocal();
-        } else {
-          setLastSyncedAt(result.lastSyncedAt);
-          setLoading(false);
-        }
+        setRates(freshRates.map(indexRate));
+        setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
+        setLastSyncedAt(new Date().toISOString());
+        setHasLocalCopy(true);
+        setLoading(false);
         if (probe) await completeQuotaProbe(user.uid);
         setQuotaMode(false);
         setError(null);
@@ -158,7 +170,10 @@ export function useCommissionRates() {
         } else if (!hasLocalCopy) {
           setError('School data needs an online connection for its first download.');
         }
-        if (active) await showLocal().catch(() => {});
+        if (active) {
+          const found = await showLocal().catch(() => false);
+          if (!found) setLoading(false);
+        }
       } finally {
         syncInProgress = false;
       }

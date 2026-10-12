@@ -6,6 +6,7 @@ import type { CommissionRate } from '../types';
 const mockRates: CommissionRate[] = [
   {
     id: '1',
+    universityId: 'u-aberdeen',
     universityName: 'University of Aberdeen',
     aggregator: 'KC Overseas',
     intake: 'Sept 2030',
@@ -18,6 +19,7 @@ const mockRates: CommissionRate[] = [
   },
   {
     id: '2',
+    universityId: 'u-aberdeen',
     universityName: 'University of Aberdeen',
     aggregator: 'Adventus',
     intake: 'Sept 2030',
@@ -30,6 +32,7 @@ const mockRates: CommissionRate[] = [
   },
   {
     id: '3',
+    universityId: 'u-aberdeen',
     universityName: 'University of Aberdeen',
     aggregator: 'KC Overseas',
     intake: 'Sept 2020',
@@ -42,6 +45,7 @@ const mockRates: CommissionRate[] = [
   },
   {
     id: '4',
+    universityId: 'u-leicester',
     universityName: 'University of Leicester',
     aggregator: 'Adventus',
     intake: 'Jan 2030',

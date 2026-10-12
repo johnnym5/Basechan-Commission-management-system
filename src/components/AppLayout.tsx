@@ -36,13 +36,14 @@ import {
   X,
   ChevronDown,
   Sun,
+  Moon,
+  Monitor,
   CheckCircle2,
   WifiOff,
   HelpCircle,
   Bell,
   Settings,
   UserCheck,
-  UploadCloud,
 } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
@@ -279,18 +280,6 @@ export const AppLayout: React.FC = () => {
 
             {/* HEADER RIGHT: User Tutorial Question Mark & User Profile FAB Button */}
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-              {role === 'ADMIN' && (
-                <button
-                  type="button"
-                  onClick={() => setIsUploadModalOpen(true)}
-                  title="Import Sheets"
-                  aria-label="Import Sheets"
-                  className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs transition cursor-pointer shadow-xs flex items-center gap-1.5 min-h-[40px] select-none"
-                >
-                  <UploadCloud className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline">Import Sheets</span>
-                </button>
-              )}
 
               {/* Question Mark Onboarding Tutorial Button */}
               <button
@@ -390,45 +379,39 @@ export const AppLayout: React.FC = () => {
                   <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-transform duration-150" />
                 </button>
 
-                {/* FAB Dropdown Menu (Import Excel Icon Removed) */}
+                {/* FAB Dropdown Menu - Slim icon-only row */}
                 {isHeaderMenuOpen && (
                   <div
-                    className="absolute right-0 mt-2 w-64 bg-[#F7F4EF] dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] rounded-2xl shadow-2xl z-50 p-2.5 space-y-2.5 animate-dropdown-enter text-xs select-none"
+                    className="absolute right-0 mt-2 bg-[#F7F4EF] dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] rounded-2xl shadow-2xl z-50 p-1.5 flex items-center gap-1 animate-dropdown-enter select-none"
                     onMouseLeave={() => setIsHeaderMenuOpen(false)}
                   >
-                    {/* Section 1: Compact User Profile Card */}
-                    <div className="p-2.5 bg-white dark:bg-[#18181B] rounded-xl flex items-center justify-between border border-slate-200/80 dark:border-[#222F43]">
-                      <div className="min-w-0 pr-2">
-                        <p className="font-extrabold text-slate-900 dark:text-slate-100 truncate text-xs">{user?.displayName || 'User'}</p>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{user?.email}</p>
-                      </div>
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-blue-100 dark:bg-amber-400/15 text-blue-800 dark:text-amber-400 shrink-0 border border-transparent dark:border-amber-400/30">
-                        {role}
-                      </span>
-                    </div>
-
-                    {/* Section 2: Management Actions */}
+                    {/* Settings (Admin only) */}
                     {role === 'ADMIN' && effectiveRole === 'ADMIN' && (
-                      <div className="p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43]">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCurrentPage('Settings');
-                            setIsHeaderMenuOpen(false);
-                          }}
-                          title="System Settings & Admin"
-                          aria-label="System Settings & Admin"
-                          className="w-full p-2 rounded-lg text-xs font-extrabold text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-center cursor-pointer"
-                        >
-                          <Settings className="w-4 h-4 text-amber-500" />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentPage('Settings');
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        title="System Settings & Admin"
+                        aria-label="System Settings & Admin"
+                        className="p-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500 transition cursor-pointer flex items-center justify-center shrink-0"
+                      >
+                        <Settings className="w-4 h-4 text-amber-500" />
+                      </button>
                     )}
 
-                    {/* Section 3: Admin View Mode Switcher (Dropdown with Icon) */}
+                    {/* Role Switcher (Admin only) - Icon with hidden select overlay for accessible role change */}
                     {role === 'ADMIN' && (
-                      <div className="p-1.5 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43] flex items-center gap-2">
-                        <UserCheck className="w-4 h-4 text-amber-500 shrink-0 ml-1" />
+                      <div className="relative flex items-center justify-center">
+                        <button
+                          type="button"
+                          className="p-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500 transition cursor-pointer flex items-center justify-center shrink-0"
+                          title={`Preview As: ${viewAsRole}`}
+                          aria-label={`Preview As: ${viewAsRole}`}
+                        >
+                          <UserCheck className="w-4 h-4 text-amber-500" />
+                        </button>
                         <select
                           aria-label="Preview As Role"
                           value={viewAsRole}
@@ -436,7 +419,8 @@ export const AppLayout: React.FC = () => {
                             handleViewAsChange(e.target.value as UserRole);
                             setIsHeaderMenuOpen(false);
                           }}
-                          className="w-full bg-slate-100 dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 font-extrabold text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-400"
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                          title={`Switch preview role (currently ${viewAsRole})`}
                         >
                           <option value="ADMIN">Admin</option>
                           <option value="STAFF">Staff</option>
@@ -445,40 +429,42 @@ export const AppLayout: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Section 4: Appearance Theme Dropdown Select */}
-                    <div className="p-1.5 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43] flex items-center gap-2">
-                      <Sun className="w-4 h-4 text-amber-500 shrink-0 ml-1" />
-                      <select
-                        aria-label="Select Theme"
-                        value={theme}
-                        onChange={(e) => {
-                          setTheme(e.target.value as 'light' | 'dark' | 'system');
-                          setIsHeaderMenuOpen(false);
-                        }}
-                        className="w-full bg-slate-100 dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 font-extrabold text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-400"
-                      >
-                        <option value="light">Light</option>
-                        <option value="dark">Dark</option>
-                        <option value="system">System</option>
-                      </select>
-                    </div>
+                    {/* Theme Toggle - Cycles light -> dark -> system with matching icon */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextTheme = theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark';
+                        setTheme(nextTheme);
+                      }}
+                      title={`Theme: ${theme.charAt(0).toUpperCase() + theme.slice(1)} (click to switch)`}
+                      aria-label={`Theme: ${theme}`}
+                      className="p-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500 transition cursor-pointer flex items-center justify-center shrink-0"
+                    >
+                      {theme === 'dark' ? (
+                        <Moon className="w-4 h-4 text-amber-400" />
+                      ) : theme === 'light' ? (
+                        <Sun className="w-4 h-4 text-amber-500" />
+                      ) : (
+                        <Monitor className="w-4 h-4 text-amber-500" />
+                      )}
+                    </button>
 
-                    <hr className="my-1 border-slate-200 dark:border-[#222F43]" />
+                    {/* Divider */}
+                    <div className="w-[1px] h-5 bg-slate-300 dark:bg-[#222F43] my-auto mx-0.5" />
 
-                    {/* Section 5: Bottom Utility Actions (Sign Out) */}
-                    <div className="p-1 bg-white dark:bg-[#18181B] rounded-xl border border-slate-200/80 dark:border-[#222F43]">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          signOut();
-                          setIsHeaderMenuOpen(false);
-                        }}
-                        className="w-full p-2 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <LogOut className="w-4 h-4 shrink-0" />
-                        <span>Sign Out</span>
-                      </button>
-                    </div>
+                    {/* Sign Out */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        signOut();
+                        setIsHeaderMenuOpen(false);
+                      }}
+                      title="Sign Out"
+                      aria-label="Sign Out"
+                      className="p-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition flex items-center justify-center shrink-0 cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
                   </div>
                 )}
               </div>

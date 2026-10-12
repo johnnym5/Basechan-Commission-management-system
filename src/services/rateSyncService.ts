@@ -1,10 +1,11 @@
 import { collection, doc, getDocFromServer, getDocsFromServer, query, where } from 'firebase/firestore';
-import type { AgentRateReadModel, CommissionRate, StaffRateReadModel, UserRole } from '../types';
+import type { AgentRateReadModel, CommissionRate, RateSheetBucket, StaffRateReadModel, UserRole } from '../types';
 import { db } from '../lib/firebase';
 import { isQuotaOffline } from './firestoreOfflineMode';
 import {
-  applyLocalRateDeltas, getLocalRateMetadata, replaceLocalRateSnapshot,
-  type RateDelta, type RateScope,
+  applyLocalRateDeltas, getAllLocalSheetBuckets, getLocalRateMetadata, replaceLocalRateSnapshot,
+  saveLocalRateMetadata, saveLocalSheetBucket,
+  type LocalRateMetadata, type RateDelta, type RateScope,
 } from './localRateDatabase';
 import { getFeedCursor, hydrateRateDelta, readRateDeltas } from './rateChangeFeed';
 
@@ -158,4 +159,83 @@ export async function syncLocalRateData(input: RateScope): Promise<RateSyncResul
 
 export function scopeForUser(uid: string, role: UserRole, organizationId?: string): RateScope {
   return { uid, role, ...(role === 'AGENT' && organizationId ? { organizationId } : {}) };
+}
+
+export type RateSyncScope = RateScope;
+
+export async function syncRateSheetsCacheFirst(scope: RateSyncScope): Promise<CommissionRate[]> {
+  const uid = scope.uid || 'global';
+
+  // 1. Check local cache from IndexedDB
+  const cachedBuckets = await getAllLocalSheetBuckets(uid);
+  const metadata = await getLocalRateMetadata(uid);
+  const cachedRates = cachedBuckets.flatMap((bucket: RateSheetBucket) => bucket.rates || []);
+
+  // 2. Query 1 document: settings/system_config for ratesLastUpdatedAt
+  let serverTimestamp: string | undefined;
+  try {
+    const configSnap = await getDocFromServer(doc(db, 'settings', 'system_config'));
+    if (configSnap.exists()) {
+      serverTimestamp = configSnap.data()?.ratesLastUpdatedAt;
+    }
+  } catch (err) {
+    if (cachedRates.length > 0) {
+      return cachedRates;
+    }
+    throw err;
+  }
+
+  // 3. If cache is non-empty and timestamp matches, return cached rates
+  if (
+    cachedBuckets.length > 0 &&
+    serverTimestamp &&
+    metadata?.ratesLastUpdatedAt === serverTimestamp
+  ) {
+    return cachedRates;
+  }
+
+  // 4. Fetch updated rate_sheets collection from Firestore
+  try {
+    const sheetsSnap = await getDocsFromServer(collection(db, 'rate_sheets'));
+    const freshBuckets: RateSheetBucket[] = [];
+
+    for (const docSnap of sheetsSnap.docs) {
+      const data = docSnap.data() as RateSheetBucket;
+      const bucket: RateSheetBucket = {
+        sheetKey: data.sheetKey || docSnap.id,
+        sheetName: data.sheetName || docSnap.id,
+        rateCount: data.rateCount || data.rates?.length || 0,
+        updatedAt: data.updatedAt || new Date().toISOString(),
+        updatedBy: data.updatedBy || '',
+        rates: data.rates || [],
+      };
+      await saveLocalSheetBucket(bucket.sheetKey, bucket, uid);
+      freshBuckets.push(bucket);
+    }
+
+    const updatedMetadata: LocalRateMetadata = {
+      ...(metadata || {
+        id: 'scope',
+        uid: scope.uid,
+        role: scope.role,
+        organizationId: scope.organizationId,
+        complete: true,
+        cursors: {},
+        lastSyncedAt: new Date().toISOString(),
+        lastVerifiedAt: new Date().toISOString(),
+      }),
+      ratesLastUpdatedAt: serverTimestamp || new Date().toISOString(),
+      lastSyncedAt: new Date().toISOString(),
+    };
+
+    await saveLocalRateMetadata(uid, updatedMetadata);
+
+    const freshRates = freshBuckets.flatMap((bucket) => bucket.rates || []);
+    return freshRates.length > 0 ? freshRates : cachedRates;
+  } catch (err) {
+    if (cachedRates.length > 0) {
+      return cachedRates;
+    }
+    throw err;
+  }
 }

@@ -353,29 +353,30 @@ export function parseAgentMasterSheet(
       ];
 
       for (const { level, cell, baselineCell } of levelConfigs) {
-        if (!cell) continue;
+        const effectiveCell = cell || (agg === 'BASECHAN' ? baselineCell : null);
+        if (!effectiveCell) continue;
 
         let masterRate = 0;
         let agentRate = 0;
 
         if (baselineCell && baselineCell.value !== null) {
           masterRate = baselineCell.value;
-        } else if (cell.value !== null) {
-          masterRate = cell.value;
+        } else if (effectiveCell.value !== null) {
+          masterRate = effectiveCell.value;
         }
 
-        if (cell.value !== null) {
-          agentRate = cell.value;
+        if (effectiveCell.value !== null) {
+          agentRate = effectiveCell.value;
         }
 
         const diffMargin = parseFloat((masterRate - agentRate).toFixed(2));
-        const isFlatFee = cell.type === 'fixed_fee';
+        const isFlatFee = effectiveCell.type === 'fixed_fee';
 
         let notes: string | undefined;
-        if (cell.type === 'unconfirmed') {
+        if (effectiveCell.type === 'unconfirmed') {
           notes = 'Rate Unconfirmed (TBC)';
-        } else if (cell.currency) {
-          notes = `Currency: ${cell.currency}`;
+        } else if (effectiveCell.currency) {
+          notes = `Currency: ${effectiveCell.currency}`;
         }
 
         const id = generateCompositeId(universityName, intake, agg, level);

@@ -1,4 +1,4 @@
-import type { AgentRateReadModel, ChatConversation, CommissionRate, FavoriteSchool, StaffRateReadModel, UserRole } from '../types';
+import type { AgentRateReadModel, ChatConversation, CommissionRate, FavoriteSchool, RateSheetBucket, StaffRateReadModel, UserRole } from '../types';
 import type { AgentChatProfile } from '../types/chat';
 
 export interface RateScope {
@@ -14,10 +14,11 @@ export interface LocalRateMetadata extends RateScope {
   lastSyncedAt: string;
   lastVerifiedAt: string;
   quotaRetryAt?: number;
+  ratesLastUpdatedAt?: string;
 }
 
 const DB_PREFIX = 'basechan-rate-cache-v1-';
-const STORES = ['metadata', 'rates', 'organizationOverrides', 'personalOverrides', 'chatProfile', 'chatConversations', 'chatFavorites', 'chatFavoriteDeletes', 'chatUsage'] as const;
+const STORES = ['metadata', 'rates', 'organizationOverrides', 'personalOverrides', 'chatProfile', 'chatConversations', 'chatFavorites', 'chatFavoriteDeletes', 'chatUsage', 'sheetBuckets'] as const;
 const activeConnections = new Map<string, Set<IDBDatabase>>();
 const databaseChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('basechan-local-rate-database');
 
@@ -35,7 +36,7 @@ function databaseName(uid: string) {
 function openDatabase(uid: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const name = databaseName(uid);
-    const request = indexedDB.open(name, 3);
+    const request = indexedDB.open(name, 4);
     request.onupgradeneeded = () => {
       const database = request.result;
       for (const store of STORES) {
@@ -80,6 +81,31 @@ export async function getLocalRateMetadata(uid: string): Promise<LocalRateMetada
     request.onsuccess = () => { database.close(); resolve((request.result as LocalRateMetadata | undefined) || null); };
     request.onerror = () => { database.close(); reject(request.error); };
   });
+}
+
+export async function saveLocalRateMetadata(uid: string, metadata: LocalRateMetadata): Promise<void> {
+  await transact<void>(uid, ['metadata'], 'readwrite', (tx) => {
+    tx.objectStore('metadata').put(metadata);
+  });
+}
+
+export async function saveLocalSheetBucket(sheetKey: string, bucket: RateSheetBucket, uid = 'global'): Promise<void> {
+  await transact<void>(uid, ['sheetBuckets'], 'readwrite', (tx) => {
+    tx.objectStore('sheetBuckets').put({ ...bucket, id: sheetKey });
+  });
+}
+
+export async function getLocalSheetBucket(sheetKey: string, uid = 'global'): Promise<RateSheetBucket | null> {
+  const database = await openDatabase(uid);
+  return new Promise((resolve, reject) => {
+    const request = database.transaction('sheetBuckets', 'readonly').objectStore('sheetBuckets').get(sheetKey);
+    request.onsuccess = () => { database.close(); resolve((request.result as RateSheetBucket | undefined) || null); };
+    request.onerror = () => { database.close(); reject(request.error); };
+  });
+}
+
+export async function getAllLocalSheetBuckets(uid = 'global'): Promise<RateSheetBucket[]> {
+  return readAll<RateSheetBucket>(uid, 'sheetBuckets');
 }
 
 export async function getLocalRates(uid: string): Promise<CommissionRate[]> {

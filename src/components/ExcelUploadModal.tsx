@@ -50,8 +50,6 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
-  if (!isOpen) return null;
-
   const parseAndSetRates = (filesToParse: UploadedFile[]) => {
     setParsing(true);
     setError(null);
@@ -204,6 +202,8 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
     e.preventDefault();
     setIsDragging(false);
   };
+
+  if (!isOpen) return null;
 
   const handleSheetToggle = (fileId: string, sheetName: string) => {
     const updated = uploadedFiles.map((item) => {

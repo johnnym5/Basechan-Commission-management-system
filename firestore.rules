@@ -16,7 +16,10 @@ service cloud.firestore {
 
     function isStaff() {
       return hasEmail()
-        && request.auth.token.email.lower().matches('.*[.]basechaninternational@gmail[.]com$');
+        && (
+          request.auth.token.email.lower().matches('.*[.]basechaninternational@gmail[.]com$')
+          || request.auth.token.email.lower().matches('staff.*@basechaninternational[.]com$')
+        );
     }
 
     function accessRequestExists(uid) {
@@ -32,13 +35,13 @@ service cloud.firestore {
         && !isAdmin()
         && !isStaff()
         && accessRequestExists(request.auth.uid)
-        && accessRequest(request.auth.uid).status == 'approved'
-        && accessRequest(request.auth.uid).organizationId is string;
+        && accessRequest(request.auth.uid).get('status', '') == 'approved'
+        && accessRequest(request.auth.uid).get('organizationId', '') is string;
     }
 
-    function isApprovedAgentFor(organizationId) {
+    function isApprovedAgentFor(orgId) {
       return isApprovedAgent()
-        && accessRequest(request.auth.uid).organizationId == organizationId;
+        && accessRequest(request.auth.uid).get('organizationId', '') == orgId;
     }
 
     function canUseAssistant() {
@@ -48,7 +51,7 @@ service cloud.firestore {
     function hasPendingOrApprovedAgentRequest() {
       return signedIn()
         && exists(/databases/$(database)/documents/agent_access_requests/$(request.auth.uid))
-        && get(/databases/$(database)/documents/agent_access_requests/$(request.auth.uid)).data.status in ['pending', 'approved'];
+        && get(/databases/$(database)/documents/agent_access_requests/$(request.auth.uid)).data.get('status', '') in ['pending', 'approved'];
     }
 
     function isSafeProfileCreate(userId) {
@@ -85,6 +88,26 @@ service cloud.firestore {
         && changed.hasAny([slotKey])
         && request.resource.data.get(slotKey, null) == request.time
         && usageSlotCanUpdate(slotKey);
+    }
+
+    match /system_config/{document=**} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /settings/{document=**} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /intake_lifecycles/{document=**} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /system_announcements/{document=**} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
 
     match /users/{userId} {
@@ -192,7 +215,7 @@ service cloud.firestore {
         && !hasPendingOrApprovedAgentRequest()
         && request.resource.data.status == 'pending'
         && (!exists(/databases/$(database)/documents/agent_access_requests/$(userId))
-          || get(/databases/$(database)/documents/agent_access_requests/$(userId)).data.status in ['rejected', 'revoked'])
+          || get(/databases/$(database)/documents/agent_access_requests/$(userId)).data.get('status', '') in ['rejected', 'revoked'])
         && (
           (
             request.resource.data.keys().hasAny(['organizationId'])
@@ -237,7 +260,7 @@ service cloud.firestore {
           ||
           (
             request.auth.uid == userId
-            && resource.data.status in ['rejected', 'revoked']
+            && resource.data.get('status', '') in ['rejected', 'revoked']
             && request.resource.data.status == 'pending'
             && request.resource.data.uid == userId
             && request.resource.data.email == request.auth.token.email
@@ -276,7 +299,7 @@ service cloud.firestore {
         : data.keys().hasAny(['intake']) && data.intake is string ? data.intake : '';
       return sheet != ''
         && exists(/databases/$(database)/documents/sheet_settings/$(sheet))
-        && get(/databases/$(database)/documents/sheet_settings/$(sheet)).data.disabledForStaff == true;
+        && get(/databases/$(database)/documents/sheet_settings/$(sheet)).data.get('disabledForStaff', false) == true;
     }
 
     function isAgentSheetHidden(data) {
@@ -285,7 +308,7 @@ service cloud.firestore {
         : data.keys().hasAny(['intake']) && data.intake is string ? data.intake : '';
       return sheet != ''
         && exists(/databases/$(database)/documents/sheet_settings/$(sheet))
-        && get(/databases/$(database)/documents/sheet_settings/$(sheet)).data.disabledForAgents == true;
+        && get(/databases/$(database)/documents/sheet_settings/$(sheet)).data.get('disabledForAgents', false) == true;
     }
 
     match /staff_rates/{rateId} {
@@ -313,7 +336,7 @@ service cloud.firestore {
       return isAdmin()
         || (isStaff() && feedId == 'staff')
         || (isApprovedAgent() && feedId == 'agent')
-        || (isApprovedAgent() && feedId == 'org_' + accessRequest(request.auth.uid).organizationId)
+        || (isApprovedAgent() && feedId == 'org_' + accessRequest(request.auth.uid).get('organizationId', ''))
         || (isApprovedAgent() && feedId == 'user_' + request.auth.uid);
     }
 

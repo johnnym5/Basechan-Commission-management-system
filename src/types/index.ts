@@ -139,6 +139,15 @@ export interface IntakeLifecycleSetting {
   updatedBy?: string;
 }
 
+export interface RateSheetBucket {
+  sheetKey: string;
+  sheetName: string;
+  rateCount: number;
+  updatedAt: string;
+  updatedBy: string;
+  rates: CommissionRate[];
+}
+
 export type { SystemAnnouncement } from '../services/announcementService';
 
 export type { ChatConversation, ChatMessage, AgentChatProfile, FavoriteSchool, UserUpdate } from './chat';
