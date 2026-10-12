@@ -18,7 +18,7 @@ export interface LocalRateMetadata extends RateScope {
 }
 
 const DB_PREFIX = 'basechan-rate-cache-v1-';
-const STORES = ['metadata', 'rates', 'organizationOverrides', 'personalOverrides', 'chatProfile', 'chatConversations', 'chatFavorites', 'chatFavoriteDeletes', 'chatUsage', 'sheetBuckets'] as const;
+const STORES = ['metadata', 'rates', 'organizationOverrides', 'personalOverrides', 'chatProfile', 'chatConversations', 'chatFavorites', 'chatFavoriteDeletes', 'chatUsage', 'sheetBuckets', 'pendingOfflineImports'] as const;
 const activeConnections = new Map<string, Set<IDBDatabase>>();
 const databaseChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('basechan-local-rate-database');
 
@@ -36,7 +36,7 @@ function databaseName(uid: string) {
 function openDatabase(uid: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const name = databaseName(uid);
-    const request = indexedDB.open(name, 4);
+    const request = indexedDB.open(name, 5);
     request.onupgradeneeded = () => {
       const database = request.result;
       for (const store of STORES) {
@@ -288,3 +288,41 @@ export async function deleteLocalRateDatabase(uid: string): Promise<void> {
 export function closeLocalRateDatabase(uid: string): Promise<void> {
   return openDatabase(uid).then((database) => { database.close(); });
 }
+
+export interface PendingOfflineImport {
+  id: string;
+  rates: CommissionRate[];
+  sheetNames: string[];
+  importedAt: string;
+  importedBy: string;
+}
+
+export async function saveLocalOfflineImport(uid: string, item: PendingOfflineImport): Promise<void> {
+  await transact<void>(uid, ['pendingOfflineImports'], 'readwrite', (tx) => {
+    tx.objectStore('pendingOfflineImports').put(item);
+  });
+}
+
+export async function getPendingOfflineImports(uid: string): Promise<PendingOfflineImport[]> {
+  return readAll<PendingOfflineImport>(uid, 'pendingOfflineImports');
+}
+
+export async function clearPendingOfflineImports(uid: string): Promise<void> {
+  await transact<void>(uid, ['pendingOfflineImports'], 'readwrite', (tx) => {
+    tx.objectStore('pendingOfflineImports').clear();
+  });
+}
+
+export async function stageRatesToLocalDatabase(uid: string, newRates: CommissionRate[]): Promise<void> {
+  if (!newRates || newRates.length === 0) return;
+  for (let offset = 0; offset < newRates.length; offset += 300) {
+    const page = newRates.slice(offset, offset + 300);
+    await transact<void>(uid, ['rates'], 'readwrite', (tx) => {
+      const store = tx.objectStore('rates');
+      for (const rate of page) {
+        store.put(rate);
+      }
+    });
+  }
+}
+
