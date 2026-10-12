@@ -145,35 +145,26 @@ export function useCommissionRates() {
         setError(null);
       } catch (syncError) {
         if (!active) return;
-        if (isQuotaError(syncError)) {
+
+        const foundLocal = await showLocal().catch(() => false);
+        if (foundLocal) {
           await enterQuotaOfflineMode(user.uid);
           setQuotaMode(true);
           setError(null);
-        } else if ((syncError as { code?: string })?.code === 'permission-denied') {
-          if (probe) {
-            const { clearQuotaState } = await import('../services/firestoreOfflineMode');
-            await clearQuotaState(user.uid);
-            setQuotaMode(false);
-          }
-          const { deleteLocalRateDatabase } = await import('../services/localRateDatabase');
-          await deleteLocalRateDatabase(user.uid).catch(() => {});
-          if (!active) return;
-          setRates([]); setRatesScope(null); setHasLocalCopy(false); setLastSyncedAt(null); setError('This account is not authorized to read its rate data. Please contact an administrator.');
           setLoading(false);
           return;
-        } else if (isConnectivityError(syncError) || !navigator.onLine) {
-          if (probe) {
-            await enterQuotaOfflineMode(user.uid);
-            setQuotaMode(true);
-          }
-          setError(null);
-        } else if (!hasLocalCopy) {
-          setError('School data needs an online connection for its first download.');
         }
-        if (active) {
-          const found = await showLocal().catch(() => false);
-          if (!found) setLoading(false);
+
+        if (isQuotaError(syncError) || (syncError as { code?: string })?.code === 'permission-denied' || isConnectivityError(syncError) || !navigator.onLine) {
+          await enterQuotaOfflineMode(user.uid);
+          setQuotaMode(true);
+          setError('School data needs an online connection for its initial download.');
+          setLoading(false);
+          return;
         }
+
+        setError('School data needs an online connection for its first download.');
+        setLoading(false);
       } finally {
         syncInProgress = false;
       }
