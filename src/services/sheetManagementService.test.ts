@@ -173,6 +173,7 @@ vi.mock('firebase/firestore', () => {
 });
 
 import {
+  archivePreviousIntakes,
   deleteSheets,
   renameSheet,
   setSheetAsDefault,
@@ -261,9 +262,9 @@ describe('sheetManagementService', () => {
         updatedBy: 'admin@basechan.com',
       });
 
-      expect(mockStore.get('rates/r1').sourceSheet).toBe('Sept 2027');
-      expect(mockStore.get('rates/r2').intake).toBe('Sept 2027');
-      expect(mockStore.get('staff_rates/r1').sourceSheet).toBe('Sept 2027');
+      expect(mockStore.get('rates/r1')?.sourceSheet).toBe('Sept 2027');
+      expect(mockStore.get('rates/r2')?.intake).toBe('Sept 2027');
+      expect(mockStore.get('staff_rates/r1')?.sourceSheet).toBe('Sept 2027');
     });
 
     it('creates default settings and lifecycles if old ones did not exist', async () => {
@@ -289,8 +290,8 @@ describe('sheetManagementService', () => {
       await renameSheet('OldBig', 'NewBig', 'admin@basechan.com');
 
       expect(batchCommitCount).toBeGreaterThanOrEqual(2);
-      expect(mockStore.get('rates/rate-0').sourceSheet).toBe('NewBig');
-      expect(mockStore.get('rates/rate-499').sourceSheet).toBe('NewBig');
+      expect(mockStore.get('rates/rate-0')?.sourceSheet).toBe('NewBig');
+      expect(mockStore.get('rates/rate-499')?.sourceSheet).toBe('NewBig');
     });
 
     it('does nothing if oldName equals newName or names are invalid', async () => {
@@ -337,6 +338,58 @@ describe('sheetManagementService', () => {
       });
       expect(mockStore.get('system_config/global')).toMatchObject({
         defaultIntake: 'Sept 2026',
+        updatedBy: 'admin@basechan.com',
+      });
+    });
+  });
+
+  describe('archivePreviousIntakes', () => {
+    it('sets defaultIntake in config docs, archives previous lifecycles, and activates newActiveSheet', async () => {
+      mockStore.set('intake_lifecycles/Sept 2026', {
+        sheetName: 'Sept 2026',
+        status: 'active',
+      });
+      mockStore.set('intake_lifecycles/Jan 2027', {
+        sheetName: 'Jan 2027',
+        status: 'active',
+      });
+      mockStore.set('settings/system_config/intake_lifecycles/Sept 2026', {
+        sheetName: 'Sept 2026',
+        status: 'active',
+      });
+
+      await archivePreviousIntakes('2027 Master Baseline', 'admin@basechan.com');
+
+      expect(mockStore.get('settings/system_config')).toMatchObject({
+        defaultIntake: '2027 Master Baseline',
+        updatedBy: 'admin@basechan.com',
+      });
+      expect(mockStore.get('system_config/global')).toMatchObject({
+        defaultIntake: '2027 Master Baseline',
+        updatedBy: 'admin@basechan.com',
+      });
+
+      expect(mockStore.get('intake_lifecycles/Sept 2026')).toMatchObject({
+        status: 'archived',
+        updatedBy: 'admin@basechan.com',
+      });
+      expect(mockStore.get('intake_lifecycles/Jan 2027')).toMatchObject({
+        status: 'archived',
+        updatedBy: 'admin@basechan.com',
+      });
+      expect(mockStore.get('settings/system_config/intake_lifecycles/Sept 2026')).toMatchObject({
+        status: 'archived',
+        updatedBy: 'admin@basechan.com',
+      });
+
+      expect(mockStore.get('intake_lifecycles/2027 Master Baseline')).toMatchObject({
+        sheetName: '2027 Master Baseline',
+        status: 'active',
+        updatedBy: 'admin@basechan.com',
+      });
+      expect(mockStore.get('settings/system_config/intake_lifecycles/2027 Master Baseline')).toMatchObject({
+        sheetName: '2027 Master Baseline',
+        status: 'active',
         updatedBy: 'admin@basechan.com',
       });
     });

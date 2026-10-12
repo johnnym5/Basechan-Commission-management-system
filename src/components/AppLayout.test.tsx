@@ -47,6 +47,7 @@ describe('role dashboard integration', () => {
     render(<AppLayout />);
     expect(screen.getByTestId('admin-dashboard')).toBeInTheDocument();
     expect(screen.getByTestId('admin-navigation')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /import sheets/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Dashboard' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /open chat assistant/i }));
     expect(screen.getByRole('dialog', { name: 'Chat assistant' })).toBeInTheDocument();

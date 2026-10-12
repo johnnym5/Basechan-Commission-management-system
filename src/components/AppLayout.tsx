@@ -42,6 +42,7 @@ import {
   Bell,
   Settings,
   UserCheck,
+  UploadCloud,
 } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
@@ -278,6 +279,19 @@ export const AppLayout: React.FC = () => {
 
             {/* HEADER RIGHT: User Tutorial Question Mark & User Profile FAB Button */}
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+              {role === 'ADMIN' && (
+                <button
+                  type="button"
+                  onClick={() => setIsUploadModalOpen(true)}
+                  title="Import Sheets"
+                  aria-label="Import Sheets"
+                  className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs transition cursor-pointer shadow-xs flex items-center gap-1.5 min-h-[40px] select-none"
+                >
+                  <UploadCloud className="w-4 h-4 shrink-0" />
+                  <span className="hidden sm:inline">Import Sheets</span>
+                </button>
+              )}
+
               {/* Question Mark Onboarding Tutorial Button */}
               <button
                 type="button"
@@ -518,7 +532,15 @@ export const AppLayout: React.FC = () => {
               : <RoleDashboardView role={effectiveRole} rates={dashboardRates} loading={loading} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />)}
             {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && (currentPage === 'Compare Rates' || currentPage === 'Compare') && <CompareView allRates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Deal Calculator' && <DealCalculatorView rates={rates} />}
-            {effectiveRole === 'ADMIN' && currentPage === 'Settings' && <SettingsView rates={rates} onRefreshRates={() => {}} />}
+            {effectiveRole === 'ADMIN' && currentPage === 'Settings' && (
+              <SettingsView
+                rates={rates}
+                onRefreshRates={() => {}}
+                onOpenUpload={() => setIsUploadModalOpen(true)}
+                onOpenAddRate={() => setIsAddRateModalOpen(true)}
+                onOpenMigrateIntake={() => setIsMigrateModalOpen(true)}
+              />
+            )}
             {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage !== 'Compare Rates' && currentPage !== 'Compare' && currentPage !== 'Deal Calculator' && currentPage !== 'Settings' && <SheetView sheetName={currentPage} rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} />}
           </div>
         </main>

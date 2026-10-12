@@ -11,8 +11,6 @@ import {
   GraduationCap,
   Check,
   Star,
-  Eye,
-  EyeOff,
   Save,
   CheckCircle2,
   AlertCircle,
@@ -24,6 +22,7 @@ import {
 interface SheetVisibilityTabProps {
   rates: CommissionRate[];
   onRefreshRates?: () => void;
+  onOpenUpload?: () => void;
   onOpenAddRate?: () => void;
   onOpenMigrateIntake?: () => void;
 }
@@ -31,11 +30,12 @@ interface SheetVisibilityTabProps {
 export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({
   rates,
   onRefreshRates = () => {},
+  onOpenUpload,
   onOpenAddRate,
   onOpenMigrateIntake,
 }) => {
   const { user } = useAuth();
-  const { sheetSettings, updateSheetVisibility } = useSheetVisibility();
+  const { sheetSettings } = useSheetVisibility();
   const {
     defaultIntake,
     defaultAggregator,
@@ -473,6 +473,7 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({
         }, [sheetSettings])}
         defaultIntake={stagedDefaultIntake !== 'ALL' ? stagedDefaultIntake : defaultIntake}
         onRefreshRates={onRefreshRates}
+        onOpenUpload={onOpenUpload}
         onOpenAddRate={onOpenAddRate}
         onOpenMigrateIntake={onOpenMigrateIntake}
       />

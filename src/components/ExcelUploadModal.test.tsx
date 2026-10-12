@@ -4,6 +4,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import * as XLSX from 'xlsx';
 import { ExcelUploadModal } from './ExcelUploadModal';
 import { uploadRatesInBatches } from '../utils/firestoreBatcher';
+import { archivePreviousIntakes } from '../services/sheetManagementService';
 
 // Ensure File.prototype.arrayBuffer is available in test environment
 if (!File.prototype.arrayBuffer) {
@@ -25,6 +26,10 @@ vi.mock('../context/AuthContext', () => ({
 
 vi.mock('../utils/firestoreBatcher', () => ({
   uploadRatesInBatches: vi.fn(),
+}));
+
+vi.mock('../services/sheetManagementService', () => ({
+  archivePreviousIntakes: vi.fn().mockResolvedValue(undefined),
 }));
 
 function createMockExcelFile(filename: string, sheetsData: Record<string, any[][]>): File {
@@ -161,6 +166,10 @@ describe('ExcelUploadModal', () => {
 
     await waitFor(() => {
       expect(uploadRatesInBatches).toHaveBeenCalledTimes(1);
+      expect(archivePreviousIntakes).toHaveBeenCalledWith(
+        '2027 Master Baseline',
+        'admin@basechan.com'
+      );
       expect(mockOnUploadComplete).toHaveBeenCalledWith(3);
       expect(mockOnClose).toHaveBeenCalled();
     });

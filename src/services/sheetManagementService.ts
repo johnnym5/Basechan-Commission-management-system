@@ -26,7 +26,7 @@ const BATCH_SIZE = 450;
  */
 export async function deleteSheets(
   sheetNames: string[],
-  adminEmail: string
+  _adminEmail: string
 ): Promise<void> {
   assertFirestoreWritesAllowed('Sheet deletion');
   if (!sheetNames || sheetNames.length === 0) return;
@@ -312,3 +312,104 @@ export async function setSheetAsDefault(
     setDoc(globalRef, payload, { merge: true }),
   ]);
 }
+
+/**
+ * Archives all previous intake sheets in intake_lifecycles and sets newActiveSheet as default active intake.
+ *
+ * @param newActiveSheet - Name of the new active sheet (e.g. "2027 Master Baseline")
+ * @param adminEmail - Email of the admin performing the archiving
+ */
+export async function archivePreviousIntakes(
+  newActiveSheet: string,
+  adminEmail: string
+): Promise<void> {
+  assertFirestoreWritesAllowed('Archive previous intakes');
+  if (!newActiveSheet || !newActiveSheet.trim()) return;
+
+  const cleanNewSheet = newActiveSheet.trim();
+  const now = new Date().toISOString();
+
+  // 1. Set defaultIntake in settings/system_config and system_config/global
+  await setSheetAsDefault(cleanNewSheet, adminEmail);
+
+  // 2. Fetch all existing intake_lifecycles
+  const lifecyclesRef = collection(db, 'intake_lifecycles');
+  const sysLifecyclesRef = collection(
+    db,
+    'settings',
+    'system_config',
+    'intake_lifecycles'
+  );
+
+  const [lifecyclesSnap, sysLifecyclesSnap] = await Promise.all([
+    getDocs(lifecyclesRef),
+    getDocs(sysLifecyclesRef),
+  ]);
+
+  const batch = writeBatch(db);
+
+  // Mark all existing sheets (except newActiveSheet) as archived in top-level intake_lifecycles
+  lifecyclesSnap.docs.forEach((docSnap) => {
+    if (docSnap.id !== cleanNewSheet) {
+      batch.set(
+        docSnap.ref,
+        {
+          status: 'archived',
+          updatedAt: now,
+          updatedBy: adminEmail,
+        },
+        { merge: true }
+      );
+    }
+  });
+
+  // Mark all existing sheets (except newActiveSheet) as archived in system_config intake_lifecycles
+  sysLifecyclesSnap.docs.forEach((docSnap) => {
+    if (docSnap.id !== cleanNewSheet) {
+      batch.set(
+        docSnap.ref,
+        {
+          status: 'archived',
+          updatedAt: now,
+          updatedBy: adminEmail,
+        },
+        { merge: true }
+      );
+    }
+  });
+
+  // 3. Set newActiveSheet status in intake_lifecycles/{newActiveSheet} to 'active'
+  const newRef = doc(db, 'intake_lifecycles', cleanNewSheet);
+  const sysNewRef = doc(
+    db,
+    'settings',
+    'system_config',
+    'intake_lifecycles',
+    cleanNewSheet
+  );
+
+  batch.set(
+    newRef,
+    {
+      sheetName: cleanNewSheet,
+      status: 'active',
+      updatedAt: now,
+      updatedBy: adminEmail,
+    },
+    { merge: true }
+  );
+
+  batch.set(
+    sysNewRef,
+    {
+      sheetName: cleanNewSheet,
+      status: 'active',
+      updatedAt: now,
+      updatedBy: adminEmail,
+    },
+    { merge: true }
+  );
+
+  await batch.commit();
+}
+

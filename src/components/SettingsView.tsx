@@ -16,6 +16,7 @@ import {
 interface SettingsViewProps {
   rates: CommissionRate[];
   onRefreshRates: () => void;
+  onOpenUpload?: () => void;
   onOpenAddRate?: () => void;
   onOpenMigrateIntake?: () => void;
   onOpenAuditLogs?: () => void;
@@ -27,6 +28,7 @@ export type SettingsTab = 'sheets' | 'users' | 'announcements' | 'health';
 export const SettingsView: React.FC<SettingsViewProps> = ({
   rates,
   onRefreshRates,
+  onOpenUpload,
   onOpenAddRate,
   onOpenMigrateIntake,
   onOpenAuditLogs,
@@ -139,6 +141,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <SheetVisibilityTab
             rates={rates}
             onRefreshRates={onRefreshRates}
+            onOpenUpload={onOpenUpload}
             onOpenAddRate={onOpenAddRate}
             onOpenMigrateIntake={onOpenMigrateIntake}
           />

@@ -18,6 +18,7 @@ import { uploadRatesInBatches } from '../utils/firestoreBatcher';
 import type { BatchUploadProgress } from '../utils/firestoreBatcher';
 import type { CommissionRate } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { archivePreviousIntakes } from '../services/sheetManagementService';
 
 export interface UploadedFile {
   id: string;
@@ -262,6 +263,28 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
       );
 
       if (res.success) {
+        const importedSheetNames = Array.from(
+          new Set([
+            ...uploadedFiles.flatMap((f) => f.selectedSheets),
+            ...parsedRates.map((r) => r.sourceSheet || r.intake).filter(Boolean) as string[],
+          ])
+        );
+
+        const adminEmail = user?.email || 'Admin';
+        for (const sheetName of importedSheetNames) {
+          const clean = sheetName.trim();
+          if (
+            clean.toUpperCase() === '2027 MASTER BASELINE' ||
+            clean.toUpperCase() === '2027 AGENT CONSOLIDATED MASTER'
+          ) {
+            try {
+              await archivePreviousIntakes(clean, adminEmail);
+            } catch (archiveErr) {
+              console.error(`Error archiving previous intakes for ${clean}:`, archiveErr);
+            }
+          }
+        }
+
         onUploadComplete(res.uploadedCount);
         onClose();
       } else {

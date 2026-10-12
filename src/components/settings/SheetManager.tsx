@@ -22,6 +22,7 @@ import {
   Layers,
   AlertTriangle,
   Loader2,
+  UploadCloud,
 } from 'lucide-react';
 
 export interface SheetManagerProps {
@@ -29,6 +30,7 @@ export interface SheetManagerProps {
   sheetSettings: Record<string, { STAFF: boolean; AGENT: boolean }>;
   defaultIntake?: string;
   onRefreshRates?: () => void;
+  onOpenUpload?: () => void;
   onOpenAddRate?: () => void;
   onOpenMigrateIntake?: () => void;
 }
@@ -38,6 +40,7 @@ export const SheetManager: React.FC<SheetManagerProps> = ({
   sheetSettings,
   defaultIntake,
   onRefreshRates,
+  onOpenUpload,
   onOpenAddRate,
   onOpenMigrateIntake,
 }) => {
@@ -270,6 +273,17 @@ export const SheetManager: React.FC<SheetManagerProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap shrink-0">
+          {onOpenUpload && (
+            <button
+              type="button"
+              onClick={onOpenUpload}
+              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+            >
+              <UploadCloud className="w-4 h-4" />
+              <span>Import Master Sheets</span>
+            </button>
+          )}
+
           {onOpenAddRate && (
             <button
               type="button"
