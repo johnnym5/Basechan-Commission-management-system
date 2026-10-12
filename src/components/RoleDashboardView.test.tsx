@@ -53,8 +53,10 @@ describe('RoleDashboardView', () => {
     const filterBtns = screen.getAllByRole('button', { name: /Advance filter/i });
     const masterFilterBtn = filterBtns[filterBtns.length - 1];
     fireEvent.click(masterFilterBtn);
-    const countrySelect = screen.getByRole('combobox', { name: 'Country' });
-    fireEvent.change(countrySelect, { target: { value: 'UK' } });
+    // StyledSelect: click the Country trigger button to open, then pick 'UK' option
+    const countryTrigger = screen.getByRole('button', { name: 'Country' });
+    fireEvent.click(countryTrigger);
+    fireEvent.click(screen.getByRole('option', { name: 'UK' }));
     expect(onChange).toHaveBeenCalledWith({ ...createEmptyDashboardFilters(), query: 'Alpha', countries: ['UK'] });
   });
 

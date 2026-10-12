@@ -44,6 +44,7 @@ import {
   Bell,
   Settings,
   UserCheck,
+  Check,
 } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
@@ -119,9 +120,28 @@ export const AppLayout: React.FC = () => {
 
   // Header User Profile Menu Dropdown state
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState<boolean>(false);
+  const [isRolePickerOpen, setIsRolePickerOpen] = useState<boolean>(false);
+  const [isThemePickerOpen, setIsThemePickerOpen] = useState<boolean>(false);
   const [isAuditLogsOpen, setIsAuditLogsOpen] = useState<boolean>(false);
   const [isSheetVisibilityOpen, setIsSheetVisibilityOpen] = useState<boolean>(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(false);
+  const headerMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(event.target as Node)) {
+        setIsHeaderMenuOpen(false);
+        setIsRolePickerOpen(false);
+        setIsThemePickerOpen(false);
+      }
+    };
+    if (isHeaderMenuOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [isHeaderMenuOpen]);
 
   // Effective role used across views and sidebar
   const effectiveRole = role === 'ADMIN' ? viewAsRole : role;
@@ -382,8 +402,8 @@ export const AppLayout: React.FC = () => {
                 {/* FAB Dropdown Menu - Slim icon-only row */}
                 {isHeaderMenuOpen && (
                   <div
+                    ref={headerMenuRef}
                     className="absolute right-0 mt-2 bg-[#F7F4EF] dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] rounded-2xl shadow-2xl z-50 p-1.5 flex items-center gap-1 animate-dropdown-enter select-none"
-                    onMouseLeave={() => setIsHeaderMenuOpen(false)}
                   >
                     {/* Settings (Admin only) */}
                     {role === 'ADMIN' && effectiveRole === 'ADMIN' && (
@@ -401,53 +421,93 @@ export const AppLayout: React.FC = () => {
                       </button>
                     )}
 
-                    {/* Role Switcher (Admin only) - Icon with hidden select overlay for accessible role change */}
+                    {/* Role Switcher (Admin only) - Custom themed flyout */}
                     {role === 'ADMIN' && (
-                      <div className="relative flex items-center justify-center">
+                      <div className="relative">
                         <button
                           type="button"
-                          className="p-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500 transition cursor-pointer flex items-center justify-center shrink-0"
+                          onClick={() => {
+                            setIsRolePickerOpen((p) => !p);
+                            setIsThemePickerOpen(false);
+                          }}
                           title={`Preview As: ${viewAsRole}`}
                           aria-label={`Preview As: ${viewAsRole}`}
+                          aria-haspopup="listbox"
+                          aria-expanded={isRolePickerOpen}
+                          className="p-2 rounded-xl hover:bg-white dark:hover:bg-[#18181B] transition cursor-pointer flex items-center justify-center shrink-0"
                         >
-                          <UserCheck className="w-4 h-4 text-amber-500" />
+                          <UserCheck className={`w-4 h-4 ${viewAsRole !== 'ADMIN' ? 'text-blue-400' : 'text-amber-500'}`} />
                         </button>
-                        <select
-                          aria-label="Preview As Role"
-                          value={viewAsRole}
-                          onChange={(e) => {
-                            handleViewAsChange(e.target.value as UserRole);
-                            setIsHeaderMenuOpen(false);
-                          }}
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                          title={`Switch preview role (currently ${viewAsRole})`}
-                        >
-                          <option value="ADMIN">Admin</option>
-                          <option value="STAFF">Staff</option>
-                          <option value="AGENT">Agent</option>
-                        </select>
+
+                        {isRolePickerOpen && (
+                          <div className="absolute right-0 top-full mt-1.5 w-36 bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43] rounded-xl shadow-2xl py-1 z-[60] animate-dropdown-enter">
+                            {(['ADMIN', 'STAFF', 'AGENT'] as UserRole[]).map((r) => (
+                              <button
+                                key={r}
+                                type="button"
+                                onClick={() => {
+                                  handleViewAsChange(r);
+                                  setIsRolePickerOpen(false);
+                                  setIsHeaderMenuOpen(false);
+                                }}
+                                className="w-full px-3 py-2 text-left text-xs font-medium flex items-center justify-between gap-2 hover:bg-slate-50 dark:hover:bg-[#0E1526] text-slate-800 dark:text-slate-200 transition cursor-pointer first:rounded-t-xl last:rounded-b-xl"
+                              >
+                                <span>{r.charAt(0) + r.slice(1).toLowerCase()}</span>
+                                {viewAsRole === r && <Check className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {/* Theme Toggle - Cycles light -> dark -> system with matching icon */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const nextTheme = theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark';
-                        setTheme(nextTheme);
-                      }}
-                      title={`Theme: ${theme.charAt(0).toUpperCase() + theme.slice(1)} (click to switch)`}
-                      aria-label={`Theme: ${theme}`}
-                      className="p-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500 transition cursor-pointer flex items-center justify-center shrink-0"
-                    >
-                      {theme === 'dark' ? (
-                        <Moon className="w-4 h-4 text-amber-400" />
-                      ) : theme === 'light' ? (
-                        <Sun className="w-4 h-4 text-amber-500" />
-                      ) : (
-                        <Monitor className="w-4 h-4 text-amber-500" />
+                    {/* Theme Toggle - Custom 3-option flyout (Light / Dark / System) */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsThemePickerOpen((p) => !p);
+                          setIsRolePickerOpen(false);
+                        }}
+                        title={`Theme: ${theme.charAt(0).toUpperCase() + theme.slice(1)}`}
+                        aria-label={`Theme: ${theme}`}
+                        aria-haspopup="listbox"
+                        aria-expanded={isThemePickerOpen}
+                        className="p-2 rounded-xl hover:bg-white dark:hover:bg-[#18181B] transition cursor-pointer flex items-center justify-center shrink-0"
+                      >
+                        {theme === 'dark' ? (
+                          <Moon className="w-4 h-4 text-amber-400" />
+                        ) : theme === 'light' ? (
+                          <Sun className="w-4 h-4 text-amber-500" />
+                        ) : (
+                          <Monitor className="w-4 h-4 text-amber-500" />
+                        )}
+                      </button>
+
+                      {isThemePickerOpen && (
+                        <div className="absolute right-0 top-full mt-1.5 w-36 bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43] rounded-xl shadow-2xl py-1 z-[60] animate-dropdown-enter">
+                          {([
+                            { value: 'light', label: 'Light', icon: <Sun className="w-3.5 h-3.5 text-amber-500" /> },
+                            { value: 'dark',  label: 'Dark',  icon: <Moon className="w-3.5 h-3.5 text-amber-400" /> },
+                            { value: 'system', label: 'System', icon: <Monitor className="w-3.5 h-3.5 text-slate-400" /> },
+                          ] as { value: 'light' | 'dark' | 'system'; label: string; icon: React.ReactNode }[]).map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => {
+                                setTheme(opt.value);
+                                setIsThemePickerOpen(false);
+                              }}
+                              className="w-full px-3 py-2 text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-[#0E1526] text-slate-800 dark:text-slate-200 transition cursor-pointer first:rounded-t-xl last:rounded-b-xl"
+                            >
+                              {opt.icon}
+                              <span className="flex-1">{opt.label}</span>
+                              {theme === opt.value && <Check className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
                       )}
-                    </button>
+                    </div>
 
                     {/* Divider */}
                     <div className="w-[1px] h-5 bg-slate-300 dark:bg-[#222F43] my-auto mx-0.5" />

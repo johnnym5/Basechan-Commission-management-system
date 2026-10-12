@@ -104,9 +104,14 @@ describe('SmartSearchBar', () => {
       />
     );
 
-    expect(screen.getByRole('combobox', { name: 'University' })).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Sort By' })).toBeInTheDocument();
-    expect(screen.getByText('Coventry University')).toBeInTheDocument();
+    const universityTrigger = screen.getByRole('button', { name: 'University' });
+    const sortByTrigger = screen.getByRole('button', { name: 'Sort By' });
+    expect(universityTrigger).toBeInTheDocument();
+    expect(sortByTrigger).toBeInTheDocument();
+
+    // Options only render in DOM when the custom popover is open
+    fireEvent.click(universityTrigger);
+    expect(screen.getByRole('option', { name: 'Coventry University' })).toBeInTheDocument();
   });
 
   it('suggests didYouMean chip on typo and populates university filter on click without double emission', () => {

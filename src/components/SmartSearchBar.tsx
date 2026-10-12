@@ -5,6 +5,8 @@ import type { SearchToken } from '../types/search';
 import { parseNaturalLanguage } from '../utils/nlpParser';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { resolveUniversityCountry } from '../utils/groupingUtils';
+import { StyledSelect } from './StyledSelect';
+import type { SelectOption } from './StyledSelect';
 
 export interface SmartSearchBarProps {
   rates: CommissionRate[];
@@ -432,12 +434,11 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-2.5">
               <div>
                 <label htmlFor="advance-university-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">University</label>
-                <select
+                <StyledSelect
                   id="advance-university-filter"
                   aria-label="University"
-                  value={selectedUniversity}
-                  onChange={(e) => {
-                    const val = e.target.value;
+                  value={selectedUniversity ?? 'ALL'}
+                  onChange={(val) => {
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `uni-${val}`, type: 'school', label: val, value: val });
                     } else {
@@ -445,21 +446,20 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                       onTokensChange(activeTokens.filter((t) => t.type !== 'school'));
                     }
                   }}
-                  className="w-full p-2 rounded-xl bg-[#18181B] border border-[#33415d] text-white font-medium cursor-pointer"
-                >
-                  <option value="ALL">All Universities</option>
-                  {allUniversities.map((u) => <option key={u} value={u}>{u}</option>)}
-                </select>
+                  options={[
+                    { value: 'ALL', label: 'All Universities' },
+                    ...allUniversities.map((u): SelectOption => ({ value: u, label: u })),
+                  ]}
+                />
               </div>
 
               <div>
                 <label htmlFor="advance-country-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Country</label>
-                <select
+                <StyledSelect
                   id="advance-country-filter"
                   aria-label="Country"
-                  value={selectedCountry}
-                  onChange={(e) => {
-                    const val = e.target.value;
+                  value={selectedCountry ?? 'ALL'}
+                  onChange={(val) => {
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `country-${val}`, type: 'country', label: val, value: val });
                     } else {
@@ -467,21 +467,20 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                       onTokensChange(activeTokens.filter((t) => t.type !== 'country'));
                     }
                   }}
-                  className="w-full p-2 rounded-xl bg-[#18181B] border border-[#33415d] text-white font-medium cursor-pointer"
-                >
-                  <option value="ALL">All Countries</option>
-                  {allCountries.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                  options={[
+                    { value: 'ALL', label: 'All Countries' },
+                    ...allCountries.map((c): SelectOption => ({ value: c, label: c })),
+                  ]}
+                />
               </div>
 
               <div>
                 <label htmlFor="advance-level-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Level</label>
-                <select
+                <StyledSelect
                   id="advance-level-filter"
                   aria-label="Level"
-                  value={selectedLevel}
-                  onChange={(e) => {
-                    const val = e.target.value;
+                  value={selectedLevel ?? 'ALL'}
+                  onChange={(val) => {
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `level-${val}`, type: 'level', label: val, value: val });
                     } else {
@@ -489,23 +488,22 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                       onTokensChange(activeTokens.filter((t) => t.type !== 'level'));
                     }
                   }}
-                  className="w-full p-2 rounded-xl bg-[#18181B] border border-[#33415d] text-white font-medium cursor-pointer"
-                >
-                  <option value="ALL">All Levels</option>
-                  <option value="UG">Undergraduate (UG)</option>
-                  <option value="PG">Postgraduate (PG)</option>
-                  <option value="FD">Foundation (FD)</option>
-                </select>
+                  options={[
+                    { value: 'ALL', label: 'All Levels' },
+                    { value: 'UG', label: 'Undergraduate (UG)' },
+                    { value: 'PG', label: 'Postgraduate (PG)' },
+                    { value: 'FD', label: 'Foundation (FD)' },
+                  ]}
+                />
               </div>
 
               <div>
                 <label htmlFor="advance-intake-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Intake</label>
-                <select
+                <StyledSelect
                   id="advance-intake-filter"
                   aria-label="Intake"
-                  value={selectedIntake}
-                  onChange={(e) => {
-                    const val = e.target.value;
+                  value={selectedIntake ?? 'ALL'}
+                  onChange={(val) => {
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `intake-${val}`, type: 'intake', label: val, value: val });
                     } else {
@@ -513,21 +511,20 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                       onTokensChange(activeTokens.filter((t) => t.type !== 'intake'));
                     }
                   }}
-                  className="w-full p-2 rounded-xl bg-[#18181B] border border-[#33415d] text-white font-medium cursor-pointer"
-                >
-                  <option value="ALL">All Intakes</option>
-                  {allIntakes.map((i) => <option key={i} value={i}>{i}</option>)}
-                </select>
+                  options={[
+                    { value: 'ALL', label: 'All Intakes' },
+                    ...allIntakes.map((i): SelectOption => ({ value: i, label: i })),
+                  ]}
+                />
               </div>
 
               <div>
                 <label htmlFor="advance-status-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label>
-                <select
+                <StyledSelect
                   id="advance-status-filter"
                   aria-label="Status"
-                  value={selectedStatus}
-                  onChange={(e) => {
-                    const val = e.target.value;
+                  value={selectedStatus ?? 'ALL'}
+                  onChange={(val) => {
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `status-${val}`, type: 'status', label: val, value: val });
                     } else {
@@ -535,23 +532,22 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                       onTokensChange(activeTokens.filter((t) => t.type !== 'status'));
                     }
                   }}
-                  className="w-full p-2 rounded-xl bg-[#18181B] border border-[#33415d] text-white font-medium cursor-pointer"
-                >
-                  <option value="ALL">All Guidance</option>
-                  <option value="FOCUS">Focus Schools</option>
-                  <option value="ALLOWED">Allowed</option>
-                  <option value="DO_NOT_USE">Do Not Use</option>
-                </select>
+                  options={[
+                    { value: 'ALL', label: 'All Guidance' },
+                    { value: 'FOCUS', label: 'Focus Schools' },
+                    { value: 'ALLOWED', label: 'Allowed' },
+                    { value: 'DO_NOT_USE', label: 'Do Not Use' },
+                  ]}
+                />
               </div>
 
               <div>
                 <label htmlFor="advance-portal-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Portal</label>
-                <select
+                <StyledSelect
                   id="advance-portal-filter"
                   aria-label="Application Portal"
-                  value={selectedAggregator}
-                  onChange={(e) => {
-                    const val = e.target.value;
+                  value={selectedAggregator ?? 'ALL'}
+                  onChange={(val) => {
                     if (val !== 'ALL') {
                       handleAcceptSuggestion({ id: `portal-${val}`, type: 'aggregator', label: val, value: val });
                     } else {
@@ -559,21 +555,20 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                       onTokensChange(activeTokens.filter((t) => t.type !== 'aggregator'));
                     }
                   }}
-                  className="w-full p-2 rounded-xl bg-[#18181B] border border-[#33415d] text-white font-medium cursor-pointer"
-                >
-                  <option value="ALL">All Portals</option>
-                  {allAggregators.map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
+                  options={[
+                    { value: 'ALL', label: 'All Portals' },
+                    ...allAggregators.map((a): SelectOption => ({ value: a, label: a })),
+                  ]}
+                />
               </div>
 
               <div>
                 <label htmlFor="advance-sort-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Sort By</label>
-                <select
+                <StyledSelect
                   id="advance-sort-filter"
                   aria-label="Sort By"
-                  value={selectedSortBy}
-                  onChange={(e) => {
-                    const val = e.target.value;
+                  value={selectedSortBy ?? 'ALPHABETICAL'}
+                  onChange={(val) => {
                     if (onSortByChange) onSortByChange(val);
                     if (onGroupByModeChange) {
                       if (val === 'UNIVERSITY') {
@@ -585,16 +580,17 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                       }
                     }
                   }}
-                  className="w-full p-2 rounded-xl bg-[#18181B] border border-[#33415d] text-white font-medium cursor-pointer"
-                >
-                  <option value="ALPHABETICAL">Alphabetical (A - Z)</option>
-                  <option value="COUNTRY">Sort by Country</option>
-                  <option value="UNIVERSITY">Sort by University</option>
-                  <option value="HIGHEST_MARGIN">Highest Yield / Payout</option>
-                  <option value="MOST_ROUTES">Most Available Routes</option>
-                </select>
+                  options={[
+                    { value: 'ALPHABETICAL', label: 'Alphabetical (A - Z)' },
+                    { value: 'COUNTRY', label: 'Sort by Country' },
+                    { value: 'UNIVERSITY', label: 'Sort by University' },
+                    { value: 'HIGHEST_MARGIN', label: 'Highest Yield / Payout' },
+                    { value: 'MOST_ROUTES', label: 'Most Available Routes' },
+                  ]}
+                />
               </div>
             </div>
+
 
             {/* View Mode, Watchlist, Grouping & Currency Controls inside Advance Filters Popover */}
             <div className="pt-2.5 border-t border-[#26334b] flex flex-wrap items-center justify-between gap-3 text-xs">
