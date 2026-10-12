@@ -417,22 +417,24 @@ const GroupRoutesModal: React.FC<{
             </div>
           )}
 
-          {/* Active / Current Intakes Section */}
+          {/* Main Active or Fallback Intakes Section */}
           <div className="space-y-2">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-              Active Intakes ({activeRoutes.length}):
+              {activeRoutes.length > 0
+                ? `Active Intakes (${activeRoutes.length}):`
+                : `Previous Intakes (${previousRoutes.length}):`}
             </span>
-            {activeRoutes.length > 0 ? (
-              activeRoutes.map((rate) => renderRouteCard(rate))
+            {(activeRoutes.length > 0 ? activeRoutes : previousRoutes).length > 0 ? (
+              (activeRoutes.length > 0 ? activeRoutes : previousRoutes).map((rate) => renderRouteCard(rate))
             ) : (
               <p className="text-slate-400 italic text-[11px] py-1">
-                No active or upcoming intakes found.
+                No routes found for this university.
               </p>
             )}
           </div>
 
-          {/* Previous / Historical Intakes Collapsible Section */}
-          {previousRoutes.length > 0 && (
+          {/* Previous / Historical Intakes Collapsible Section (Only when activeRoutes exist and previousRoutes exist) */}
+          {activeRoutes.length > 0 && previousRoutes.length > 0 && (
             <div className="pt-2 border-t border-slate-200 dark:border-[#222F43]">
               <button
                 type="button"
@@ -1477,6 +1479,21 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                             {group.totalRoutes} {group.totalRoutes === 1 ? 'Route' : 'Routes'}
                           </span>
+                          {group.guidance === 'FOCUS' && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                              FOCUS
+                            </span>
+                          )}
+                          {group.guidance === 'DO_NOT_USE' && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                              DO NOT USE
+                            </span>
+                          )}
+                          {group.guidance === 'ALLOWED' && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                              ALLOWED
+                            </span>
+                          )}
                         </div>
 
                         <div className="space-y-1">
