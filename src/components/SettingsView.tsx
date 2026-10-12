@@ -13,6 +13,8 @@ import {
   Lock,
 } from 'lucide-react';
 
+import type { PendingOfflineImport } from '../services/localRateDatabase';
+
 interface SettingsViewProps {
   rates: CommissionRate[];
   onRefreshRates: () => void;
@@ -21,6 +23,8 @@ interface SettingsViewProps {
   onOpenMigrateIntake?: () => void;
   onOpenAuditLogs?: () => void;
   onOpenLegalModal?: () => void;
+  pendingOfflineImports?: PendingOfflineImport[];
+  onPushOfflineImports?: () => Promise<void> | void;
 }
 
 export type SettingsTab = 'sheets' | 'users' | 'announcements' | 'health';
@@ -33,6 +37,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onOpenMigrateIntake,
   onOpenAuditLogs,
   onOpenLegalModal,
+  pendingOfflineImports,
+  onPushOfflineImports,
 }) => {
   const { role } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>('sheets');
@@ -144,6 +150,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onOpenUpload={onOpenUpload}
             onOpenAddRate={onOpenAddRate}
             onOpenMigrateIntake={onOpenMigrateIntake}
+            pendingOfflineImports={pendingOfflineImports}
+            onPushOfflineImports={onPushOfflineImports}
           />
         )}
         {activeTab === 'users' && <UserManagementTab />}
@@ -154,6 +162,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onRefreshRates={onRefreshRates}
             onOpenAuditLogs={onOpenAuditLogs}
             onOpenLegalModal={onOpenLegalModal}
+            pendingOfflineImports={pendingOfflineImports}
+            onPushOfflineImports={onPushOfflineImports}
           />
         )}
       </div>

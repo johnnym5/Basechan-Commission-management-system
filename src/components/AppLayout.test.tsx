@@ -1,13 +1,31 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ role: 'STAFF' as 'ADMIN' | 'STAFF' | 'AGENT', accessState: 'staff' as string, quotaMode: false, rates: [] as any[] }));
+const mocks = vi.hoisted(() => ({
+  role: 'STAFF' as 'ADMIN' | 'STAFF' | 'AGENT',
+  accessState: 'staff' as string,
+  quotaMode: false,
+  rates: [] as any[],
+  pendingImports: [] as any[],
+  uploadRatesInBatches: vi.fn(),
+  clearPendingOfflineImports: vi.fn(),
+}));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { uid: 'user-1', email: 'test@example.com' }, role: mocks.role, access: { role: mocks.role, accessState: mocks.accessState, organizationId: 'org-1' }, signOut: vi.fn() }) }));
 vi.mock('../context/ThemeContext', () => ({ useTheme: () => ({ theme: 'dark', setTheme: vi.fn() }) }));
 vi.mock('../hooks/useCommissionRates', () => ({ useCommissionRates: () => ({ rates: mocks.rates, loading: false, error: null, quotaMode: mocks.quotaMode, hasLocalCopy: mocks.rates.length > 0, lastSyncedAt: null }) }));
 vi.mock('../services/firestoreOfflineMode', () => ({ isQuotaOffline: () => false, subscribeToFirestoreMode: () => () => {} }));
 vi.mock('../services/chatPersistence', () => ({ markUpdateRead: vi.fn(), subscribeToUserUpdates: () => () => {} }));
 vi.mock('../services/rateReadModels', () => ({ ensureRoleRateModelMigration: vi.fn(), ensureSheetVisibilityRecords: vi.fn() }));
+vi.mock('../services/localRateDatabase', () => ({
+  getPendingOfflineImports: vi.fn().mockImplementation(() => Promise.resolve(mocks.pendingImports)),
+  clearPendingOfflineImports: vi.fn().mockImplementation(() => {
+    mocks.pendingImports = [];
+    return Promise.resolve();
+  }),
+}));
+vi.mock('../utils/firestoreBatcher', () => ({
+  uploadRatesInBatches: vi.fn().mockImplementation((...args) => mocks.uploadRatesInBatches(...args)),
+}));
 vi.mock('./DashboardView', () => ({ DashboardView: () => <div data-testid="admin-dashboard">Admin dashboard</div> }));
 vi.mock('./RoleDashboardView', () => ({ RoleDashboardView: ({ role, rates, filters }: { role: string; rates: any[]; filters: { query: string } }) => <div data-testid="role-dashboard">{role} dashboard ({rates.length} routes; query={filters.query})</div> }));
 vi.mock('./ChatExperience', () => ({ ChatExperience: ({ rates, dataMayBeStale, onDashboardFiltersChange }: { rates: any[]; dataMayBeStale?: boolean; onDashboardFiltersChange: (filters: any) => void }) => <div data-testid="chat-data">Chat contents ({rates.length} routes; stale={String(dataMayBeStale)})<button onClick={() => onDashboardFiltersChange({ query: 'private', schoolIds: [], countries: [], levels: [], intakes: [], guidances: [], aggregators: [] })}>Set filter</button></div> }));
@@ -98,6 +116,29 @@ describe('role dashboard integration', () => {
     fireEvent.click(screen.getByText('Go Compare'));
     expect(screen.getByTestId('compare-view')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /open chat assistant/i })).not.toBeInTheDocument();
+  });
+
+  it('renders connection restored banner when Admin has offline imports and executes cloud push', async () => {
+    mocks.role = 'ADMIN';
+    mocks.accessState = 'admin';
+    mocks.pendingImports = [
+      {
+        id: 'batch-1',
+        rates: [{ id: 'r1', universityId: 'u1', universityName: 'Offline Uni', intake: 'Jan 2027', aggregator: '', studyLevel: 'UG', masterRate: 0, agentRate: 15, diffMargin: 0, isFlatFee: false, netOrGross: 'GROSS' }],
+        sheetNames: ['Offline Sheet'],
+        importedAt: new Date().toISOString(),
+        importedBy: 'Admin',
+      },
+    ];
+
+    render(<AppLayout />);
+    const bannerText = await screen.findByText(/You have 1 rate batch\(es\) imported offline. Connection restored!/i);
+    expect(bannerText).toBeInTheDocument();
+
+    const pushButton = screen.getByRole('button', { name: /Push Local Import to Cloud/i });
+    fireEvent.click(pushButton);
+
+    expect(mocks.uploadRatesInBatches).toHaveBeenCalled();
   });
 });
 

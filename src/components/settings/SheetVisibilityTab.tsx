@@ -19,12 +19,16 @@ import {
   Copy,
 } from 'lucide-react';
 
+import type { PendingOfflineImport } from '../../services/localRateDatabase';
+
 interface SheetVisibilityTabProps {
   rates: CommissionRate[];
   onRefreshRates?: () => void;
   onOpenUpload?: () => void;
   onOpenAddRate?: () => void;
   onOpenMigrateIntake?: () => void;
+  pendingOfflineImports?: PendingOfflineImport[];
+  onPushOfflineImports?: () => Promise<void> | void;
 }
 
 export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({
@@ -33,6 +37,8 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({
   onOpenUpload,
   onOpenAddRate,
   onOpenMigrateIntake,
+  pendingOfflineImports,
+  onPushOfflineImports,
 }) => {
   const { user } = useAuth();
   const { sheetSettings } = useSheetVisibility();
@@ -476,6 +482,8 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({
         onOpenUpload={onOpenUpload}
         onOpenAddRate={onOpenAddRate}
         onOpenMigrateIntake={onOpenMigrateIntake}
+        pendingOfflineImports={pendingOfflineImports}
+        onPushOfflineImports={onPushOfflineImports}
       />
 
       {/* Merged Intake Rate Cloning & Migration Tools Section */}

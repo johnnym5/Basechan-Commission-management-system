@@ -7,7 +7,7 @@ import {
   stageRatesToLocalDatabase,
   getLocalRates,
   deleteLocalRateDatabase,
-  PendingOfflineImport,
+  type PendingOfflineImport,
 } from './localRateDatabase';
 import type { CommissionRate } from '../types';
 

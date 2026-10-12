@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { CommissionRate } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { ensureRoleRateModelMigration } from '../../services/rateReadModels';
 import { AuditLogsDrawer } from '../AuditLogsDrawer';
 import { DatabaseExplorer } from './DatabaseExplorer';
+import {
+  clearPendingOfflineImports,
+  getPendingOfflineImports,
+  type PendingOfflineImport,
+} from '../../services/localRateDatabase';
+import { uploadRatesInBatches } from '../../utils/firestoreBatcher';
+import { archivePreviousIntakes } from '../../services/sheetManagementService';
+import { isQuotaOffline, subscribeToFirestoreMode } from '../../services/firestoreOfflineMode';
 import {
   ShieldCheck,
   RefreshCw,
@@ -13,6 +21,7 @@ import {
   HardDrive,
   Clock,
   Shield,
+  UploadCloud,
 } from 'lucide-react';
 
 interface DataHealthTabProps {
@@ -20,6 +29,8 @@ interface DataHealthTabProps {
   onRefreshRates: () => void;
   onOpenAuditLogs?: () => void;
   onOpenLegalModal?: () => void;
+  pendingOfflineImports?: PendingOfflineImport[];
+  onPushOfflineImports?: () => Promise<void> | void;
 }
 
 export const DataHealthTab: React.FC<DataHealthTabProps> = ({
@@ -27,11 +38,99 @@ export const DataHealthTab: React.FC<DataHealthTabProps> = ({
   onRefreshRates,
   onOpenAuditLogs,
   onOpenLegalModal,
+  pendingOfflineImports: propPendingImports,
+  onPushOfflineImports,
 }) => {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [isAuditDrawerOpen, setIsAuditDrawerOpen] = useState(false);
+
+  const [pendingImports, setPendingImports] = useState<PendingOfflineImport[]>(propPendingImports || []);
+  const [isPushing, setIsPushing] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isQuotaMode, setIsQuotaMode] = useState(isQuotaOffline(user?.uid));
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    return subscribeToFirestoreMode((uid) => {
+      if (!uid || uid === user?.uid) setIsQuotaMode(isQuotaOffline(user?.uid));
+    });
+  }, [user?.uid]);
+
+  const refreshPendingImports = useCallback(async () => {
+    if (!user?.uid) {
+      setPendingImports([]);
+      return;
+    }
+    try {
+      const items = await getPendingOfflineImports(user.uid);
+      setPendingImports(items);
+    } catch {
+      setPendingImports([]);
+    }
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (propPendingImports) {
+      setPendingImports(propPendingImports);
+    } else {
+      void refreshPendingImports();
+    }
+  }, [user?.uid, isOffline, isQuotaMode, propPendingImports, refreshPendingImports]);
+
+  const handlePushOfflineImportsToCloud = async () => {
+    if (!user?.uid || pendingImports.length === 0 || !navigator.onLine || isQuotaMode) return;
+    setIsPushing(true);
+    try {
+      if (onPushOfflineImports) {
+        await onPushOfflineImports();
+      } else {
+        const adminEmail = user.email || 'Admin';
+        for (const item of pendingImports) {
+          await uploadRatesInBatches(item.rates, undefined, adminEmail);
+          const importedSheetNames = Array.from(
+            new Set([
+              ...(item.sheetNames || []),
+              ...item.rates.map((r) => r.sourceSheet || r.intake).filter(Boolean) as string[],
+            ])
+          );
+          for (const sheetName of importedSheetNames) {
+            const clean = sheetName.trim();
+            if (
+              clean.toUpperCase() === '2027 MASTER BASELINE' ||
+              clean.toUpperCase() === '2027 AGENT CONSOLIDATED MASTER'
+            ) {
+              try {
+                await archivePreviousIntakes(clean, adminEmail);
+              } catch (archiveErr) {
+                console.error(`Error archiving previous intakes for ${clean}:`, archiveErr);
+              }
+            }
+          }
+        }
+        await clearPendingOfflineImports(user.uid);
+      }
+      await refreshPendingImports();
+      setStatusNotice('Offline imports pushed to Cloud successfully.');
+      onRefreshRates();
+    } catch (err) {
+      console.error('Error pushing offline imports:', err);
+      setStatusNotice('Error pushing offline imports to Cloud.');
+    } finally {
+      setIsPushing(false);
+    }
+  };
 
   const handleSyncProjections = async () => {
     if (!user) return;
@@ -90,6 +189,47 @@ export const DataHealthTab: React.FC<DataHealthTabProps> = ({
 
         <DatabaseExplorer rates={rates} onRefreshRates={onRefreshRates} />
       </div>
+
+      {/* Offline Imports Sync Card (Admin Only) */}
+      {(role === 'ADMIN' || !role) && (
+        <div className="p-5 rounded-3xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#222F43] pb-3">
+            <div className="flex items-center gap-2">
+              <UploadCloud className="w-4 h-4 text-amber-500" />
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
+                Offline Imports Cloud Push
+              </h3>
+            </div>
+            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+              OFFLINE SYNC
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            Manually push offline imported rate sheets and batches stored locally in IndexedDB to Firestore Cloud once connection is restored.
+          </p>
+
+          <div className="flex items-center justify-between pt-2">
+            <div className="text-xs text-slate-500 font-mono font-bold">
+              Pending Batches: {pendingImports.length}
+            </div>
+
+            <button
+              type="button"
+              disabled={!navigator.onLine || isQuotaMode || pendingImports.length === 0 || isPushing}
+              onClick={handlePushOfflineImportsToCloud}
+              className={`px-5 py-2.5 font-extrabold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-2 ${
+                !navigator.onLine || isQuotaMode || pendingImports.length === 0 || isPushing
+                  ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 disabled opacity-50 cursor-not-allowed'
+                  : 'bg-amber-400 hover:bg-amber-300 text-slate-950 dark:bg-amber-400 dark:hover:bg-amber-300'
+              }`}
+            >
+              <UploadCloud className={`w-4 h-4 ${isPushing ? 'animate-spin' : ''}`} />
+              <span>Push Offline Imports to Cloud</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Role Projection Rebuild Card */}
       <div className="p-5 rounded-3xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] shadow-sm space-y-4">

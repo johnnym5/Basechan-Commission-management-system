@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import type { CommissionRate } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
@@ -7,8 +7,16 @@ import {
   renameSheet,
   toggleSheetVisibility,
   setSheetAsDefault,
+  archivePreviousIntakes,
 } from '../../services/sheetManagementService';
 import { getIntakeDeadlineInfo } from '../../utils/intakeDeadlineUtils';
+import {
+  clearPendingOfflineImports,
+  getPendingOfflineImports,
+  type PendingOfflineImport,
+} from '../../services/localRateDatabase';
+import { uploadRatesInBatches } from '../../utils/firestoreBatcher';
+import { isQuotaOffline, subscribeToFirestoreMode } from '../../services/firestoreOfflineMode';
 import {
   Search,
   Trash2,
@@ -33,6 +41,8 @@ export interface SheetManagerProps {
   onOpenUpload?: () => void;
   onOpenAddRate?: () => void;
   onOpenMigrateIntake?: () => void;
+  pendingOfflineImports?: PendingOfflineImport[];
+  onPushOfflineImports?: () => Promise<void> | void;
 }
 
 export const SheetManager: React.FC<SheetManagerProps> = ({
@@ -43,10 +53,96 @@ export const SheetManager: React.FC<SheetManagerProps> = ({
   onOpenUpload,
   onOpenAddRate,
   onOpenMigrateIntake,
+  pendingOfflineImports: propPendingImports,
+  onPushOfflineImports,
 }) => {
   const { user } = useAuth();
   const adminEmail = user?.email || 'admin@basechan.com';
   const { intakeLifecycles } = useSystemConfig();
+
+  // Offline status & pending imports state
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isQuotaMode, setIsQuotaMode] = useState(isQuotaOffline(user?.uid));
+  const [pendingImports, setPendingImports] = useState<PendingOfflineImport[]>([]);
+  const [isPushingOffline, setIsPushingOffline] = useState(false);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    return subscribeToFirestoreMode((uid) => {
+      if (!uid || uid === user?.uid) setIsQuotaMode(isQuotaOffline(user?.uid));
+    });
+  }, [user?.uid]);
+
+  const refreshPendingImports = useCallback(async () => {
+    if (!user?.uid) {
+      setPendingImports([]);
+      return;
+    }
+    try {
+      const items = await getPendingOfflineImports(user.uid);
+      setPendingImports(items);
+    } catch {
+      setPendingImports([]);
+    }
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (propPendingImports) {
+      setPendingImports(propPendingImports);
+    } else {
+      void refreshPendingImports();
+    }
+  }, [user?.uid, isOffline, isQuotaMode, propPendingImports, refreshPendingImports]);
+
+  const handlePushOfflineImports = async () => {
+    if (!user?.uid || pendingImports.length === 0 || !navigator.onLine || isQuotaMode) return;
+    setIsPushingOffline(true);
+    try {
+      if (onPushOfflineImports) {
+        await onPushOfflineImports();
+      } else {
+        for (const item of pendingImports) {
+          await uploadRatesInBatches(item.rates, undefined, adminEmail);
+          const importedSheetNames = Array.from(
+            new Set([
+              ...(item.sheetNames || []),
+              ...item.rates.map((r) => r.sourceSheet || r.intake).filter(Boolean) as string[],
+            ])
+          );
+          for (const sheetName of importedSheetNames) {
+            const clean = sheetName.trim();
+            if (
+              clean.toUpperCase() === '2027 MASTER BASELINE' ||
+              clean.toUpperCase() === '2027 AGENT CONSOLIDATED MASTER'
+            ) {
+              try {
+                await archivePreviousIntakes(clean, adminEmail);
+              } catch (archiveErr) {
+                console.error(`Error archiving previous intakes for ${clean}:`, archiveErr);
+              }
+            }
+          }
+        }
+        await clearPendingOfflineImports(user.uid);
+      }
+      await refreshPendingImports();
+      onRefreshRates?.();
+    } catch (err) {
+      console.error('Error pushing offline imports:', err);
+    } finally {
+      setIsPushingOffline(false);
+    }
+  };
 
   // Toolbar & Filtering state
   const [searchQuery, setSearchQuery] = useState('');
@@ -345,8 +441,35 @@ export const SheetManager: React.FC<SheetManagerProps> = ({
             </div>
           </div>
 
-          {/* Purge All Button */}
-          <div>
+          {/* Action Buttons: Push Offline Imports & Purge All */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              disabled={!navigator.onLine || isQuotaMode || pendingImports.length === 0 || isPushingOffline}
+              onClick={handlePushOfflineImports}
+              title={
+                !navigator.onLine || isQuotaMode
+                  ? 'Connect online to push local imports to Cloud'
+                  : pendingImports.length === 0
+                  ? 'No pending offline imports'
+                  : 'Push offline imports to Cloud'
+              }
+              className={`px-3.5 py-2 rounded-xl font-extrabold text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95 ${
+                !navigator.onLine || isQuotaMode || pendingImports.length === 0 || isPushingOffline
+                  ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 disabled opacity-50 cursor-not-allowed'
+                  : 'bg-amber-400 hover:bg-amber-300 text-slate-950 dark:bg-amber-400 dark:hover:bg-amber-300'
+              }`}
+            >
+              <UploadCloud className={`w-4 h-4 ${isPushingOffline ? 'animate-spin' : ''}`} />
+              <span>
+                {isPushingOffline
+                  ? 'Pushing...'
+                  : pendingImports.length > 0
+                  ? `Push to Cloud (${pendingImports.length})`
+                  : 'Push to Cloud'}
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={() => {

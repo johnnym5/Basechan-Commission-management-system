@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useCommissionRates } from '../hooks/useCommissionRates';
@@ -30,6 +30,13 @@ import { UserTutorialModal } from './UserTutorialModal';
 import { isQuotaOffline, subscribeToFirestoreMode } from '../services/firestoreOfflineMode';
 import { markUpdateRead, subscribeToUserUpdates } from '../services/chatPersistence';
 import {
+  clearPendingOfflineImports,
+  getPendingOfflineImports,
+  type PendingOfflineImport,
+} from '../services/localRateDatabase';
+import { uploadRatesInBatches } from '../utils/firestoreBatcher';
+import { archivePreviousIntakes } from '../services/sheetManagementService';
+import {
   LogOut,
   Menu,
   Eye,
@@ -45,6 +52,7 @@ import {
   Settings,
   UserCheck,
   Check,
+  UploadCloud,
 } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
@@ -181,7 +189,66 @@ export const AppLayout: React.FC = () => {
   const [isLegalModalOpen, setIsLegalModalOpen] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
   const [bannerNotice, setBannerNotice] = useState<string | null>(null);
+  const [pendingImports, setPendingImports] = useState<PendingOfflineImport[]>([]);
+  const [isSyncingOfflineImports, setIsSyncingOfflineImports] = useState<boolean>(false);
   const roleRateMigrationStarted = useRef(false);
+
+  const refreshPendingImports = useCallback(async () => {
+    if (!user?.uid) {
+      setPendingImports([]);
+      return;
+    }
+    try {
+      const items = await getPendingOfflineImports(user.uid);
+      setPendingImports(items);
+    } catch (err) {
+      console.error('Error fetching pending offline imports:', err);
+      setPendingImports([]);
+    }
+  }, [user?.uid]);
+
+  useEffect(() => {
+    void refreshPendingImports();
+  }, [user?.uid, isOffline, isQuotaOfflineMode, quotaMode, refreshPendingImports]);
+
+  const handlePushOfflineImportsToCloud = async () => {
+    if (!user?.uid || pendingImports.length === 0 || isOffline || isQuotaMode) return;
+    setIsSyncingOfflineImports(true);
+    try {
+      const adminEmail = user.email || 'Admin';
+      for (const item of pendingImports) {
+        await uploadRatesInBatches(item.rates, undefined, adminEmail);
+        const importedSheetNames = Array.from(
+          new Set([
+            ...(item.sheetNames || []),
+            ...item.rates.map((r) => r.sourceSheet || r.intake).filter(Boolean) as string[],
+          ])
+        );
+        for (const sheetName of importedSheetNames) {
+          const clean = sheetName.trim();
+          if (
+            clean.toUpperCase() === '2027 MASTER BASELINE' ||
+            clean.toUpperCase() === '2027 AGENT CONSOLIDATED MASTER'
+          ) {
+            try {
+              await archivePreviousIntakes(clean, adminEmail);
+            } catch (archiveErr) {
+              console.error(`Error archiving previous intakes for ${clean}:`, archiveErr);
+            }
+          }
+        }
+      }
+      await clearPendingOfflineImports(user.uid);
+      setPendingImports([]);
+      setBannerNotice('Successfully pushed offline imports to Cloud.');
+      setTimeout(() => setBannerNotice(null), 6000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error pushing offline imports';
+      setBannerNotice(`Failed to push offline imports: ${msg}`);
+    } finally {
+      setIsSyncingOfflineImports(false);
+    }
+  };
 
   const dashboardRates = useMemo(() => buildDashboardRates(effectiveRole, rates), [effectiveRole, rates]);
   useEffect(() => {
@@ -233,6 +300,7 @@ export const AppLayout: React.FC = () => {
   };
 
   const handleUploadComplete = (count: number) => {
+    void refreshPendingImports();
     setBannerNotice(`Successfully synced ${count} commission rates to Firestore.`);
     setTimeout(() => setBannerNotice(null), 6000);
   };
@@ -262,6 +330,31 @@ export const AppLayout: React.FC = () => {
             <WifiOff className="w-4 h-4 text-amber-200 shrink-0" />
             <span>You’re offline. Searches use your saved school data; changes are paused.</span>
           </div>
+        )}
+        {/* Connection Restored Cloud Push Banner for Admin */}
+        {role === 'ADMIN' && pendingImports.length > 0 && (
+          !isLocalOnly ? (
+            <div className="bg-amber-500 dark:bg-amber-600 text-slate-950 text-xs px-4 py-2.5 flex items-center justify-between gap-2 font-semibold shadow-md animate-in fade-in sticky top-0 z-40">
+              <div className="flex items-center gap-2">
+                <UploadCloud className="w-4 h-4 shrink-0 text-slate-950" />
+                <span>You have {pendingImports.length} rate batch(es) imported offline. Connection restored!</span>
+              </div>
+              <button
+                type="button"
+                disabled={isSyncingOfflineImports}
+                onClick={handlePushOfflineImportsToCloud}
+                className="bg-slate-950 hover:bg-slate-800 text-amber-400 px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <UploadCloud className={`w-3.5 h-3.5 ${isSyncingOfflineImports ? 'animate-spin' : ''}`} />
+                <span>{isSyncingOfflineImports ? 'Pushing...' : 'Push Local Import to Cloud'}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="bg-slate-200 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 border-b border-slate-300 dark:border-[#222F43] text-xs px-4 py-2 flex items-center justify-center gap-2 font-medium sticky top-0 z-40">
+              <UploadCloud className="w-4 h-4 shrink-0 opacity-60" />
+              <span>You have {pendingImports.length} rate batch(es) saved locally offline. Connect online to sync to Cloud.</span>
+            </div>
+          )
         )}
         {/* Header - 2nd Color (Secondary Dark Blue #0E1526) in Dark Mode */}
         <header className="flex-none bg-[#F7F4EF]/95 dark:bg-[#0E1526]/90 backdrop-blur-md border-b border-slate-200 dark:border-[#222F43] sticky top-0 z-30 transition-colors">
@@ -581,10 +674,16 @@ export const AppLayout: React.FC = () => {
             {effectiveRole === 'ADMIN' && currentPage === 'Settings' && (
               <SettingsView
                 rates={rates}
-                onRefreshRates={() => {}}
+                onRefreshRates={() => {
+                  void refreshPendingImports();
+                }}
                 onOpenUpload={() => setIsUploadModalOpen(true)}
                 onOpenAddRate={() => setIsAddRateModalOpen(true)}
                 onOpenMigrateIntake={() => setIsMigrateModalOpen(true)}
+                onOpenAuditLogs={() => setIsAuditLogsOpen(true)}
+                onOpenLegalModal={() => setIsLegalModalOpen(true)}
+                pendingOfflineImports={pendingImports}
+                onPushOfflineImports={handlePushOfflineImportsToCloud}
               />
             )}
             {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage !== 'Compare Rates' && currentPage !== 'Compare' && currentPage !== 'Deal Calculator' && currentPage !== 'Settings' && <SheetView sheetName={currentPage} rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} />}
