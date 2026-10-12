@@ -11,9 +11,9 @@ vi.mock('../services/rateReadModels', () => ({ ensureRoleRateModelMigration: vi.
 vi.mock('./DashboardView', () => ({ DashboardView: () => <div data-testid="admin-dashboard">Admin dashboard</div> }));
 vi.mock('./RoleDashboardView', () => ({ RoleDashboardView: ({ role, rates, filters }: { role: string; rates: any[]; filters: { query: string } }) => <div data-testid="role-dashboard">{role} dashboard ({rates.length} routes; query={filters.query})</div> }));
 vi.mock('./ChatExperience', () => ({ ChatExperience: ({ rates, dataMayBeStale, onDashboardFiltersChange }: { rates: any[]; dataMayBeStale?: boolean; onDashboardFiltersChange: (filters: any) => void }) => <div data-testid="chat-data">Chat contents ({rates.length} routes; stale={String(dataMayBeStale)})<button onClick={() => onDashboardFiltersChange({ query: 'private', schoolIds: [], countries: [], levels: [], intakes: [], guidances: [], aggregators: [] })}>Set filter</button></div> }));
-vi.mock('./Sidebar', () => ({ Sidebar: () => <nav data-testid="admin-navigation">Admin navigation</nav> }));
+vi.mock('./Sidebar', () => ({ Sidebar: ({ setCurrentPage }: { setCurrentPage: (p: string) => void }) => <nav data-testid="admin-navigation"><button onClick={() => setCurrentPage('Compare Rates')}>Go Compare Rates</button><button onClick={() => setCurrentPage('Compare')}>Go Compare</button></nav> }));
 vi.mock('./SheetView', () => ({ SheetView: () => <div /> }));
-vi.mock('./CompareView', () => ({ CompareView: () => <div /> }));
+vi.mock('./CompareView', () => ({ CompareView: () => <div data-testid="compare-view">Compare view</div> }));
 vi.mock('./UserManagementView', () => ({ UserManagementView: () => <div /> }));
 vi.mock('./DealCalculatorView', () => ({ DealCalculatorView: () => <div /> }));
 vi.mock('./AgentAccessGate', () => ({ AgentAccessGate: () => <div>Agent access gate</div> }));
@@ -83,6 +83,20 @@ describe('role dashboard integration', () => {
     rerender(<AppLayout />);
     expect(screen.getByTestId('role-dashboard')).toHaveTextContent('query=');
     expect(screen.queryByRole('dialog', { name: 'Chat assistant' })).not.toBeInTheDocument();
+  });
+  it('hides Chat FAB on Compare Rates and Compare pages', () => {
+    mocks.role = 'ADMIN';
+    mocks.accessState = 'admin';
+    render(<AppLayout />);
+    expect(screen.getByRole('button', { name: /open chat assistant/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Go Compare Rates'));
+    expect(screen.getByTestId('compare-view')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open chat assistant/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Go Compare'));
+    expect(screen.getByTestId('compare-view')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open chat assistant/i })).not.toBeInTheDocument();
   });
 });
 

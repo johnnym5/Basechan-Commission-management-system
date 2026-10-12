@@ -15,7 +15,7 @@ import {
   Clock,
 } from 'lucide-react';
 import type { CommissionRate } from '../types';
-import { isHistoricalIntake } from '../utils/groupingUtils';
+import { isHistoricalIntake, normalizeUniversityName } from '../utils/groupingUtils';
 import { areRatesComparable } from '../utils/commissionFormatter';
 
 interface CompareViewProps {
@@ -49,7 +49,7 @@ const UniversityMatrix: React.FC<{
   onRemove: () => void;
 }> = ({ universityName, rates, onRemove }) => {
   const uniRates = useMemo(
-    () => rates.filter((r) => r.universityName === universityName),
+    () => rates.filter((r) => r.universityName === universityName || normalizeUniversityName(r.universityName) === normalizeUniversityName(universityName)),
     [rates, universityName]
   );
 
@@ -356,23 +356,35 @@ export const CompareView: React.FC<CompareViewProps> = ({ allRates }) => {
   };
 
   const uniqueUnis = useMemo(() => {
-    return Array.from(new Set(allRates.map((r) => r.universityName)))
-      .filter(Boolean)
-      .sort();
+    const map = new Map<string, string>();
+    allRates.forEach((r) => {
+      if (!r.universityName) return;
+      const norm = normalizeUniversityName(r.universityName);
+      if (!map.has(norm) || r.universityName.length > map.get(norm)!.length) {
+        map.set(norm, r.universityName);
+      }
+    });
+    return Array.from(map.values()).sort();
   }, [allRates]);
 
   const filteredUnis = useMemo(() => {
     if (!searchInput) return [];
+    const searchNorm = searchInput.toLowerCase();
+    const selectedNorms = new Set(selectedUnis.map((s) => normalizeUniversityName(s)));
     return uniqueUnis.filter(
       (u) =>
-        u.toLowerCase().includes(searchInput.toLowerCase()) &&
-        !selectedUnis.includes(u)
+        u.toLowerCase().includes(searchNorm) &&
+        !selectedNorms.has(normalizeUniversityName(u))
     );
   }, [uniqueUnis, searchInput, selectedUnis]);
 
   const addUniversity = (uni: string) => {
     if (selectedUnis.length >= 5) return;
-    if (!selectedUnis.includes(uni)) {
+    const normAdd = normalizeUniversityName(uni);
+    const alreadySelected = selectedUnis.some(
+      (s) => s === uni || normalizeUniversityName(s) === normAdd
+    );
+    if (!alreadySelected) {
       const updated = [...selectedUnis, uni];
       setSelectedUnis(updated);
       setSearchInput('');

@@ -516,15 +516,15 @@ export const AppLayout: React.FC = () => {
             {currentPage === 'Dashboard' && (effectiveRole === 'ADMIN'
               ? <DashboardView rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />
               : <RoleDashboardView role={effectiveRole} rates={dashboardRates} loading={loading} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />)}
-            {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage === 'Compare Rates' && <CompareView allRates={rates} />}
+            {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && (currentPage === 'Compare Rates' || currentPage === 'Compare') && <CompareView allRates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Deal Calculator' && <DealCalculatorView rates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Settings' && <SettingsView rates={rates} onRefreshRates={() => {}} />}
-            {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage !== 'Compare Rates' && currentPage !== 'Deal Calculator' && currentPage !== 'Settings' && <SheetView sheetName={currentPage} rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} />}
+            {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && currentPage !== 'Compare Rates' && currentPage !== 'Compare' && currentPage !== 'Deal Calculator' && currentPage !== 'Settings' && <SheetView sheetName={currentPage} rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} />}
           </div>
         </main>
       </div>
 
-      {currentPage !== 'Compare Rates' && (
+      {currentPage !== 'Compare Rates' && currentPage !== 'Compare' && (
         <ChatAssistantLauncher
           open={isChatOpen}
           onOpenChange={setIsChatOpen}
