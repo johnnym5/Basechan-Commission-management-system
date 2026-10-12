@@ -39,7 +39,7 @@ export function normalizeUniversitySlug(name: string): string {
   return clean
     .toLowerCase()
     .trim()
-    .replace(/\b(the|university|of|college|institution|campus|school)\b/g, '')
+    .replace(/\b(the|of)\b/g, '')
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '') || 'unknown_uni';
 }

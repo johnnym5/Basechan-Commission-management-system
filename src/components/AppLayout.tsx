@@ -661,7 +661,7 @@ export const AppLayout: React.FC = () => {
       />
 
       {/* Admin-only modals */}
-      {role === 'ADMIN' && canWriteRates && (
+      {role === 'ADMIN' && (
         <>
           <EditRateModal
             rate={editingRate}
@@ -745,8 +745,8 @@ export const AppLayout: React.FC = () => {
         rates={rates}
         role={effectiveRole}
         setCurrentPage={navigateToPage}
-        onOpenAddRate={effectiveRole === 'ADMIN' && canWriteRates ? () => setIsAddRateModalOpen(true) : undefined}
-        onOpenUpload={effectiveRole === 'ADMIN' && canWriteRates ? () => setIsUploadModalOpen(true) : undefined}
+        onOpenAddRate={effectiveRole === 'ADMIN' ? () => setIsAddRateModalOpen(true) : undefined}
+        onOpenUpload={effectiveRole === 'ADMIN' ? () => setIsUploadModalOpen(true) : undefined}
       />
     </div>
   );

@@ -490,6 +490,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   externalGroupByMode,
   externalActiveCurrency,
 }) => {
+  const { role } = useAuth();
   const { defaultIntake, activeIntakes } = useSystemConfig();
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'diffMargin', desc: true },
@@ -1043,6 +1044,18 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     }
   };
 
+  const handleSingleDelete = async (rate: CommissionRate) => {
+    if (!window.confirm(`Are you sure you want to delete rate record for ${rate.universityName}?`)) return;
+    try {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'rates', rate.id));
+      await batch.commit();
+      if (onBatchActionComplete) onBatchActionComplete(`Deleted rate record for ${rate.universityName}.`);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleBatchSetAggregator = async (targetAggregator: string) => {
     if (selectedRates.length === 0 || !targetAggregator) return;
     try {
@@ -1063,6 +1076,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
   // Render Mobile/Responsive Card Component with Multi-Select Checkbox TOP-RIGHT & Star BOTTOM-RIGHT
   const renderRateCard = (rate: CommissionRate) => {
+    const isAdmin = role === 'ADMIN';
     const isSelected = rowSelection[rate.id] || false;
     const starred = isStarred(watchlist, rate.universityName);
     const isHistorical = activeIntakes && activeIntakes.length > 0 && !activeIntakes.includes(rate.intake);
@@ -1141,6 +1155,34 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             >
               <Share2 className="w-4 h-4" />
             </button>
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditRate(rate);
+                }}
+                title="Edit Rate Record"
+                className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/60 rounded-lg transition cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSingleDelete(rate);
+                }}
+                title="Delete Rate Record"
+                className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg transition cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
 
             <button
               type="button"
