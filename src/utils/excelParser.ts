@@ -172,11 +172,16 @@ export interface ParseResult {
   errors: string[];
 }
 
+export function getWorkbookSheets(buffer: ArrayBuffer): string[] {
+  const workbook = XLSX.read(buffer, { type: 'array', cellStyles: true });
+  return workbook.SheetNames || [];
+}
+
 /**
  * Master Workbook Parser tailored to all 15 sheets with dedicated per-sheet layout functions.
  * Translates the exact specification into high-performance TypeScript execution.
  */
-export function parseCommissionWorkbook(buffer: ArrayBuffer): ParseResult {
+export function parseCommissionWorkbook(buffer: ArrayBuffer, targetSheets?: string[]): ParseResult {
   const workbook = XLSX.read(buffer, { type: 'array', cellStyles: true });
   const rateMap = new Map<string, CommissionRate>();
   const uniMap = new Map<string, string>();
@@ -184,7 +189,11 @@ export function parseCommissionWorkbook(buffer: ArrayBuffer): ParseResult {
   let totalRows = 0;
   let rawParsedRecordsCount = 0;
 
-  for (const sheetName of workbook.SheetNames) {
+  const sheetsToProcess = targetSheets && targetSheets.length > 0
+    ? workbook.SheetNames.filter((name) => targetSheets.includes(name))
+    : workbook.SheetNames;
+
+  for (const sheetName of sheetsToProcess) {
     const ws = workbook.Sheets[sheetName];
     if (!ws || !ws['!ref']) continue;
 
@@ -227,7 +236,15 @@ export function parseCommissionWorkbook(buffer: ArrayBuffer): ParseResult {
       continue;
     }
 
-    if (sheetName === 'RAW DATA') {
+    if (
+      sheetName === 'RAW DATA' ||
+      sheetName === 'Sheet1' ||
+      sheetName.toLowerCase().includes('data') ||
+      sheetName.toLowerCase().includes('sheet') ||
+      sheetName.toLowerCase().includes('rate') ||
+      sheetName.toLowerCase().includes('csv') ||
+      (targetSheets && targetSheets.includes(sheetName))
+    ) {
       for (let r = 1; r <= range.e.r; r++) {
         const uni = cleanVal(getVal(r, 0));
         const country = cleanVal(getVal(r, 1));

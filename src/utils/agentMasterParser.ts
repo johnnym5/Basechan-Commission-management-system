@@ -207,6 +207,40 @@ const KNOWN_AGGREGATORS = [
 ];
 
 /**
+ * Detects whether a sheet name or row content represents a 2027 AGENT CONSOLIDATED MASTER sheet.
+ */
+export function is2027AgentMasterSheet(sheetName: string, rows?: any[][]): boolean {
+  const normName = (sheetName || '').trim().toUpperCase();
+  if (
+    normName.includes('2027 AGENT CONSOLIDATED MASTER') ||
+    normName.includes('2027 MASTER BASELINE') ||
+    normName.includes('2027 AGENT MASTER') ||
+    normName.includes('AGENT CONSOLIDATED MASTER') ||
+    (normName.includes('2027') && (normName.includes('MASTER') || normName.includes('CONSOLIDATED') || normName.includes('BASELINE')))
+  ) {
+    return true;
+  }
+
+  if (rows && rows.length > 0) {
+    const maxScan = Math.min(15, rows.length);
+    for (let r = 0; r < maxScan; r++) {
+      const row = rows[r];
+      if (!Array.isArray(row)) continue;
+      const rowStr = row.map((cell) => String(cell || '').toLowerCase()).join(' ');
+      if (
+        rowStr.includes('2027 master baseline') ||
+        rowStr.includes('2027 agent consolidated master') ||
+        (rowStr.includes('baseline fd') && rowStr.includes('baseline ug') && rowStr.includes('baseline pg'))
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Parses the 2027 Agent Consolidated Master Sheet into Firestore-ready CommissionRate records.
  */
 export function parseAgentMasterSheet(
