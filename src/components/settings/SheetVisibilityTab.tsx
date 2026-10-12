@@ -4,6 +4,7 @@ import { useSheetVisibility } from '../../hooks/useSheetVisibility';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
 import type { CommissionRate, StudyLevel } from '../../types';
 import { IntakeMigrationTab } from './IntakeMigrationTab';
+import { SheetManager } from './SheetManager';
 import {
   Calendar,
   Layers,
@@ -457,91 +458,24 @@ export const SheetVisibilityTab: React.FC<SheetVisibilityTabProps> = ({
         )}
       </div>
 
-      {/* Role-Based Sheet Visibility Table */}
-      <div className="p-5 rounded-3xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#222F43] pb-3">
-          <div>
-            <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
-              Role-Based Sheet Visibility Settings
-            </h3>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Toggle access to whole intake sheets for Staff and Agent users. Changes take effect immediately in Firestore.
-            </p>
-          </div>
-          <span className="text-xs font-bold text-slate-400">
-            {sheetSummary.length} Sheets Available
-          </span>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-[#222F43] text-slate-400 font-bold uppercase text-[10px]">
-                <th className="py-2.5 px-3">Intake Sheet</th>
-                <th className="py-2.5 px-3">Rates Count</th>
-                <th className="py-2.5 px-3">Staff Visibility</th>
-                <th className="py-2.5 px-3">Agent Visibility</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-[#222F43]">
-              {sheetSummary.map(({ name, count }) => {
-                const setting = sheetSettings.find((s) => s.sheetName === name || s.id === name);
-                const staffDisabled = setting?.disabledForStaff ?? false;
-                const agentDisabled = setting?.disabledForAgents ?? false;
-
-                return (
-                  <tr key={name} className="hover:bg-slate-50 dark:hover:bg-[#18181B] transition">
-                    <td className="py-3 px-3 font-extrabold text-slate-900 dark:text-slate-100">
-                      {name}
-                      {stagedDefaultIntake === name && (
-                        <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400/20 text-amber-500 border border-amber-400/40">
-                          Main Default
-                        </span>
-                      )}
-                      {stagedActiveIntakes.includes(name) && (
-                        <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-blue-500/20 text-blue-400 border border-blue-500/40">
-                          Active Default
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3 font-mono font-bold text-slate-500 dark:text-slate-400">
-                      {count} rates
-                    </td>
-                    <td className="py-3 px-3">
-                      <button
-                        type="button"
-                        onClick={() => updateSheetVisibility(name, 'STAFF', !staffDisabled, user?.email || 'Admin')}
-                        className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
-                          !staffDisabled
-                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                        }`}
-                      >
-                        {!staffDisabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                        <span>{!staffDisabled ? 'Visible to Staff' : 'Hidden from Staff'}</span>
-                      </button>
-                    </td>
-                    <td className="py-3 px-3">
-                      <button
-                        type="button"
-                        onClick={() => updateSheetVisibility(name, 'AGENT', !agentDisabled, user?.email || 'Admin')}
-                        className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
-                          !agentDisabled
-                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                        }`}
-                      >
-                        {!agentDisabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                        <span>{!agentDisabled ? 'Visible to Agents' : 'Hidden from Agents'}</span>
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Sheet Manager Card Grid Component */}
+      <SheetManager
+        rates={rates}
+        sheetSettings={useMemo(() => {
+          const record: Record<string, { STAFF: boolean; AGENT: boolean }> = {};
+          sheetSettings.forEach((s) => {
+            record[s.sheetName] = {
+              STAFF: !s.disabledForStaff,
+              AGENT: !s.disabledForAgents,
+            };
+          });
+          return record;
+        }, [sheetSettings])}
+        defaultIntake={stagedDefaultIntake !== 'ALL' ? stagedDefaultIntake : defaultIntake}
+        onRefreshRates={onRefreshRates}
+        onOpenAddRate={onOpenAddRate}
+        onOpenMigrateIntake={onOpenMigrateIntake}
+      />
 
       {/* Merged Intake Rate Cloning & Migration Tools Section */}
       <IntakeMigrationTab rates={rates} onRefreshRates={onRefreshRates} />
