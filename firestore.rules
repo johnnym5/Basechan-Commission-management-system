@@ -332,6 +332,17 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // CollectionGroup rules required for admin migration queries:
+    // pruneRedundantOrganizationDefaults uses collectionGroup('rates')
+    // removeLegacyRateFeedSnapshots uses collectionGroup('changes')
+    match /{path=**}/rates/{rateId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /{path=**}/changes/{changeId} {
+      allow read, write: if isAdmin();
+    }
+
     function canReadRateFeed(feedId) {
       return isAdmin()
         || (isStaff() && feedId == 'staff')
