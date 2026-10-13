@@ -27,7 +27,7 @@ import { CommandPaletteModal } from './CommandPaletteModal';
 import { AuditLogsDrawer } from './AuditLogsDrawer';
 import { SheetVisibilityModal } from './SheetVisibilityModal';
 import { UserTutorialModal } from './UserTutorialModal';
-import { isQuotaOffline, subscribeToFirestoreMode } from '../services/firestoreOfflineMode';
+import { forceGoOnline, isQuotaOffline, subscribeToFirestoreMode } from '../services/firestoreOfflineMode';
 import { markUpdateRead, subscribeToUserUpdates } from '../services/chatPersistence';
 import {
   clearPendingOfflineImports,
@@ -816,8 +816,20 @@ export const AppLayout: React.FC = () => {
       )}
 
       {showQuotaToast && isQuotaMode && (
-        <div role="status" aria-live="polite" className="fixed left-3 right-3 top-3 z-[120] mx-auto max-w-lg rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950 shadow-xl dark:border-amber-800 dark:bg-[#201b13] dark:text-amber-100 sm:left-1/2 sm:right-auto sm:w-full sm:-translate-x-1/2">
-          You are using offline mode. Firestore quota was reached; we’ll check access again automatically.
+        <div role="status" aria-live="polite" className="fixed left-3 right-3 top-3 z-[120] mx-auto max-w-lg rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950 shadow-xl dark:border-amber-800 dark:bg-[#201b13] dark:text-amber-100 sm:left-1/2 sm:right-auto sm:w-full sm:-translate-x-1/2 flex items-center justify-between gap-3">
+          <span className="flex-1">
+            You are using offline mode. Firestore quota was reached; click to re-check connection.
+          </span>
+          <button
+            type="button"
+            onClick={async () => {
+              await forceGoOnline(user?.uid || '');
+              window.location.reload();
+            }}
+            className="px-3 py-1 bg-amber-400 text-slate-950 rounded-xl text-xs font-black hover:bg-amber-300 transition cursor-pointer shrink-0"
+          >
+            Re-check Connection
+          </button>
         </div>
       )}
 

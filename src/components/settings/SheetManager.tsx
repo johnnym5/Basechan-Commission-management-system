@@ -12,11 +12,12 @@ import {
 import { getIntakeDeadlineInfo } from '../../utils/intakeDeadlineUtils';
 import {
   clearPendingOfflineImports,
+  deleteLocalRateDatabase,
   getPendingOfflineImports,
   type PendingOfflineImport,
 } from '../../services/localRateDatabase';
 import { uploadRatesInBatches } from '../../utils/firestoreBatcher';
-import { isQuotaOffline, subscribeToFirestoreMode } from '../../services/firestoreOfflineMode';
+import { forceGoOnline, isQuotaOffline, subscribeToFirestoreMode } from '../../services/firestoreOfflineMode';
 import {
   Search,
   Trash2,
@@ -163,6 +164,25 @@ export const SheetManager: React.FC<SheetManagerProps> = ({
     oldName: string;
     newName: string;
   } | null>(null);
+
+  const handleForceGoOnline = async () => {
+    await forceGoOnline(user?.uid || '');
+    window.location.reload();
+  };
+
+  const handleDeleteOfflineData = async () => {
+    if (!window.confirm('Are you sure you want to delete all offline imports and clear cached data? This will clear pending local sheet imports.')) return;
+    try {
+      await clearPendingOfflineImports(user?.uid || 'global');
+      if (user?.uid) {
+        await deleteLocalRateDatabase(user.uid).catch(() => {});
+      }
+      setPendingImports([]);
+      window.location.reload();
+    } catch (e) {
+      console.error('Failed to delete offline data:', e);
+    }
+  };
 
   // Derive unique list of sheets and total rate counts
   const allSheetCards = useMemo(() => {
@@ -441,8 +461,20 @@ export const SheetManager: React.FC<SheetManagerProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons: Push Offline Imports & Purge All */}
+          {/* Action Buttons: Push Offline Imports, Delete Offline Data & Purge All */}
           <div className="flex items-center gap-2 flex-wrap">
+            {isQuotaMode && (
+              <button
+                type="button"
+                onClick={handleForceGoOnline}
+                title="Force clear quota lock and attempt online connection"
+                className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>Re-check Connection</span>
+              </button>
+            )}
+
             <button
               type="button"
               disabled={!navigator.onLine || isQuotaMode || pendingImports.length === 0 || isPushingOffline}
@@ -468,6 +500,16 @@ export const SheetManager: React.FC<SheetManagerProps> = ({
                   ? `Push to Cloud (${pendingImports.length})`
                   : 'Push to Cloud'}
               </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDeleteOfflineData}
+              title="Delete all local offline imports and clear cached data"
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-extrabold text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+            >
+              <Trash2 className="w-4 h-4 text-rose-400" />
+              <span>Delete Offline Data</span>
             </button>
 
             <button

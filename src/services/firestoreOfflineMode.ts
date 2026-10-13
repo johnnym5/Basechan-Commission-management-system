@@ -5,7 +5,7 @@ const MODE_PREFIX = 'basechan_firestore_quota_offline_v2:';
 const RETRY_PREFIX = 'basechan_firestore_quota_retry_at_v2:';
 const MODE_EVENT = 'basechan-firestore-mode-change';
 const PROBE_EVENT = 'basechan-firestore-quota-probe';
-export const QUOTA_RETRY_INTERVAL_MS = 12 * 60 * 60 * 1000;
+export const QUOTA_RETRY_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours default retry interval
 
 const modeKey = (uid: string) => `${MODE_PREFIX}${uid}`;
 const retryKey = (uid: string) => `${RETRY_PREFIX}${uid}`;
@@ -24,8 +24,21 @@ channels?.addEventListener('message', (event) => {
 
 export function isQuotaOffline(uid: string = auth.currentUser?.uid || ''): boolean {
   if (!uid) return false;
-  try { return inMemoryModes.has(uid) || localStorage.getItem(modeKey(uid)) === '1'; }
-  catch { return inMemoryModes.has(uid); }
+
+  // Auto-expire offline quota lock if retry timestamp has passed
+  try {
+    const retryAt = Number(localStorage.getItem(retryKey(uid)));
+    if (Number.isFinite(retryAt) && retryAt > 0 && Date.now() >= retryAt) {
+      inMemoryModes.delete(uid);
+      localStorage.removeItem(modeKey(uid));
+      localStorage.removeItem(retryKey(uid));
+      announce(uid);
+      return false;
+    }
+    return inMemoryModes.has(uid) || localStorage.getItem(modeKey(uid)) === '1';
+  } catch {
+    return inMemoryModes.has(uid);
+  }
 }
 
 export function getQuotaRetryAt(uid: string): number {
@@ -102,8 +115,35 @@ export async function clearQuotaState(uid: string): Promise<void> {
     localStorage.removeItem(modeKey(uid)); localStorage.removeItem(retryKey(uid));
     localStorage.removeItem('basechan_firestore_quota_offline_v1');
     localStorage.removeItem('basechan_firestore_quota_retry_at_v1');
+    localStorage.removeItem('basechan_firestore_quota_offline_v2:' + uid);
+    localStorage.removeItem('basechan_firestore_quota_retry_at_v2:' + uid);
   } catch { /* ignore unavailable storage */ }
   announce(uid);
+}
+
+export async function forceGoOnline(uid: string = auth.currentUser?.uid || ''): Promise<void> {
+  inMemoryModes.delete(uid);
+  try {
+    localStorage.removeItem(modeKey(uid));
+    localStorage.removeItem(retryKey(uid));
+    localStorage.removeItem('basechan_firestore_quota_offline_v1');
+    localStorage.removeItem('basechan_firestore_quota_retry_at_v1');
+    if (uid) {
+      localStorage.removeItem(`basechan_firestore_quota_offline_v2:${uid}`);
+      localStorage.removeItem(`basechan_firestore_quota_retry_at_v2:${uid}`);
+    }
+  } catch {}
+  announce(uid);
+  if (networkChange) await networkChange.catch(() => {});
+  const enabling = enableNetwork(db);
+  networkChange = enabling;
+  try {
+    await enabling;
+  } catch (err) {
+    console.error('Failed to enable Firestore network:', err);
+  } finally {
+    if (networkChange === enabling) networkChange = null;
+  }
 }
 
 export function subscribeToFirestoreMode(callback: (uid?: string) => void): () => void {
