@@ -5,7 +5,22 @@ const MODE_PREFIX = 'basechan_firestore_quota_offline_v2:';
 const RETRY_PREFIX = 'basechan_firestore_quota_retry_at_v2:';
 const MODE_EVENT = 'basechan-firestore-mode-change';
 const PROBE_EVENT = 'basechan-firestore-quota-probe';
-export const QUOTA_RETRY_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours default retry interval
+
+/**
+ * Calculates the exact timestamp of the next daily Firebase quota reset.
+ * Firebase quota resets globally at 00:00 PST = 08:00 AM WAT (UTC+1).
+ */
+export function getNextDailyQuotaResetTime(): number {
+  const now = new Date();
+  // 08:00 UTC = 08:00 WAT
+  const resetToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 8, 0, 0, 0));
+
+  if (now.getTime() >= resetToday.getTime()) {
+    // If today's 08:00 WAT has already passed, the next reset is tomorrow at 08:00 WAT
+    resetToday.setUTCDate(resetToday.getUTCDate() + 1);
+  }
+  return resetToday.getTime();
+}
 
 const modeKey = (uid: string) => `${MODE_PREFIX}${uid}`;
 const retryKey = (uid: string) => `${RETRY_PREFIX}${uid}`;
@@ -25,7 +40,7 @@ channels?.addEventListener('message', (event) => {
 export function isQuotaOffline(uid: string = auth.currentUser?.uid || ''): boolean {
   if (!uid) return false;
 
-  // Auto-expire offline quota lock if retry timestamp has passed
+  // Auto-expire offline quota lock if current time is past 08:00 AM WAT daily reset time
   try {
     const retryAt = Number(localStorage.getItem(retryKey(uid)));
     if (Number.isFinite(retryAt) && retryAt > 0 && Date.now() >= retryAt) {
@@ -45,14 +60,15 @@ export function getQuotaRetryAt(uid: string): number {
   try {
     const saved = Number(localStorage.getItem(retryKey(uid)));
     if (Number.isFinite(saved) && saved > 0) return saved;
-  } catch { /* use a predictable in-memory retry interval */ }
-  const next = Date.now() + QUOTA_RETRY_INTERVAL_MS;
+  } catch { /* use calculated daily reset time */ }
+  const next = getNextDailyQuotaResetTime();
   try { localStorage.setItem(retryKey(uid), String(next)); } catch { /* session can still retry */ }
   return next;
 }
 
 function scheduleNextQuotaCheck(uid: string) {
-  try { localStorage.setItem(retryKey(uid), String(Date.now() + QUOTA_RETRY_INTERVAL_MS)); }
+  const nextResetTime = getNextDailyQuotaResetTime();
+  try { localStorage.setItem(retryKey(uid), String(nextResetTime)); }
   catch { /* use the standard interval for the next in-app check */ }
 }
 
