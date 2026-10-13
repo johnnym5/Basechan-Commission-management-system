@@ -418,6 +418,21 @@ export const UserManagementView: React.FC = () => {
     }
   };
 
+  const handleDiscardAllPendingOperations = async () => {
+    if (!window.confirm(`Are you sure you want to clear and discard all ${pendingRateOperations.length} pending operation logs?`)) return;
+    try {
+      setResumingOperationId('all');
+      for (const op of pendingRateOperations) {
+        await discardUnstartedRateOperation(op.operationId).catch(() => {});
+      }
+      setNotice('All pending rate operation logs have been discarded.');
+    } catch (err) {
+      setNotice('Error discarding operations.');
+    } finally {
+      setResumingOperationId(null);
+    }
+  };
+
   const handleRebuildRateReadModels = async () => {
     if (!masterRates.length) return setNotice('No canonical rates are loaded. Confirm the Admin rate table is available, then retry.');
     try {
@@ -594,10 +609,22 @@ export const UserManagementView: React.FC = () => {
         <button disabled={masterRatesLoading || rebuildingReadModels || masterRates.length === 0} onClick={() => void handleRebuildRateReadModels()} className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-bold text-indigo-800 disabled:opacity-50 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">{rebuildingReadModels ? 'Rebuilding secure rate views…' : 'Rebuild secure rate views'}</button>
       </div>
 
-      {pendingRateOperations.length > 0 && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
-        <h2 className="text-sm font-extrabold text-amber-950 dark:text-amber-100">Rate updates needing attention</h2>
-        <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-200/80">Resume operations that reached rate writes. An operation still preparing has not changed canonical rates and can be discarded if its saved details are incomplete.</p>
-        <div className="mt-3 space-y-2">{pendingRateOperations.map((operation) => <div key={operation.operationId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-900 dark:bg-[#0E1526]">
+      {pendingRateOperations.length > 0 && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-sm font-extrabold text-amber-950 dark:text-amber-100">Rate updates needing attention</h2>
+            <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-200/80">Resume operations that reached rate writes. An operation still preparing has not changed canonical rates and can be discarded if its saved details are incomplete.</p>
+          </div>
+          <button
+            type="button"
+            disabled={resumingOperationId !== null}
+            onClick={() => void handleDiscardAllPendingOperations()}
+            className="px-3 py-1.5 rounded-xl bg-amber-200 dark:bg-amber-900/60 hover:bg-amber-300 dark:hover:bg-amber-800 text-amber-950 dark:text-amber-100 text-xs font-black transition cursor-pointer shrink-0"
+          >
+            Discard All Incomplete Operations ({pendingRateOperations.length})
+          </button>
+        </div>
+        <div className="space-y-2">{pendingRateOperations.map((operation) => <div key={operation.operationId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-900 dark:bg-[#0E1526]">
           <div><p className="text-xs font-bold">{operation.count} rate records · {operation.stage}</p><p className="mt-1 font-mono text-[10px] text-slate-500">{operation.operationId}</p><p className="text-[10px] text-slate-500">Started by {operation.adminEmail || 'Admin'} · {operation.updatedAt ? new Date(operation.updatedAt).toLocaleString() : 'time unavailable'}</p></div>
           <div className="flex gap-2">{operation.stage === 'preparing' && <button disabled={resumingOperationId !== null} onClick={() => void handleDiscardRateOperation(operation)} className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-bold text-amber-900 disabled:opacity-50">Discard before writes</button>}<button disabled={resumingOperationId !== null} onClick={() => void handleResumeRateOperation(operation)} className="inline-flex items-center gap-2 rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><RefreshCcw className={`h-3.5 w-3.5 ${resumingOperationId === operation.operationId ? 'animate-spin' : ''}`} />{resumingOperationId === operation.operationId ? 'Resuming…' : 'Resume operation'}</button></div>
         </div>)}</div>
