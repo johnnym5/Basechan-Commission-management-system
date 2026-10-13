@@ -40,15 +40,22 @@ channels?.addEventListener('message', (event) => {
 export function isQuotaOffline(uid: string = auth.currentUser?.uid || ''): boolean {
   if (!uid) return false;
 
-  // Auto-expire offline quota lock if current time is past 08:00 AM WAT daily reset time
   try {
     const retryAt = Number(localStorage.getItem(retryKey(uid)));
-    if (Number.isFinite(retryAt) && retryAt > 0 && Date.now() >= retryAt) {
-      inMemoryModes.delete(uid);
-      localStorage.removeItem(modeKey(uid));
-      localStorage.removeItem(retryKey(uid));
-      announce(uid);
-      return false;
+    const now = new Date();
+    // Auto-expire offline quota lock if current time is past retry timestamp or from a previous day
+    if (Number.isFinite(retryAt) && retryAt > 0) {
+      const lastRetryDate = new Date(retryAt);
+      const isPastTime = Date.now() >= retryAt;
+      const isNewDay = now.getUTCDate() !== lastRetryDate.getUTCDate() || now.getUTCMonth() !== lastRetryDate.getUTCMonth();
+
+      if (isPastTime || isNewDay) {
+        inMemoryModes.delete(uid);
+        localStorage.removeItem(modeKey(uid));
+        localStorage.removeItem(retryKey(uid));
+        announce(uid);
+        return false;
+      }
     }
     return inMemoryModes.has(uid) || localStorage.getItem(modeKey(uid)) === '1';
   } catch {
@@ -131,8 +138,10 @@ export async function clearQuotaState(uid: string): Promise<void> {
     localStorage.removeItem(modeKey(uid)); localStorage.removeItem(retryKey(uid));
     localStorage.removeItem('basechan_firestore_quota_offline_v1');
     localStorage.removeItem('basechan_firestore_quota_retry_at_v1');
-    localStorage.removeItem('basechan_firestore_quota_offline_v2:' + uid);
-    localStorage.removeItem('basechan_firestore_quota_retry_at_v2:' + uid);
+    if (uid) {
+      localStorage.removeItem(`basechan_firestore_quota_offline_v2:${uid}`);
+      localStorage.removeItem(`basechan_firestore_quota_retry_at_v2:${uid}`);
+    }
   } catch { /* ignore unavailable storage */ }
   announce(uid);
 }
