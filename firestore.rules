@@ -403,6 +403,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /rate_sheets/{sheetId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

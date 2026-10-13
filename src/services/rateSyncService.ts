@@ -231,8 +231,29 @@ export async function syncRateSheetsCacheFirst(scope: RateSyncScope): Promise<Co
     await saveLocalRateMetadata(uid, updatedMetadata);
 
     const freshRates = freshBuckets.flatMap((bucket) => bucket.rates || []);
-    return freshRates.length > 0 ? freshRates : cachedRates;
+    if (freshRates.length > 0) {
+      return freshRates;
+    }
+
+    // If rate_sheets has 0 documents (e.g. database not yet partitioned into rate_sheets),
+    // fallback to querying the canonical rates collection
+    const canonicalSnapshot = await fetchRows(scope);
+    if (canonicalSnapshot.rows.length > 0) {
+      return canonicalSnapshot.rows;
+    }
+
+    return cachedRates;
   } catch (err) {
+    // If rate_sheets fails (permission-denied or network), attempt fallback to canonical fetchRows
+    try {
+      const canonicalSnapshot = await fetchRows(scope);
+      if (canonicalSnapshot.rows.length > 0) {
+        return canonicalSnapshot.rows;
+      }
+    } catch {
+      // Ignore fallback error and continue to cache check or rethrow
+    }
+
     if (cachedRates.length > 0) {
       return cachedRates;
     }
