@@ -394,16 +394,6 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
             >
               <Send className="w-4 h-4 text-white" />
             </button>
-
-            {/* Mobile Collapse Button */}
-            <button
-              type="button"
-              onClick={() => setLocalInput('')}
-              className="sm:hidden p-1.5 text-slate-400 hover:text-white"
-              title="Clear Search"
-            >
-              <X className="w-4 h-4" />
-            </button>
           </div>
         </div>
 
