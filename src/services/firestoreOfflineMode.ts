@@ -37,13 +37,17 @@ channels?.addEventListener('message', (event) => {
   window.dispatchEvent(new CustomEvent(MODE_EVENT, { detail: { uid: event.data?.uid } }));
 });
 
+/**
+ * Universally clears all quota-offline locks and retry keys across localStorage
+ * and in-memory sets for all accounts.
+ */
 export function clearAllQuotaStorage(): void {
   inMemoryModes.clear();
   try {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.includes('basechan_firestore_quota')) {
+      if (key && (key.includes('basechan_firestore_quota') || key.includes('quota_offline') || key.includes('quota_retry'))) {
         keysToRemove.push(key);
       }
     }
@@ -59,10 +63,17 @@ export function isQuotaOffline(uid: string = auth.currentUser?.uid || ''): boole
     if (!isOffline) return false;
 
     const retryAt = Number(localStorage.getItem(retryKey(uid)));
+    const now = new Date();
 
-    // Auto-expire offline quota lock if retry timestamp is missing, invalid, or past Date.now()
+    // Auto-expire offline quota lock if retry timestamp is missing, past Date.now(), or from a previous day
     if (!Number.isFinite(retryAt) || retryAt <= 0 || Date.now() >= retryAt) {
-      clearQuotaState(uid);
+      clearAllQuotaStorage();
+      return false;
+    }
+
+    const lastRetryDate = new Date(retryAt);
+    if (now.getUTCDate() !== lastRetryDate.getUTCDate() || now.getUTCMonth() !== lastRetryDate.getUTCMonth()) {
+      clearAllQuotaStorage();
       return false;
     }
 
@@ -136,17 +147,16 @@ export async function beginQuotaProbe(uid: string): Promise<void> {
 }
 
 export async function completeQuotaProbe(uid: string): Promise<void> {
-  inMemoryModes.delete(uid);
-  try { localStorage.removeItem(modeKey(uid)); localStorage.removeItem(retryKey(uid)); } catch { /* memory state is cleared */ }
-  announce(uid);
-}
-
-export async function clearQuotaState(uid: string): Promise<void> {
   clearAllQuotaStorage();
   announce(uid);
 }
 
-export async function forceGoOnline(uid: string = auth.currentUser?.uid || ''): Promise<void> {
+export async function clearQuotaState(uid?: string): Promise<void> {
+  clearAllQuotaStorage();
+  announce(uid);
+}
+
+export async function forceGoOnline(uid?: string): Promise<void> {
   clearAllQuotaStorage();
   announce(uid);
   if (networkChange) await networkChange.catch(() => {});
