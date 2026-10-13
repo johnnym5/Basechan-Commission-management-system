@@ -37,27 +37,43 @@ channels?.addEventListener('message', (event) => {
   window.dispatchEvent(new CustomEvent(MODE_EVENT, { detail: { uid: event.data?.uid } }));
 });
 
+export function clearAllQuotaStorage(): void {
+  inMemoryModes.clear();
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.includes('basechan_firestore_quota')) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
+  } catch {}
+}
+
 export function isQuotaOffline(uid: string = auth.currentUser?.uid || ''): boolean {
   if (!uid) return false;
 
   try {
+    const isOffline = inMemoryModes.has(uid) || localStorage.getItem(modeKey(uid)) === '1';
+    if (!isOffline) return false;
+
     const retryAt = Number(localStorage.getItem(retryKey(uid)));
     const now = new Date();
-    // Auto-expire offline quota lock if current time is past retry timestamp or from a previous day
-    if (Number.isFinite(retryAt) && retryAt > 0) {
-      const lastRetryDate = new Date(retryAt);
-      const isPastTime = Date.now() >= retryAt;
-      const isNewDay = now.getUTCDate() !== lastRetryDate.getUTCDate() || now.getUTCMonth() !== lastRetryDate.getUTCMonth();
 
-      if (isPastTime || isNewDay) {
-        inMemoryModes.delete(uid);
-        localStorage.removeItem(modeKey(uid));
-        localStorage.removeItem(retryKey(uid));
-        announce(uid);
-        return false;
-      }
+    // Auto-expire offline quota lock if retry timestamp is missing, past Date.now(), or from a previous day
+    if (!Number.isFinite(retryAt) || retryAt <= 0 || Date.now() >= retryAt) {
+      clearQuotaState(uid);
+      return false;
     }
-    return inMemoryModes.has(uid) || localStorage.getItem(modeKey(uid)) === '1';
+
+    const lastRetryDate = new Date(retryAt);
+    if (now.getUTCDate() !== lastRetryDate.getUTCDate() || now.getUTCMonth() !== lastRetryDate.getUTCMonth()) {
+      clearQuotaState(uid);
+      return false;
+    }
+
+    return true;
   } catch {
     return inMemoryModes.has(uid);
   }
@@ -133,31 +149,12 @@ export async function completeQuotaProbe(uid: string): Promise<void> {
 }
 
 export async function clearQuotaState(uid: string): Promise<void> {
-  inMemoryModes.delete(uid);
-  try {
-    localStorage.removeItem(modeKey(uid)); localStorage.removeItem(retryKey(uid));
-    localStorage.removeItem('basechan_firestore_quota_offline_v1');
-    localStorage.removeItem('basechan_firestore_quota_retry_at_v1');
-    if (uid) {
-      localStorage.removeItem(`basechan_firestore_quota_offline_v2:${uid}`);
-      localStorage.removeItem(`basechan_firestore_quota_retry_at_v2:${uid}`);
-    }
-  } catch { /* ignore unavailable storage */ }
+  clearAllQuotaStorage();
   announce(uid);
 }
 
 export async function forceGoOnline(uid: string = auth.currentUser?.uid || ''): Promise<void> {
-  inMemoryModes.delete(uid);
-  try {
-    localStorage.removeItem(modeKey(uid));
-    localStorage.removeItem(retryKey(uid));
-    localStorage.removeItem('basechan_firestore_quota_offline_v1');
-    localStorage.removeItem('basechan_firestore_quota_retry_at_v1');
-    if (uid) {
-      localStorage.removeItem(`basechan_firestore_quota_offline_v2:${uid}`);
-      localStorage.removeItem(`basechan_firestore_quota_retry_at_v2:${uid}`);
-    }
-  } catch {}
+  clearAllQuotaStorage();
   announce(uid);
   if (networkChange) await networkChange.catch(() => {});
   const enabling = enableNetwork(db);
