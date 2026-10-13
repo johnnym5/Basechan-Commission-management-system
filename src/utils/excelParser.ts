@@ -211,8 +211,16 @@ export function parseCommissionWorkbook(buffer: ArrayBuffer, targetSheets?: stri
       return c ? c.v : undefined;
     };
 
-    const upsertRate = (candidate: CommissionRate) => {
+    const upsertRate = (rawCandidate: CommissionRate) => {
       rawParsedRecordsCount++;
+      const candidate: CommissionRate = {
+        ...rawCandidate,
+        guidance: rawCandidate.guidance || 'ALLOWED',
+        notes: rawCandidate.notes || '',
+        rowColor: rawCandidate.rowColor || '-',
+        country: rawCandidate.country || 'UK',
+        aggregator: rawCandidate.aggregator || 'Direct',
+      };
       const existing = rateMap.get(candidate.id);
 
       if (!existing) {
@@ -221,6 +229,8 @@ export function parseCommissionWorkbook(buffer: ArrayBuffer, targetSheets?: stri
         const updated: CommissionRate = {
           ...existing,
           ...candidate,
+          guidance: candidate.guidance || existing.guidance || 'ALLOWED',
+          notes: candidate.notes || existing.notes || '',
           masterRate: candidate.masterRate > 0 ? candidate.masterRate : existing.masterRate,
           agentRate: candidate.agentRate > 0 ? candidate.agentRate : existing.agentRate,
           country: candidate.country && candidate.country !== '-' ? candidate.country : existing.country,

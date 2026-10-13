@@ -45,9 +45,27 @@ function updateCategory(mutations: RateWriteMutation[]): RateWriteCategory {
   return 'rates';
 }
 
+/**
+ * Recursively strips undefined fields from an object before passing to Firestore batch.set() or setDoc().
+ * Firestore strictly forbids 'undefined' values.
+ */
+export function sanitizeFirestoreData<T extends Record<string, any>>(obj: T): T {
+  if (obj === null || obj === undefined) return obj;
+  const clean: Record<string, any> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val === undefined) continue;
+    if (val !== null && typeof val === 'object' && !Array.isArray(val) && !(val instanceof Date)) {
+      clean[key] = sanitizeFirestoreData(val);
+    } else {
+      clean[key] = val;
+    }
+  }
+  return clean as T;
+}
+
 async function recordOperation(operationId: string, stage: string, details: Record<string, unknown> = {}) {
   const ref = doc(db, 'admin_rate_operations', operationId);
-  await setDoc(ref, { operationId, stage, updatedAt: new Date().toISOString(), ...details }, { merge: true });
+  await setDoc(ref, sanitizeFirestoreData({ operationId, stage, updatedAt: new Date().toISOString(), ...details }), { merge: true });
 }
 
 /**
@@ -98,7 +116,7 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
       const batch = writeBatch(db);
       mutations.slice(offset, offset + 400).forEach((mutation, index) => batch.set(
         doc(db, 'admin_rate_operations', operationId, 'mutations', String(offset + index).padStart(8, '0')),
-        mutation,
+        sanitizeFirestoreData(mutation),
       ));
       await batch.commit();
     }
@@ -112,14 +130,14 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
       const { previous, next } = mutation;
       if (previous && (!next || previous.id !== next.id)) batch.delete(doc(db, 'rates', previous.id));
       if (next) {
-        batch.set(doc(db, 'rates', next.id), next, { merge: true });
-        batch.set(doc(db, 'universities', next.universityId), {
+        batch.set(doc(db, 'rates', next.id), sanitizeFirestoreData(next), { merge: true });
+        batch.set(doc(db, 'universities', next.universityId), sanitizeFirestoreData({
           id: next.universityId,
           name: next.universityName,
           lastUpdated: next.updatedAt || new Date().toISOString(),
           status: 'ACTIVE',
           ...(next.country && next.country !== '-' ? { country: next.country } : {}),
-        }, { merge: true });
+        }), { merge: true });
       }
     }
     if (mutations.length) await batch.commit();
