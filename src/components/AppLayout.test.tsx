@@ -66,7 +66,7 @@ describe('role dashboard integration', () => {
     expect(screen.getByTestId('admin-dashboard')).toBeInTheDocument();
     expect(screen.getByTestId('admin-navigation')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /import sheets/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Dashboard' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dashboard' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /open chat assistant/i }));
     expect(screen.getByRole('dialog', { name: 'Chat assistant' })).toBeInTheDocument();
   });
@@ -109,11 +109,7 @@ describe('role dashboard integration', () => {
     render(<AppLayout />);
     expect(screen.getByRole('button', { name: /open chat assistant/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Go Compare Rates'));
-    expect(screen.getByTestId('compare-view')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /open chat assistant/i })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('Go Compare'));
+    fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
     expect(screen.getByTestId('compare-view')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /open chat assistant/i })).not.toBeInTheDocument();
   });

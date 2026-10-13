@@ -17,7 +17,6 @@ import type { DashboardFilters } from '../types/dashboard';
 import { DealCalculatorView } from './DealCalculatorView';
 import { SettingsView } from './SettingsView';
 import { AddRateModal } from './AddRateModal';
-import { Sidebar } from './Sidebar';
 import { EditRateModal } from './EditRateModal';
 import { ExcelUploadModal } from './ExcelUploadModal';
 import { DeleteAllModal } from './DeleteAllModal';
@@ -39,7 +38,9 @@ import { uploadRatesInBatches } from '../utils/firestoreBatcher';
 import { archivePreviousIntakes } from '../services/sheetManagementService';
 import {
   LogOut,
-  Menu,
+  LayoutDashboard,
+  TrendingUp,
+  Calculator,
   Eye,
   X,
   ChevronDown,
@@ -181,8 +182,7 @@ export const AppLayout: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<string>('Dashboard');
   const [dashboardFilters, setDashboardFilters] = useState<DashboardFilters>(createEmptyDashboardFilters);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
-  
+
   const [editingRate, setEditingRate] = useState<CommissionRate | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
@@ -331,17 +331,7 @@ export const AppLayout: React.FC = () => {
   return (
     role === 'AGENT' && access.accessState !== 'approved' ? <AgentAccessGate /> :
     <div className="min-h-screen bg-[#FDFBF7] dark:bg-[#18181B] flex font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full overflow-x-hidden">
-      {canUseAdminNavigation && <Sidebar
-        currentPage={currentPage} 
-        setCurrentPage={navigateToPage}
-        rates={rates}
-        isOpen={isSidebarOpen}
-        setIsOpen={setIsSidebarOpen}
-        effectiveRole={effectiveRole}
-        onOpenLegal={() => setIsLegalModalOpen(true)}
-      />}
-
-      <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${canUseAdminNavigation ? 'lg:ml-[72px]' : ''}`}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col w-full">
         {/* Offline Connection Drop Banner */}
         {isOffline && (
           <div className="bg-amber-600 text-white text-xs px-4 py-2.5 flex items-center justify-center gap-2 font-semibold shadow-md animate-in fade-in sticky top-0 z-40">
@@ -401,15 +391,6 @@ export const AppLayout: React.FC = () => {
         <header className="flex-none bg-[#F7F4EF]/95 dark:bg-[#0E1526]/90 backdrop-blur-md border-b border-slate-200 dark:border-[#222F43] sticky top-0 z-30 transition-colors">
           <div className="mx-auto flex h-16 w-full min-w-0 max-w-7xl items-center justify-between gap-2 px-2 sm:px-6 lg:px-8">
             <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3">
-              {canUseAdminNavigation && (
-                <button
-                  onClick={() => setIsSidebarOpen(true)}
-                  className="lg:hidden p-2 -ml-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
-                  aria-label="Open Navigation Sidebar"
-                >
-                  <Menu className="w-5 h-5" />
-                </button>
-              )}
               <img
                 src="/logo.png"
                 alt="Basechan Logo"
@@ -431,6 +412,63 @@ export const AppLayout: React.FC = () => {
                 {currentPage}
               </div>
             </div>
+
+            {/* HEADER CENTER: Admin Navigation Tabs */}
+            {canUseAdminNavigation && (
+              <nav data-testid="admin-navigation" className="hidden md:flex items-center gap-1 p-1 rounded-2xl bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43]">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage('Dashboard')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    currentPage === 'Dashboard'
+                      ? 'bg-amber-400 text-slate-950 shadow-xs font-extrabold'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <LayoutDashboard className="w-3.5 h-3.5" />
+                  <span>Dashboard</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage('Compare Rates')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    currentPage === 'Compare Rates' || currentPage === 'Compare'
+                      ? 'bg-amber-400 text-slate-950 shadow-xs font-extrabold'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  <span>Compare</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage('Deal Calculator')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    currentPage === 'Deal Calculator'
+                      ? 'bg-amber-400 text-slate-950 shadow-xs font-extrabold'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Calculator className="w-3.5 h-3.5" />
+                  <span>Deal Calculator</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage('Settings')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    currentPage === 'Settings'
+                      ? 'bg-amber-400 text-slate-950 shadow-xs font-extrabold'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>Settings</span>
+                </button>
+              </nav>
+            )}
 
             {/* HEADER RIGHT: User Tutorial Question Mark & User Profile FAB Button */}
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
@@ -539,8 +577,66 @@ export const AppLayout: React.FC = () => {
                     ref={headerMenuRef}
                     className="absolute right-0 mt-2 bg-[#F7F4EF] dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] rounded-2xl shadow-2xl z-50 p-1.5 flex items-center gap-1 animate-dropdown-enter select-none"
                   >
+                    {/* Dashboard */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentPage('Dashboard');
+                        setIsHeaderMenuOpen(false);
+                      }}
+                      title="Dashboard"
+                      aria-label="Dashboard"
+                      className={`p-2 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0 ${
+                        currentPage === 'Dashboard'
+                          ? 'bg-amber-400 text-slate-950 font-bold'
+                          : 'text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500'
+                      }`}
+                    >
+                      <LayoutDashboard className="w-4 h-4" />
+                    </button>
+
+                    {/* Compare Rates (Admin only) */}
+                    {canUseAdminNavigation && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentPage('Compare Rates');
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        title="Compare Rates"
+                        aria-label="Compare Rates"
+                        className={`p-2 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0 ${
+                          currentPage === 'Compare Rates' || currentPage === 'Compare'
+                            ? 'bg-amber-400 text-slate-950 font-bold'
+                            : 'text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500'
+                        }`}
+                      >
+                        <TrendingUp className="w-4 h-4" />
+                      </button>
+                    )}
+
+                    {/* Deal Calculator (Admin only) */}
+                    {canUseAdminNavigation && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentPage('Deal Calculator');
+                          setIsHeaderMenuOpen(false);
+                        }}
+                        title="Deal Calculator"
+                        aria-label="Deal Calculator"
+                        className={`p-2 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0 ${
+                          currentPage === 'Deal Calculator'
+                            ? 'bg-amber-400 text-slate-950 font-bold'
+                            : 'text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500'
+                        }`}
+                      >
+                        <Calculator className="w-4 h-4" />
+                      </button>
+                    )}
+
                     {/* Settings (Admin only) */}
-                    {role === 'ADMIN' && effectiveRole === 'ADMIN' && (
+                    {canUseAdminNavigation && (
                       <button
                         type="button"
                         onClick={() => {
@@ -549,9 +645,13 @@ export const AppLayout: React.FC = () => {
                         }}
                         title="System Settings & Admin"
                         aria-label="System Settings & Admin"
-                        className="p-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500 transition cursor-pointer flex items-center justify-center shrink-0"
+                        className={`p-2 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0 ${
+                          currentPage === 'Settings'
+                            ? 'bg-amber-400 text-slate-950 font-bold'
+                            : 'text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500'
+                        }`}
                       >
-                        <Settings className="w-4 h-4 text-amber-500" />
+                        <Settings className="w-4 h-4" />
                       </button>
                     )}
 
