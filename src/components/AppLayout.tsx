@@ -31,6 +31,7 @@ import { forceGoOnline, isQuotaOffline, subscribeToFirestoreMode } from '../serv
 import { markUpdateRead, subscribeToUserUpdates } from '../services/chatPersistence';
 import {
   clearPendingOfflineImports,
+  deleteLocalRateDatabase,
   getPendingOfflineImports,
   type PendingOfflineImport,
 } from '../services/localRateDatabase';
@@ -53,6 +54,8 @@ import {
   UserCheck,
   Check,
   UploadCloud,
+  Trash2,
+  RefreshCw,
 } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
@@ -250,6 +253,21 @@ export const AppLayout: React.FC = () => {
     }
   };
 
+  const handleDeleteOfflineData = async () => {
+    if (!user?.uid) return;
+    if (!window.confirm(`Are you sure you want to delete ${pendingImports.length} offline batch(es) and clear local cached data? This cannot be undone.`)) return;
+    try {
+      await clearPendingOfflineImports(user.uid);
+      await deleteLocalRateDatabase(user.uid).catch(() => {});
+      setPendingImports([]);
+      setBannerNotice('Offline imported data and local cache deleted.');
+      setTimeout(() => setBannerNotice(null), 5000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error deleting offline data';
+      setBannerNotice(`Failed to delete offline data: ${msg}`);
+    }
+  };
+
   const dashboardRates = useMemo(() => buildDashboardRates(effectiveRole, rates), [effectiveRole, rates]);
   useEffect(() => {
     setDashboardFilters(createEmptyDashboardFilters());
@@ -339,20 +357,43 @@ export const AppLayout: React.FC = () => {
                 <UploadCloud className="w-4 h-4 shrink-0 text-slate-950" />
                 <span>You have {pendingImports.length} rate batch(es) imported offline. Connection restored!</span>
               </div>
-              <button
-                type="button"
-                disabled={isSyncingOfflineImports}
-                onClick={handlePushOfflineImportsToCloud}
-                className="bg-slate-950 hover:bg-slate-800 text-amber-400 px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              >
-                <UploadCloud className={`w-3.5 h-3.5 ${isSyncingOfflineImports ? 'animate-spin' : ''}`} />
-                <span>{isSyncingOfflineImports ? 'Pushing...' : 'Push Local Import to Cloud'}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isSyncingOfflineImports}
+                  onClick={handlePushOfflineImportsToCloud}
+                  className="bg-slate-950 hover:bg-slate-800 text-amber-400 px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <UploadCloud className={`w-3.5 h-3.5 ${isSyncingOfflineImports ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingOfflineImports ? 'Pushing...' : 'Push Local Import to Cloud'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isSyncingOfflineImports}
+                  onClick={handleDeleteOfflineData}
+                  className="bg-rose-700 hover:bg-rose-800 text-white px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  title="Delete all pending offline imports and clear cached data"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Offline Data</span>
+                </button>
+              </div>
             </div>
           ) : (
-            <div className="bg-slate-200 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 border-b border-slate-300 dark:border-[#222F43] text-xs px-4 py-2 flex items-center justify-center gap-2 font-medium sticky top-0 z-40">
-              <UploadCloud className="w-4 h-4 shrink-0 opacity-60" />
-              <span>You have {pendingImports.length} rate batch(es) saved locally offline. Connect online to sync to Cloud.</span>
+            <div className="bg-slate-200 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 border-b border-slate-300 dark:border-[#222F43] text-xs px-4 py-2 flex items-center justify-between gap-2 font-medium sticky top-0 z-40">
+              <div className="flex items-center gap-2">
+                <UploadCloud className="w-4 h-4 shrink-0 opacity-60" />
+                <span>You have {pendingImports.length} rate batch(es) saved locally offline. Connect online to sync to Cloud.</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleDeleteOfflineData}
+                className="bg-slate-300 dark:bg-slate-800 hover:bg-rose-600 dark:hover:bg-rose-700 text-slate-700 dark:text-slate-300 hover:text-white dark:hover:text-white px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                title="Delete offline imported rates"
+              >
+                <Trash2 className="w-3 h-3 text-rose-500 hover:text-white" />
+                <span>Delete Offline Data</span>
+              </button>
             </div>
           )
         )}
@@ -511,6 +552,23 @@ export const AppLayout: React.FC = () => {
                         className="p-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-[#18181B] hover:text-amber-500 transition cursor-pointer flex items-center justify-center shrink-0"
                       >
                         <Settings className="w-4 h-4 text-amber-500" />
+                      </button>
+                    )}
+
+                    {/* Re-check Connection / Force Online (when offline or quota limited) */}
+                    {isLocalOnly && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await forceGoOnline(user?.uid || '');
+                          setIsHeaderMenuOpen(false);
+                          window.location.reload();
+                        }}
+                        title="Re-check Connection & Clear Quota Lock"
+                        aria-label="Re-check Connection"
+                        className="p-2 rounded-xl text-amber-500 hover:bg-white dark:hover:bg-[#18181B] transition cursor-pointer flex items-center justify-center shrink-0"
+                      >
+                        <RefreshCw className="w-4 h-4 text-amber-500 animate-spin-hover" />
                       </button>
                     )}
 
@@ -824,6 +882,8 @@ export const AppLayout: React.FC = () => {
             type="button"
             onClick={async () => {
               await forceGoOnline(user?.uid || '');
+              setIsQuotaOfflineMode(false);
+              setShowQuotaToast(false);
               window.location.reload();
             }}
             className="px-3 py-1 bg-amber-400 text-slate-950 rounded-xl text-xs font-black hover:bg-amber-300 transition cursor-pointer shrink-0"

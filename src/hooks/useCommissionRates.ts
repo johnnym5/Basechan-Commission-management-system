@@ -147,7 +147,7 @@ export function useCommissionRates() {
         if (!active) return;
 
         const foundLocal = await showLocal().catch(() => false);
-        if (foundLocal) {
+        if (isQuotaError(syncError)) {
           await enterQuotaOfflineMode(user.uid);
           setQuotaMode(true);
           setError(null);
@@ -155,9 +155,14 @@ export function useCommissionRates() {
           return;
         }
 
-        if (isQuotaError(syncError) || (syncError as { code?: string })?.code === 'permission-denied' || isConnectivityError(syncError) || !navigator.onLine) {
-          await enterQuotaOfflineMode(user.uid);
-          setQuotaMode(true);
+        if (foundLocal) {
+          // Fall back gracefully to local cached data without locking network
+          setError(null);
+          setLoading(false);
+          return;
+        }
+
+        if ((syncError as { code?: string })?.code === 'permission-denied' || isConnectivityError(syncError) || !navigator.onLine) {
           setError('School data needs an online connection for its initial download.');
           setLoading(false);
           return;

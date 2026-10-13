@@ -59,16 +59,9 @@ export function isQuotaOffline(uid: string = auth.currentUser?.uid || ''): boole
     if (!isOffline) return false;
 
     const retryAt = Number(localStorage.getItem(retryKey(uid)));
-    const now = new Date();
 
-    // Auto-expire offline quota lock if retry timestamp is missing, past Date.now(), or from a previous day
+    // Auto-expire offline quota lock if retry timestamp is missing, invalid, or past Date.now()
     if (!Number.isFinite(retryAt) || retryAt <= 0 || Date.now() >= retryAt) {
-      clearQuotaState(uid);
-      return false;
-    }
-
-    const lastRetryDate = new Date(retryAt);
-    if (now.getUTCDate() !== lastRetryDate.getUTCDate() || now.getUTCMonth() !== lastRetryDate.getUTCMonth()) {
       clearQuotaState(uid);
       return false;
     }

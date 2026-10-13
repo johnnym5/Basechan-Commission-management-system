@@ -6,6 +6,7 @@ import { AuditLogsDrawer } from '../AuditLogsDrawer';
 import { DatabaseExplorer } from './DatabaseExplorer';
 import {
   clearPendingOfflineImports,
+  deleteLocalRateDatabase,
   getPendingOfflineImports,
   type PendingOfflineImport,
 } from '../../services/localRateDatabase';
@@ -22,6 +23,7 @@ import {
   Clock,
   Shield,
   UploadCloud,
+  Trash2,
 } from 'lucide-react';
 
 interface DataHealthTabProps {
@@ -132,6 +134,21 @@ export const DataHealthTab: React.FC<DataHealthTabProps> = ({
     }
   };
 
+  const handleDeleteOfflineData = async () => {
+    if (!user?.uid) return;
+    if (!window.confirm(`Are you sure you want to delete ${pendingImports.length} offline batch(es) and clear local cached data? This cannot be undone.`)) return;
+    try {
+      await clearPendingOfflineImports(user.uid);
+      await deleteLocalRateDatabase(user.uid).catch(() => {});
+      await refreshPendingImports();
+      setStatusNotice('Offline imported data and local cache deleted.');
+      onRefreshRates();
+    } catch (err) {
+      console.error('Error deleting offline data:', err);
+      setStatusNotice('Error deleting offline data.');
+    }
+  };
+
   const handleSyncProjections = async () => {
     if (!user) return;
     setIsSyncing(true);
@@ -209,24 +226,36 @@ export const DataHealthTab: React.FC<DataHealthTabProps> = ({
             Manually push offline imported rate sheets and batches stored locally in IndexedDB to Firestore Cloud once connection is restored.
           </p>
 
-          <div className="flex items-center justify-between pt-2">
+          <div className="flex items-center justify-between pt-2 flex-wrap gap-2">
             <div className="text-xs text-slate-500 font-mono font-bold">
               Pending Batches: {pendingImports.length}
             </div>
 
-            <button
-              type="button"
-              disabled={!navigator.onLine || isQuotaMode || pendingImports.length === 0 || isPushing}
-              onClick={handlePushOfflineImportsToCloud}
-              className={`px-5 py-2.5 font-extrabold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-2 ${
-                !navigator.onLine || isQuotaMode || pendingImports.length === 0 || isPushing
-                  ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 disabled opacity-50 cursor-not-allowed'
-                  : 'bg-amber-400 hover:bg-amber-300 text-slate-950 dark:bg-amber-400 dark:hover:bg-amber-300'
-              }`}
-            >
-              <UploadCloud className={`w-4 h-4 ${isPushing ? 'animate-spin' : ''}`} />
-              <span>Push Offline Imports to Cloud</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                disabled={!navigator.onLine || isQuotaMode || pendingImports.length === 0 || isPushing}
+                onClick={handlePushOfflineImportsToCloud}
+                className={`px-5 py-2.5 font-extrabold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-2 ${
+                  !navigator.onLine || isQuotaMode || pendingImports.length === 0 || isPushing
+                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 disabled opacity-50 cursor-not-allowed'
+                    : 'bg-amber-400 hover:bg-amber-300 text-slate-950 dark:bg-amber-400 dark:hover:bg-amber-300'
+                }`}
+              >
+                <UploadCloud className={`w-4 h-4 ${isPushing ? 'animate-spin' : ''}`} />
+                <span>Push Offline Imports to Cloud</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDeleteOfflineData}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-extrabold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                title="Delete all pending offline imports and clear cached data"
+              >
+                <Trash2 className="w-4 h-4 text-rose-400" />
+                <span>Delete Offline Data</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
