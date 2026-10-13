@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   X,
   TrendingUp,
-  FileSpreadsheet,
   Layers,
   Briefcase,
   Award,
@@ -23,24 +22,6 @@ interface SidebarProps {
   effectiveRole?: string;
   onOpenLegal?: () => void;
 }
-
-const SHEET_NAMES = [
-  'RAW DATA',
-  'REAL',
-  'UK - Agents',
-  '2025 AGENT MASTER',
-  'Master Comms',
-  'Oct - Feb 2026',
-  '2026 Jan BIL-AGENT COMMS',
-  '2026 Sept BIL - AGENT COMMS',
-  '2026 AGENT MASTER',
-  'NOTES',
-  'UAP Master List',
-  'MASTER',
-  'EDVOY Master List',
-  'CRIZAC Master List',
-  'SI-UK Master List',
-];
 
 interface NavItemProps {
   name: string;
@@ -227,30 +208,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     rates={[]}
                     isExpanded={isExpandedDesktop}
                   />
-                </div>
-              </div>
-
-              <div>
-                <div
-                  className={`px-3 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5 transition-opacity ${
-                    isExpandedDesktop ? 'opacity-100' : 'lg:opacity-0'
-                  }`}
-                >
-                  Excel Sheets ({SHEET_NAMES.length})
-                </div>
-                <div className="space-y-1">
-                  {SHEET_NAMES.map((sheet) => (
-                    <NavItem
-                      key={sheet}
-                      name={sheet}
-                      icon={FileSpreadsheet}
-                      currentPage={currentPage}
-                      setCurrentPage={setCurrentPage}
-                      setIsOpen={setIsOpen}
-                      rates={rates}
-                      isExpanded={isExpandedDesktop}
-                    />
-                  ))}
                 </div>
               </div>
             </>

@@ -30,7 +30,7 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
   favoriteCount,
   onOpenChat,
 }) => {
-  const [isOverviewOpen, setIsOverviewOpen] = useState<boolean>(true);
+  const [isOverviewOpen, setIsOverviewOpen] = useState<boolean>(false);
   const [isAdvanceFilterOpen, setIsAdvanceFilterOpen] = useState<boolean>(false);
   const [activeTokens, setActiveTokens] = useState<SearchToken[]>([]);
   const [selectedUniversity, setSelectedUniversity] = useState<string>('ALL');
