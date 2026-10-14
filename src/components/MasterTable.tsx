@@ -269,22 +269,29 @@ const GroupRoutesModal: React.FC<{
 
     const singleRoutePerLevel: CommissionRate[] = [];
     levelMap.forEach((ratesForLevel) => {
-      // 1. Check if Admin explicitly set a route as Default (guidance === 'FOCUS')
-      const adminDefault = ratesForLevel.find((r) => r.guidance === 'FOCUS');
-      if (adminDefault) {
-        singleRoutePerLevel.push(adminDefault);
-      } else {
-        // 2. Otherwise: System Recommended Route (Top Yield / Highest Margin)
-        const topYield = ratesForLevel.reduce(
-          (best, curr) => (curr.diffMargin > best.diffMargin ? curr : best),
-          ratesForLevel[0]
+      if (isAgent) {
+        // AGENT ROLE: Strictly use BASECHAN / Direct Sub-Agent Payout Rate (Cols C, D, E)!
+        const basechanRate = ratesForLevel.find(
+          (r) => (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT'
         );
-        singleRoutePerLevel.push(topYield);
+        singleRoutePerLevel.push(basechanRate || ratesForLevel[0]);
+      } else {
+        // STAFF ROLE: Admin Default Route if set (guidance === 'FOCUS'); otherwise System Recommended Route (Top Yield)
+        const adminDefault = ratesForLevel.find((r) => r.guidance === 'FOCUS');
+        if (adminDefault) {
+          singleRoutePerLevel.push(adminDefault);
+        } else {
+          const topYield = ratesForLevel.reduce(
+            (best, curr) => (curr.diffMargin > best.diffMargin ? curr : best),
+            ratesForLevel[0]
+          );
+          singleRoutePerLevel.push(topYield);
+        }
       }
     });
 
     return singleRoutePerLevel;
-  }, [group, isAdmin]);
+  }, [group, isAdmin, isAgent]);
 
   const { activeRoutes, previousRoutes } = useMemo(() => {
     if (!group) return { activeRoutes: [], previousRoutes: [] };

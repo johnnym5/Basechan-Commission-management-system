@@ -240,7 +240,7 @@ export const AgentPortalView: React.FC<AgentPortalViewProps> = ({ rates, chatMod
     return Array.from(set).sort();
   }, [visibleRates]);
 
-  // Filter for AGENTS: Group visibleRates by universityId + studyLevel + intake, keep ONLY Admin-selected route
+  // Filter for AGENTS: Group visibleRates by universityId + studyLevel + intake, keep ONLY BASECHAN / Direct Sub-Agent Payout Rates (Cols C, D, E)
   const agentAuthorizedRates = useMemo(() => {
     const map = new Map<string, CommissionRate[]>();
     visibleRates.forEach((r) => {
@@ -251,13 +251,10 @@ export const AgentPortalView: React.FC<AgentPortalViewProps> = ({ rates, chatMod
 
     const authorized: CommissionRate[] = [];
     map.forEach((ratesForKey) => {
-      const focusRate = ratesForKey.find((r) => r.guidance === 'FOCUS');
-      if (focusRate) {
-        authorized.push(focusRate);
-      } else {
-        const directRate = ratesForKey.find((r) => r.aggregator === 'BASECHAN' || r.aggregator === 'Direct');
-        authorized.push(directRate || ratesForKey[0]);
-      }
+      const basechanRate = ratesForKey.find(
+        (r) => (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT'
+      );
+      authorized.push(basechanRate || ratesForKey[0]);
     });
 
     return authorized;
