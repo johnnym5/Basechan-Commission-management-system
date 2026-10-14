@@ -403,7 +403,7 @@ export const AppLayout: React.FC = () => {
                 </h1>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                   {effectiveRole === 'ADMIN'
-                    ? 'Commission Rates & Profit Margins'
+                    ? 'Master Commission System'
                     : effectiveRole === 'STAFF'
                     ? 'Staff Application Guide'
                     : 'Agent Commission Directory'}

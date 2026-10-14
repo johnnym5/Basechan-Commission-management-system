@@ -7,6 +7,7 @@ import { useTypewriter } from '../hooks/useTypewriter';
 import { resolveUniversityCountry } from '../utils/groupingUtils';
 import { StyledSelect } from './StyledSelect';
 import type { SelectOption } from './StyledSelect';
+import { useAuth } from '../context/AuthContext';
 
 export interface SmartSearchBarProps {
   rates: CommissionRate[];
@@ -90,6 +91,8 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
   onCurrencyChange,
   onResetFilters,
 }) => {
+  const { role } = useAuth();
+  const isAgent = role === 'AGENT';
   const [isFocused, setIsFocused] = useState(false);
   const [localAdvanceOpen, setLocalAdvanceOpen] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -545,49 +548,53 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                 />
               </div>
 
-              <div>
-                <label htmlFor="advance-status-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label>
-                <StyledSelect
-                  id="advance-status-filter"
-                  aria-label="Status"
-                  value={selectedStatus ?? 'ALL'}
-                  onChange={(val) => {
-                    if (val !== 'ALL') {
-                      handleAcceptSuggestion({ id: `status-${val}`, type: 'status', label: val, value: val });
-                    } else {
-                      onStatusChange?.('ALL');
-                      onTokensChange(activeTokens.filter((t) => t.type !== 'status'));
-                    }
-                  }}
-                  options={[
-                    { value: 'ALL', label: 'All Guidance' },
-                    { value: 'FOCUS', label: 'Focus Schools' },
-                    { value: 'ALLOWED', label: 'Allowed' },
-                    { value: 'DO_NOT_USE', label: 'Do Not Use' },
-                  ]}
-                />
-              </div>
+              {!isAgent && (
+                <div>
+                  <label htmlFor="advance-status-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label>
+                  <StyledSelect
+                    id="advance-status-filter"
+                    aria-label="Status"
+                    value={selectedStatus ?? 'ALL'}
+                    onChange={(val) => {
+                      if (val !== 'ALL') {
+                        handleAcceptSuggestion({ id: `status-${val}`, type: 'status', label: val, value: val });
+                      } else {
+                        onStatusChange?.('ALL');
+                        onTokensChange(activeTokens.filter((t) => t.type !== 'status'));
+                      }
+                    }}
+                    options={[
+                      { value: 'ALL', label: 'All Guidance' },
+                      { value: 'FOCUS', label: 'Focus Schools' },
+                      { value: 'ALLOWED', label: 'Allowed' },
+                      { value: 'DO_NOT_USE', label: 'Do Not Use' },
+                    ]}
+                  />
+                </div>
+              )}
 
-              <div>
-                <label htmlFor="advance-portal-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Portal</label>
-                <StyledSelect
-                  id="advance-portal-filter"
-                  aria-label="Application Portal"
-                  value={selectedAggregator ?? 'ALL'}
-                  onChange={(val) => {
-                    if (val !== 'ALL') {
-                      handleAcceptSuggestion({ id: `portal-${val}`, type: 'aggregator', label: val, value: val });
-                    } else {
-                      onAggregatorChange?.('ALL');
-                      onTokensChange(activeTokens.filter((t) => t.type !== 'aggregator'));
-                    }
-                  }}
-                  options={[
-                    { value: 'ALL', label: 'All Portals' },
-                    ...allAggregators.map((a): SelectOption => ({ value: a, label: a })),
-                  ]}
-                />
-              </div>
+              {!isAgent && (
+                <div>
+                  <label htmlFor="advance-portal-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Portal</label>
+                  <StyledSelect
+                    id="advance-portal-filter"
+                    aria-label="Application Portal"
+                    value={selectedAggregator ?? 'ALL'}
+                    onChange={(val) => {
+                      if (val !== 'ALL') {
+                        handleAcceptSuggestion({ id: `portal-${val}`, type: 'aggregator', label: val, value: val });
+                      } else {
+                        onAggregatorChange?.('ALL');
+                        onTokensChange(activeTokens.filter((t) => t.type !== 'aggregator'));
+                      }
+                    }}
+                    options={[
+                      { value: 'ALL', label: 'All Portals' },
+                      ...allAggregators.map((a): SelectOption => ({ value: a, label: a })),
+                    ]}
+                  />
+                </div>
+              )}
 
               <div>
                 <label htmlFor="advance-sort-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Sort By</label>
