@@ -259,24 +259,30 @@ const GroupRoutesModal: React.FC<{
     if (!group) return [];
     if (!isAgent) return group.rates;
 
-    // For AGENT role: keep ONLY BASECHAN / Direct Sub-Agent Payout Rates (Cols C, D, E)
-    const directRates = group.rates.filter((r) => {
-      const agg = (r.aggregator || '').toUpperCase();
-      return agg === 'BASECHAN' || agg === 'DIRECT';
+    // For AGENT role: group rates by studyLevel + intake and keep ONLY the 1 Admin-selected Default Route
+    const levelMap = new Map<string, CommissionRate[]>();
+    group.rates.forEach((r) => {
+      const key = `${r.studyLevel}__${r.intake}`;
+      if (!levelMap.has(key)) levelMap.set(key, []);
+      levelMap.get(key)!.push(r);
     });
 
-    const ratesToUse = directRates.length > 0 ? directRates : [group.rates[0]];
-
-    // Deduplicate / consolidate identical agent payout rates per study level
-    const uniqueMap = new Map<string, CommissionRate>();
-    ratesToUse.forEach((r) => {
-      const key = `${r.studyLevel}__${r.agentRate}__${r.isFlatFee ? 'flat' : 'pct'}`;
-      if (!uniqueMap.has(key)) {
-        uniqueMap.set(key, r);
+    const authorized: CommissionRate[] = [];
+    levelMap.forEach((ratesForLevel) => {
+      // 1. Check if Admin explicitly set a route as Default (guidance === 'FOCUS')
+      const focusRate = ratesForLevel.find((r) => r.guidance === 'FOCUS');
+      if (focusRate) {
+        authorized.push(focusRate);
+      } else {
+        // 2. Fallback to BASECHAN / Direct, or first route
+        const directRate = ratesForLevel.find(
+          (r) => (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT'
+        );
+        authorized.push(directRate || ratesForLevel[0]);
       }
     });
 
-    return Array.from(uniqueMap.values());
+    return authorized;
   }, [group, isAgent]);
 
   const { activeRoutes, previousRoutes } = useMemo(() => {
