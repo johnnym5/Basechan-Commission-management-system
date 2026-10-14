@@ -380,14 +380,27 @@ const GroupRoutesModal: React.FC<{
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="text-right">
-            <span className="text-[9px] font-bold uppercase text-slate-400 block">
-              {isAgent ? 'Your Commission' : 'Profit Yield'}
-            </span>
-            <span className="font-mono font-black text-emerald-600 dark:text-amber-400 text-sm">
-              {formatCurrencyValue(isAgent ? rate.agentRate : rate.diffMargin, currency, rate.isFlatFee)}
-            </span>
-          </div>
+          {isAdmin && (
+            <div className="text-right">
+              <span className="text-[9px] font-bold uppercase text-slate-400 block">
+                Profit Yield
+              </span>
+              <span className="font-mono font-black text-emerald-600 dark:text-amber-400 text-sm">
+                {formatCurrencyValue(rate.diffMargin, currency, rate.isFlatFee)}
+              </span>
+            </div>
+          )}
+
+          {isAgent && (
+            <div className="text-right">
+              <span className="text-[9px] font-bold uppercase text-slate-400 block">
+                Your Commission
+              </span>
+              <span className="font-mono font-black text-emerald-600 dark:text-amber-400 text-sm">
+                {formatCurrencyValue(rate.agentRate, currency, rate.isFlatFee)}
+              </span>
+            </div>
+          )}
 
           <button
             onClick={() => onShare(rate)}

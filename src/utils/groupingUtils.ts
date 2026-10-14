@@ -207,7 +207,7 @@ const MONTH_MAP: Record<string, number> = {
 export const isHistoricalIntake = (
   intake?: string,
   referenceYear: number = new Date().getFullYear(),
-  referenceMonth: number = new Date().getMonth() + 1
+  referenceMonth?: number
 ): boolean => {
   if (!intake) return false;
   const yearMatch = intake.match(/\b(19\d{2}|20\d{2})\b/);
@@ -217,17 +217,16 @@ export const isHistoricalIntake = (
   if (year < referenceYear) return true;
   if (year > referenceYear) return false;
 
-  // Same year: inspect if a month prefix or keyword exists
-  const lower = intake.toLowerCase();
-  for (const [mName, mNum] of Object.entries(MONTH_MAP)) {
-    // Check word boundary or start of intake
-    const regex = new RegExp(`\\b${mName}\\b`, 'i');
-    if (regex.test(lower)) {
-      return mNum < referenceMonth;
+  if (referenceMonth !== undefined) {
+    const lower = intake.toLowerCase();
+    for (const [mName, mNum] of Object.entries(MONTH_MAP)) {
+      const regex = new RegExp(`\\b${mName}\\b`, 'i');
+      if (regex.test(lower)) {
+        return mNum < referenceMonth;
+      }
     }
   }
 
-  // Year-only intake in current year: not classified as historical
   return false;
 };
 
