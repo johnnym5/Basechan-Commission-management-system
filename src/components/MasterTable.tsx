@@ -257,9 +257,9 @@ const GroupRoutesModal: React.FC<{
 
   const displayableRates = useMemo(() => {
     if (!group) return [];
-    if (!isAgent) return group.rates;
+    if (isAdmin) return group.rates;
 
-    // For AGENT role: group rates by studyLevel + intake and keep ONLY the 1 Admin-selected Default Route
+    // For STAFF & AGENT: Show EXPLICITLY 1 single route per study level & intake
     const levelMap = new Map<string, CommissionRate[]>();
     group.rates.forEach((r) => {
       const key = `${r.studyLevel}__${r.intake}`;
@@ -267,23 +267,24 @@ const GroupRoutesModal: React.FC<{
       levelMap.get(key)!.push(r);
     });
 
-    const authorized: CommissionRate[] = [];
+    const singleRoutePerLevel: CommissionRate[] = [];
     levelMap.forEach((ratesForLevel) => {
       // 1. Check if Admin explicitly set a route as Default (guidance === 'FOCUS')
-      const focusRate = ratesForLevel.find((r) => r.guidance === 'FOCUS');
-      if (focusRate) {
-        authorized.push(focusRate);
+      const adminDefault = ratesForLevel.find((r) => r.guidance === 'FOCUS');
+      if (adminDefault) {
+        singleRoutePerLevel.push(adminDefault);
       } else {
-        // 2. Fallback to BASECHAN / Direct, or first route
-        const directRate = ratesForLevel.find(
-          (r) => (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT'
+        // 2. Otherwise: System Recommended Route (Top Yield / Highest Margin)
+        const topYield = ratesForLevel.reduce(
+          (best, curr) => (curr.diffMargin > best.diffMargin ? curr : best),
+          ratesForLevel[0]
         );
-        authorized.push(directRate || ratesForLevel[0]);
+        singleRoutePerLevel.push(topYield);
       }
     });
 
-    return authorized;
-  }, [group, isAgent]);
+    return singleRoutePerLevel;
+  }, [group, isAdmin]);
 
   const { activeRoutes, previousRoutes } = useMemo(() => {
     if (!group) return { activeRoutes: [], previousRoutes: [] };
@@ -459,8 +460,8 @@ const GroupRoutesModal: React.FC<{
 
         {/* Scrollable Routes List */}
         <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs">
-          {/* Best Route Banner - Only for Admin/Staff */}
-          {!isAgent && group.bestRoute && (
+          {/* Best Route Banner - Only for Admin */}
+          {isAdmin && group.bestRoute && (
             <div className="p-3 bg-amber-500/15 border border-amber-400/40 rounded-2xl flex items-center justify-between text-amber-800 dark:text-amber-300">
               <span className="font-extrabold text-xs">
                 Recommended Top Yield Route:
@@ -481,8 +482,8 @@ const GroupRoutesModal: React.FC<{
             {(activeRoutes.length > 0 ? activeRoutes : previousRoutes).length > 0 ? (
               (activeRoutes.length > 0 ? activeRoutes : previousRoutes).map((rate) => renderRouteCard(rate))
             ) : (
-              <p className="text-slate-400 italic text-[11px] py-1">
-                No routes found for this university.
+              <p className="text-slate-400 italic text-xs py-4 text-center">
+                No route/rate found for this uni
               </p>
             )}
           </div>
@@ -1700,8 +1701,8 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           {/* GROUP BY UNIVERSITY */}
           {effectiveGroupByMode === 'UNIVERSITY' ? (
             groupedUniversities.length === 0 ? (
-              <div className="p-8 text-center text-slate-500 bg-white dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] text-xs">
-                No matching universities found.
+              <div className="p-8 text-center text-slate-500 bg-white dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] text-xs font-semibold">
+                No route/rate found for this uni
               </div>
             ) : (
               <>

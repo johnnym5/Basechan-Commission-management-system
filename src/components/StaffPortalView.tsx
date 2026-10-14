@@ -238,8 +238,31 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ rates, chatMod
     return Array.from(set).sort();
   }, [visibleRates]);
 
+  // For STAFF role: Keep ONLY 1 route per study level & intake (Admin default route if set, otherwise System Recommended Top Yield Route)
+  const staffAuthorizedRates = useMemo(() => {
+    const map = new Map<string, CommissionRate[]>();
+    visibleRates.forEach((r) => {
+      const key = `${r.universityId || r.universityName}__${r.studyLevel}__${r.intake}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    });
+
+    const authorized: CommissionRate[] = [];
+    map.forEach((ratesForKey) => {
+      const focusRate = ratesForKey.find((r) => r.guidance === 'FOCUS');
+      if (focusRate) {
+        authorized.push(focusRate);
+      } else {
+        const topYield = ratesForKey.reduce((best, curr) => (curr.diffMargin > best.diffMargin ? curr : best), ratesForKey[0]);
+        authorized.push(topYield);
+      }
+    });
+
+    return authorized;
+  }, [visibleRates]);
+
   const filteredRates = useMemo(() => {
-    return visibleRates.filter((row) => {
+    return staffAuthorizedRates.filter((row) => {
       if (onlyShowStarred && !isStarred(watchlist, row.universityName)) return false;
 
       if (searchQuery) {
