@@ -1,13 +1,414 @@
-import type { CommissionRate, StudyLevel } from '../types';
+import * as XLSX from 'xlsx';
+import type { CommissionRate } from '../types';
 import { generateCompositeId, normalizeUniversitySlug } from './excelParser';
 import { resolveUniversityCountry } from './countryResolver';
 
-export interface ParsedRateCell {
+// -------------------------------------------------------------
+// TYPE DEFINITIONS & SCHEMAS
+// -------------------------------------------------------------
+export type RateType = 'PERCENT' | 'FIXED' | 'TBC' | 'NONE';
+
+export interface ParsedRate {
+  type: RateType;
+  value: number | null;        // Decimals (e.g., 0.15 for 15%) or raw currency float (1800.0)
+  displayValue: string | null; // e.g., "15%" or "CAD 1,800.00"
+  currency?: string | null;    // "CAD", "USD", "EUR", "GBP", "CHF", etc.
   raw: string;
-  type: 'percentage' | 'fixed_fee' | 'unconfirmed' | 'text';
-  value: number | null;
-  displayValue: string;
-  currency: string | null;
+}
+
+export interface InstitutionMasterRecord {
+  id: string;
+  country: string;
+  university: string;
+  commissionType: 'Percentage' | 'Fixed Fee' | 'Mixed (Fee/%)' | 'Unknown';
+  baselineIntake: string;
+
+  // Basechan Offered Agent Rates
+  agentRateFD: ParsedRate;
+  agentRateUG: ParsedRate;
+  agentRatePG: ParsedRate;
+
+  // Master Direct Contract Rates
+  masterRateUG: ParsedRate;
+  masterRatePG: ParsedRate;
+
+  // Competitor Aggregator Benchmarks
+  competitors: {
+    edvoy: { ug: ParsedRate; pg: ParsedRate };
+    siUk: { ug: ParsedRate; pg: ParsedRate };
+    uap: { ug: ParsedRate; pg: ParsedRate };
+    crizac: { ug: ParsedRate; pg: ParsedRate };
+    kcOverseas: { ug: ParsedRate; pg: ParsedRate };
+    aimsEducation: { ug: ParsedRate; pg: ParsedRate };
+  };
+
+  // Derived Business Analytics
+  analytics: {
+    grossMarginSpreadUG: number | null; // Master UG - Agent UG (if both are percent)
+    grossMarginSpreadPG: number | null; // Master PG - Agent PG (if both are percent)
+    bestCompetitorRateUG: { aggregator: string; rate: ParsedRate } | null;
+    isBasechanCompetitiveUG: boolean;
+  };
+}
+
+// -------------------------------------------------------------
+// RATE PARSER ENGINE
+// -------------------------------------------------------------
+export function parseRateCell(input: any): ParsedRate {
+  if (input === null || input === undefined) {
+    return { type: 'NONE', value: null, displayValue: null, raw: '' };
+  }
+
+  const str = String(input).trim();
+
+  // 1. Check for empty / unoffered values
+  if (!str || str === '-' || str === '–' || str === '—' || str.toLowerCase() === 'n/a') {
+    return { type: 'NONE', value: null, displayValue: null, raw: str };
+  }
+
+  // 2. Check for TBC (To Be Confirmed)
+  if (str.toUpperCase() === 'TBC') {
+    return { type: 'TBC', value: null, displayValue: 'TBC', raw: str };
+  }
+
+  // 3. Percentage Parsing (e.g. "10.50%", "15%")
+  if (str.includes('%')) {
+    const numericPart = parseFloat(str.replace(/[^0-9.-]/g, ''));
+    if (!isNaN(numericPart)) {
+      return {
+        type: 'PERCENT',
+        value: numericPart / 100, // Normalized decimal for calculations
+        displayValue: `${numericPart}%`,
+        currency: null,
+        raw: str
+      };
+    }
+  }
+
+  // 4. Currency Fixed Fee Parsing (e.g., "CAD 1,800.00", "USD 2,500.00", "EUR 1,050.00", "CHF 600.00")
+  const currencyRegex = /^([A-Z]{3}|\$|€|£)?\s*([\d,]+(?:\.\d+)?)\s*([A-Z]{3})?$/i;
+  const match = str.match(currencyRegex);
+
+  if (match) {
+    const rawCurrency = (match[1] || match[3] || '').toUpperCase();
+    if (rawCurrency) {
+      const cleanNumber = parseFloat(match[2].replace(/,/g, ''));
+
+      let normalizedCurrency = 'LOCAL';
+      if (rawCurrency.includes('USD') || rawCurrency === '$') normalizedCurrency = 'USD';
+      else if (rawCurrency.includes('CAD')) normalizedCurrency = 'CAD';
+      else if (rawCurrency.includes('EUR') || rawCurrency === '€') normalizedCurrency = 'EUR';
+      else if (rawCurrency.includes('GBP') || rawCurrency === '£') normalizedCurrency = 'GBP';
+      else if (rawCurrency.includes('CHF')) normalizedCurrency = 'CHF';
+
+      if (!isNaN(cleanNumber)) {
+        return {
+          type: 'FIXED',
+          value: cleanNumber,
+          displayValue: `${normalizedCurrency} ${cleanNumber.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          currency: normalizedCurrency,
+          raw: str
+        };
+      }
+    }
+  }
+
+  // 5. Fallback pure numeric check (e.g., raw numeric in cell like 0.105 or fixed 2000)
+  const numericVal = parseFloat(str.replace(/,/g, ''));
+  if (!isNaN(numericVal)) {
+    // If it's a decimal like 0.15, Excel stored it as a percent
+    if (numericVal > 0 && numericVal <= 1) {
+      return {
+        type: 'PERCENT',
+        value: numericVal,
+        displayValue: `${(numericVal * 100).toFixed(2)}%`,
+        currency: null,
+        raw: str
+      };
+    }
+    // Otherwise, treat as flat amount
+    return {
+      type: 'FIXED',
+      value: numericVal,
+      displayValue: `${numericVal}`,
+      currency: null,
+      raw: str
+    };
+  }
+
+  return { type: 'NONE', value: null, displayValue: null, raw: str };
+}
+
+// -------------------------------------------------------------
+// WORKBOOK PARSER (Dynamic Row Ingestion)
+// -------------------------------------------------------------
+export function parseMasterCommissionWorkbook(bufferOrPath: ArrayBuffer | string): {
+  metadata: Record<string, any>;
+  records: InstitutionMasterRecord[];
+  errors: Array<{ row: number; reason: string }>;
+} {
+  const workbook = typeof bufferOrPath === 'string'
+    ? XLSX.readFile(bufferOrPath)
+    : XLSX.read(bufferOrPath, { type: 'array' });
+
+  // Locate the target sheet or fallback to sheet 0
+  const sheetName = workbook.SheetNames.find(name => name.includes('MASTER') || name.includes('CONSOLIDATED')) || workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+
+  // Convert raw sheet data into 2D grid
+  const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+  let headerRowIndex = -1;
+  const colMap: Record<string, number> = {};
+
+  // Find header row dynamically (looking for 'Country' and 'University')
+  for (let r = 0; r < Math.min(rawRows.length, 15); r++) {
+    if (!Array.isArray(rawRows[r])) continue;
+    const row = rawRows[r].map(c => String(c).trim().toLowerCase());
+    if ((row.includes('country') || row.includes('location')) && (row.includes('university') || row.includes('institution') || row.includes('university name'))) {
+      headerRowIndex = r;
+      rawRows[r].forEach((cellValue, colIdx) => {
+        const normalized = String(cellValue).trim().toLowerCase();
+        colMap[normalized] = colIdx;
+      });
+      break;
+    }
+  }
+
+  // Fallback: search for university / institution column if country column name differs
+  if (headerRowIndex === -1) {
+    for (let r = 0; r < Math.min(rawRows.length, 15); r++) {
+      if (!Array.isArray(rawRows[r])) continue;
+      const row = rawRows[r].map(c => String(c).trim().toLowerCase());
+      if (row.includes('university') || row.includes('institution') || row.includes('university name')) {
+        headerRowIndex = r;
+        rawRows[r].forEach((cellValue, colIdx) => {
+          const normalized = String(cellValue).trim().toLowerCase();
+          colMap[normalized] = colIdx;
+        });
+        break;
+      }
+    }
+  }
+
+  if (headerRowIndex === -1) {
+    throw new Error('Invalid Document Schema: Unable to locate Header row containing "Country" and "University".');
+  }
+
+  // Parse Top Summary Metadata (from rows before the header)
+  const metadata: Record<string, any> = {};
+  if (headerRowIndex >= 2) {
+    const kpiHeaders = rawRows[0];
+    const kpiValues = rawRows[1];
+    if (Array.isArray(kpiHeaders) && Array.isArray(kpiValues)) {
+      kpiHeaders.forEach((k: any, i: number) => {
+        if (k && kpiValues[i] !== undefined) {
+          metadata[String(k).trim()] = kpiValues[i];
+        }
+      });
+    }
+  }
+
+  const records: InstitutionMasterRecord[] = [];
+  const errors: Array<{ row: number; reason: string }> = [];
+
+  const getCol = (row: any[], name: string): any => {
+    let idx = colMap[name.toLowerCase()];
+    if (idx === undefined) {
+      const lower = name.toLowerCase();
+      if (lower === 'university') {
+        idx = colMap['institution'] ?? colMap['university name'];
+      } else if (lower === 'country') {
+        idx = colMap['location'];
+      }
+    }
+    return idx !== undefined && row[idx] !== undefined ? row[idx] : '';
+  };
+
+  // Iterate institution rows
+  for (let r = headerRowIndex + 1; r < rawRows.length; r++) {
+    const row = rawRows[r];
+    if (!Array.isArray(row)) continue;
+    const country = String(getCol(row, 'Country')).trim();
+    const university = String(getCol(row, 'University')).trim();
+
+    // Skip empty separator rows
+    if (!country && !university) continue;
+
+    try {
+      const agentRateFD = parseRateCell(getCol(row, 'Agent Rate (FD)'));
+      const agentRateUG = parseRateCell(getCol(row, 'Agent Rate (UG)'));
+      const agentRatePG = parseRateCell(getCol(row, 'Agent Rate (PG)'));
+
+      const masterRateUG = parseRateCell(getCol(row, 'Master Original Rate (UG)'));
+      const masterRatePG = parseRateCell(getCol(row, 'Master Original Rate (PG)'));
+
+      const edvoyUG = parseRateCell(getCol(row, 'EDVOY (UG)'));
+      const edvoyPG = parseRateCell(getCol(row, 'EDVOY (PG)'));
+      const siUkUG = parseRateCell(getCol(row, 'SI-UK (UG)'));
+      const siUkPG = parseRateCell(getCol(row, 'SI-UK (PG)'));
+      const uapUG = parseRateCell(getCol(row, 'UAP (UG)'));
+      const uapPG = parseRateCell(getCol(row, 'UAP (PG)'));
+      const crizacUG = parseRateCell(getCol(row, 'CRIZAC (UG)'));
+      const crizacPG = parseRateCell(getCol(row, 'CRIZAC (PG)'));
+      const kcOverseasUG = parseRateCell(getCol(row, 'KC OVERSEAS (UG)'));
+      const kcOverseasPG = parseRateCell(getCol(row, 'KC OVERSEAS (PG)'));
+      const aimsUG = parseRateCell(getCol(row, 'AIMS EDUCATION (UG)'));
+      const aimsPG = parseRateCell(getCol(row, 'AIMS EDUCATION (PG)'));
+
+      // Gross Margin Spreads
+      let grossMarginSpreadUG: number | null = null;
+      if (masterRateUG.type === 'PERCENT' && agentRateUG.type === 'PERCENT' && masterRateUG.value !== null && agentRateUG.value !== null) {
+        grossMarginSpreadUG = parseFloat(((masterRateUG.value - agentRateUG.value) * 100).toFixed(2));
+      }
+
+      let grossMarginSpreadPG: number | null = null;
+      if (masterRatePG.type === 'PERCENT' && agentRatePG.type === 'PERCENT' && masterRatePG.value !== null && agentRatePG.value !== null) {
+        grossMarginSpreadPG = parseFloat(((masterRatePG.value - agentRatePG.value) * 100).toFixed(2));
+      }
+
+      // Benchmark competitive comparison (UG)
+      const competitorRates = [
+        { aggregator: 'EDVOY', rate: edvoyUG },
+        { aggregator: 'SI-UK', rate: siUkUG },
+        { aggregator: 'UAP', rate: uapUG },
+        { aggregator: 'CRIZAC', rate: crizacUG },
+        { aggregator: 'KC OVERSEAS', rate: kcOverseasUG },
+        { aggregator: 'AIMS EDUCATION', rate: aimsUG }
+      ].filter(c => c.rate.type === 'PERCENT' && c.rate.value !== null);
+
+      let bestCompetitor: { aggregator: string; rate: ParsedRate } | null = null;
+      let isBasechanCompetitiveUG = true;
+
+      if (competitorRates.length > 0) {
+        bestCompetitor = competitorRates.reduce((max, c) => ((c.rate.value ?? 0) > (max.rate.value ?? 0) ? c : max), competitorRates[0]);
+        if (agentRateUG.type === 'PERCENT' && agentRateUG.value !== null) {
+          isBasechanCompetitiveUG = agentRateUG.value >= (bestCompetitor.rate.value ?? 0);
+        }
+      }
+
+      records.push({
+        id: `${country}_${university}_${r}`.replace(/\s+/g, '_').toLowerCase(),
+        country,
+        university,
+        commissionType: (getCol(row, 'Commission Type') as any) || 'Unknown',
+        baselineIntake: String(getCol(row, 'Baseline Intake')).trim(),
+        agentRateFD,
+        agentRateUG,
+        agentRatePG,
+        masterRateUG,
+        masterRatePG,
+        competitors: {
+          edvoy: { ug: edvoyUG, pg: edvoyPG },
+          siUk: { ug: siUkUG, pg: siUkPG },
+          uap: { ug: uapUG, pg: uapPG },
+          crizac: { ug: crizacUG, pg: crizacPG },
+          kcOverseas: { ug: kcOverseasUG, pg: kcOverseasPG },
+          aimsEducation: { ug: aimsUG, pg: aimsPG }
+        },
+        analytics: {
+          grossMarginSpreadUG,
+          grossMarginSpreadPG,
+          bestCompetitorRateUG: bestCompetitor,
+          isBasechanCompetitiveUG
+        }
+      });
+    } catch (err: any) {
+      errors.push({ row: r + 1, reason: err.message });
+    }
+  }
+
+  return { metadata, records, errors };
+}
+
+/**
+ * Utility helper to convert InstitutionMasterRecords into flat CommissionRate[] list for existing UI views.
+ */
+export function institutionRecordsToCommissionRates(
+  records: InstitutionMasterRecord[],
+  sheetName = '2027 Master Baseline'
+): CommissionRate[] {
+  const list: CommissionRate[] = [];
+
+  records.forEach((record) => {
+    const universityName = record.university;
+    const universityId = normalizeUniversitySlug(universityName);
+    const country = resolveUniversityCountry(universityName, record.country) || record.country || 'UK';
+    const intake = record.baselineIntake || '2027';
+
+    // Agent FD
+    if (record.agentRateFD.type !== 'NONE' && record.agentRateFD.value !== null) {
+      const id = generateCompositeId(universityName, intake, 'BASECHAN', 'FD');
+      list.push({
+        id,
+        universityId,
+        universityName,
+        country,
+        intake,
+        aggregator: 'BASECHAN',
+        studyLevel: 'FD',
+        masterRate: record.agentRateFD.value * (record.agentRateFD.type === 'PERCENT' ? 100 : 1),
+        agentRate: record.agentRateFD.value * (record.agentRateFD.type === 'PERCENT' ? 100 : 1),
+        diffMargin: 0,
+        isFlatFee: record.agentRateFD.type === 'FIXED',
+        netOrGross: 'NET',
+        sourceSheet: sheetName,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    // UG Direct
+    const masterUgVal = record.masterRateUG.value ?? record.agentRateUG.value ?? 0;
+    const agentUgVal = record.agentRateUG.value ?? 0;
+    const isPercentUg = record.agentRateUG.type === 'PERCENT' || record.masterRateUG.type === 'PERCENT';
+    const ugMaster = isPercentUg ? masterUgVal * 100 : masterUgVal;
+    const ugAgent = isPercentUg ? agentUgVal * 100 : agentUgVal;
+
+    const ugId = generateCompositeId(universityName, intake, 'BASECHAN', 'UG');
+    list.push({
+      id: ugId,
+      universityId,
+      universityName,
+      country,
+      intake,
+      aggregator: 'BASECHAN',
+      studyLevel: 'UG',
+      masterRate: parseFloat(ugMaster.toFixed(2)),
+      agentRate: parseFloat(ugAgent.toFixed(2)),
+      diffMargin: record.analytics.grossMarginSpreadUG ?? parseFloat((ugMaster - ugAgent).toFixed(2)),
+      isFlatFee: record.agentRateUG.type === 'FIXED',
+      netOrGross: 'NET',
+      sourceSheet: sheetName,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // PG Direct
+    const masterPgVal = record.masterRatePG.value ?? record.agentRatePG.value ?? 0;
+    const agentPgVal = record.agentRatePG.value ?? 0;
+    const isPercentPg = record.agentRatePG.type === 'PERCENT' || record.masterRatePG.type === 'PERCENT';
+    const pgMaster = isPercentPg ? masterPgVal * 100 : masterPgVal;
+    const pgAgent = isPercentPg ? agentPgVal * 100 : agentPgVal;
+
+    const pgId = generateCompositeId(universityName, intake, 'BASECHAN', 'PG');
+    list.push({
+      id: pgId,
+      universityId,
+      universityName,
+      country,
+      intake,
+      aggregator: 'BASECHAN',
+      studyLevel: 'PG',
+      masterRate: parseFloat(pgMaster.toFixed(2)),
+      agentRate: parseFloat(pgAgent.toFixed(2)),
+      diffMargin: record.analytics.grossMarginSpreadPG ?? parseFloat((pgMaster - pgAgent).toFixed(2)),
+      isFlatFee: record.agentRatePG.type === 'FIXED',
+      netOrGross: 'NET',
+      sourceSheet: sheetName,
+      updatedAt: new Date().toISOString(),
+    });
+  });
+
+  return list;
 }
 
 export interface KPISummaryMetadata {
@@ -18,197 +419,6 @@ export interface KPISummaryMetadata {
   comparedAggregators?: number | null;
 }
 
-/**
- * Parses individual Excel rate cell values into structured rate objects.
- */
-export function parseRateCell(val: string | number | null | undefined): ParsedRateCell | null {
-  if (val === null || val === undefined) return null;
-
-  if (typeof val === 'number') {
-    if (isNaN(val) || !isFinite(val) || val === 0) return null;
-    if (val > 0 && val <= 1) {
-      const percentageValue = parseFloat((val * 100).toFixed(4));
-      return {
-        raw: String(val),
-        type: 'percentage',
-        value: percentageValue,
-        displayValue: `${percentageValue}%`,
-        currency: null,
-      };
-    }
-    return {
-      raw: String(val),
-      type: 'fixed_fee',
-      value: val,
-      displayValue: String(val),
-      currency: null,
-    };
-  }
-
-  const s = String(val).trim();
-  if (!s || s === '-' || s === '--' || s === '---' || s === ' - ') return null;
-
-  const upper = s.toUpperCase();
-  if (upper === 'N/A' || upper === 'NIL' || upper === '#N/A' || upper === '#VALUE!') {
-    return null;
-  }
-
-  if (upper === 'TBC' || upper === 'TBD' || upper === 'UNCONFIRMED' || upper === 'TO BE CONFIRMED') {
-    return {
-      raw: s,
-      type: 'unconfirmed',
-      value: null,
-      displayValue: s,
-      currency: null,
-    };
-  }
-
-  if (s.includes('%')) {
-    const numericPart = parseFloat(s.replace(/[^0-9.]/g, ''));
-    if (!isNaN(numericPart)) {
-      return {
-        raw: s,
-        type: 'percentage',
-        value: numericPart,
-        displayValue: s,
-        currency: null,
-      };
-    }
-  }
-
-  const currencyMatch = s.match(/\b(CAD|USD|EUR|CHF|GBP|AUD|NZD|SGD|HKD|JPY)\b/i) || s.match(/([£$€¥])/);
-  if (currencyMatch) {
-    let currency: string | null = null;
-    const matched = currencyMatch[0];
-    if (/[a-zA-Z]/.test(matched)) {
-      currency = matched.toUpperCase();
-    } else if (matched === '£') {
-      currency = 'GBP';
-    } else if (matched === '$') {
-      currency = 'USD';
-    } else if (matched === '€') {
-      currency = 'EUR';
-    } else if (matched === '¥') {
-      currency = 'JPY';
-    }
-
-    const cleanNumStr = s.replace(/[^0-9.]/g, '');
-    const num = parseFloat(cleanNumStr);
-    if (!isNaN(num)) {
-      return {
-        raw: s,
-        type: 'fixed_fee',
-        value: num,
-        displayValue: s,
-        currency,
-      };
-    }
-  }
-
-  const cleanNumericStr = s.replace(/,/g, '');
-  if (/^\d+(\.\d+)?$/.test(cleanNumericStr)) {
-    const num = parseFloat(cleanNumericStr);
-    if (!isNaN(num)) {
-      return {
-        raw: s,
-        type: 'fixed_fee',
-        value: num,
-        displayValue: s,
-        currency: null,
-      };
-    }
-  }
-
-  return {
-    raw: s,
-    type: 'text',
-    value: null,
-    displayValue: s,
-    currency: null,
-  };
-}
-
-/**
- * Extracts KPI summary metadata from the top header rows of the sheet.
- */
-export function parseKPIMetadata(rows: any[][]): KPISummaryMetadata {
-  const metadata: KPISummaryMetadata = {};
-  const maxScan = Math.min(10, rows.length);
-
-  for (let r = 0; r < maxScan; r++) {
-    const row = rows[r];
-    if (!Array.isArray(row)) continue;
-
-    for (let c = 0; c < row.length; c++) {
-      const cellVal = String(row[c] || '').trim();
-      if (!cellVal) continue;
-
-      if (/total\s+institutions?/i.test(cellVal)) {
-        const numMatch = cellVal.match(/\d+/);
-        if (numMatch) {
-          metadata.totalInstitutions = parseInt(numMatch[0], 10);
-        } else if (row[c + 1] !== undefined) {
-          const nextVal = parseInt(String(row[c + 1]), 10);
-          if (!isNaN(nextVal)) metadata.totalInstitutions = nextVal;
-        }
-      }
-
-      if (/countries?/i.test(cellVal) && !metadata.countriesCount) {
-        const numMatch = cellVal.match(/countries?:\s*(\d+)/i) || cellVal.match(/\b\d+\b/);
-        if (cellVal.includes(':') && numMatch) {
-          metadata.countriesCount = parseInt(numMatch[1] || numMatch[0], 10);
-        } else if (row[c + 1] !== undefined) {
-          const nextVal = parseInt(String(row[c + 1]), 10);
-          if (!isNaN(nextVal)) metadata.countriesCount = nextVal;
-        }
-      }
-
-      if (/avg\s+(ug\/pg|commission)?/i.test(cellVal)) {
-        const match = cellVal.match(/[\d.]+%?/);
-        if (match) {
-          metadata.avgUgPgPercent = match[0];
-        } else if (row[c + 1] !== undefined) {
-          metadata.avgUgPgPercent = String(row[c + 1]).trim();
-        }
-      }
-
-      if (/target\s+intake/i.test(cellVal)) {
-        const parts = cellVal.split(':');
-        if (parts.length > 1 && parts[1].trim()) {
-          metadata.targetIntake = parts[1].trim();
-        } else if (row[c + 1] !== undefined) {
-          metadata.targetIntake = String(row[c + 1]).trim();
-        }
-      }
-
-      if (/compared\s+aggregators?/i.test(cellVal)) {
-        const numMatch = cellVal.match(/\d+/);
-        if (numMatch) {
-          metadata.comparedAggregators = parseInt(numMatch[0], 10);
-        } else if (row[c + 1] !== undefined) {
-          const nextVal = parseInt(String(row[c + 1]), 10);
-          if (!isNaN(nextVal)) metadata.comparedAggregators = nextVal;
-        }
-      }
-    }
-  }
-
-  return metadata;
-}
-
-const KNOWN_AGGREGATORS = [
-  'BASECHAN',
-  'EDVOY',
-  'SI-UK',
-  'UAP',
-  'CRIZAC',
-  'KC OVERSEAS',
-  'AIMS EDUCATION',
-];
-
-/**
- * Detects whether a sheet name or row content represents a 2027 AGENT CONSOLIDATED MASTER sheet.
- */
 export function is2027AgentMasterSheet(sheetName: string, rows?: any[][]): boolean {
   const normName = (sheetName || '').trim().toUpperCase();
   if (
@@ -240,194 +450,54 @@ export function is2027AgentMasterSheet(sheetName: string, rows?: any[][]): boole
   return false;
 }
 
-/**
- * Parses the 2027 Agent Consolidated Master Sheet into Firestore-ready CommissionRate records.
- */
+export function parseKPIMetadata(rows: any[][]): KPISummaryMetadata {
+  const metadata: KPISummaryMetadata = {};
+  if (!rows || rows.length === 0) return metadata;
+
+  const maxScan = Math.min(10, rows.length);
+  for (let r = 0; r < maxScan; r++) {
+    const row = rows[r];
+    if (!Array.isArray(row)) continue;
+
+    for (let c = 0; c < row.length; c++) {
+      const cellVal = String(row[c] || '').trim();
+      if (!cellVal) continue;
+
+      if (/total\s+institutions?/i.test(cellVal)) {
+        const numMatch = cellVal.match(/\d+/);
+        if (numMatch) {
+          metadata.totalInstitutions = parseInt(numMatch[0], 10);
+        }
+      }
+      if (/countries?/i.test(cellVal) && !metadata.countriesCount) {
+        const numMatch = cellVal.match(/\d+/);
+        if (numMatch) {
+          metadata.countriesCount = parseInt(numMatch[0], 10);
+        }
+      }
+      if (/target\s+intake/i.test(cellVal)) {
+        const parts = cellVal.split(':');
+        if (parts.length > 1 && parts[1].trim()) {
+          metadata.targetIntake = parts[1].trim();
+        }
+      }
+    }
+  }
+
+  return metadata;
+}
+
 export function parseAgentMasterSheet(
   rows: any[][],
   sheetName = '2027 Master Baseline'
 ): CommissionRate[] {
   if (!rows || rows.length === 0) return [];
 
-  const metadata = parseKPIMetadata(rows);
-  const intake = metadata.targetIntake || '2027';
+  const worksheet = XLSX.utils.aoa_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
-  let headerRowIdx = -1;
-  let uniCol = 0;
-  let countryCol = 1;
-  let baselineFdCol = 2;
-  let baselineUgCol = 3;
-  let baselinePgCol = 4;
-
-  const aggCols: Record<string, { ug?: number; pg?: number }> = {
-    BASECHAN: { ug: 5, pg: 6 },
-    EDVOY: { ug: 7, pg: 8 },
-    'SI-UK': { ug: 9, pg: 10 },
-    UAP: { ug: 11, pg: 12 },
-    CRIZAC: { ug: 13, pg: 14 },
-    'KC OVERSEAS': { ug: 15, pg: 16 },
-    'AIMS EDUCATION': { ug: 17, pg: 18 },
-  };
-
-  for (let r = 0; r < Math.min(15, rows.length); r++) {
-    const row = rows[r];
-    if (!Array.isArray(row)) continue;
-
-    for (let c = 0; c < row.length; c++) {
-      const cell = String(row[c] || '').trim().toLowerCase();
-      if (cell === 'institution' || cell === 'university' || cell === 'university name') {
-        headerRowIdx = r;
-        uniCol = c;
-        break;
-      }
-    }
-    if (headerRowIdx !== -1) break;
-  }
-
-  if (headerRowIdx !== -1) {
-    const headerRow = rows[headerRowIdx];
-    for (let c = 0; c < headerRow.length; c++) {
-      const h = String(headerRow[c] || '').trim().toLowerCase();
-      if (!h) continue;
-
-      if (h.includes('country') || h.includes('location')) countryCol = c;
-      else if (h.includes('baseline') && h.includes('fd')) baselineFdCol = c;
-      else if (h.includes('baseline') && h.includes('ug')) baselineUgCol = c;
-      else if (h.includes('baseline') && h.includes('pg')) baselinePgCol = c;
-      else {
-        for (const agg of KNOWN_AGGREGATORS) {
-          const aggKey = agg.toLowerCase();
-          if (h.includes(aggKey)) {
-            if (!aggCols[agg]) aggCols[agg] = {};
-            if (h.includes('ug')) aggCols[agg].ug = c;
-            else if (h.includes('pg')) aggCols[agg].pg = c;
-          }
-        }
-      }
-    }
-  }
-
-  const startRow = headerRowIdx !== -1 ? headerRowIdx + 1 : 0;
-  const rateMap = new Map<string, CommissionRate>();
-
-  for (let r = startRow; r < rows.length; r++) {
-    const row = rows[r];
-    if (!Array.isArray(row)) continue;
-
-    const rawUni = String(row[uniCol] || '').trim();
-    if (!rawUni || rawUni === '-') continue;
-
-    const lowerUni = rawUni.toLowerCase();
-    if (
-      lowerUni.includes('total') ||
-      lowerUni.includes('summary') ||
-      lowerUni.includes('average') ||
-      lowerUni === 'institution' ||
-      lowerUni === 'university'
-    ) {
-      continue;
-    }
-
-    const universityName = rawUni;
-    const universityId = normalizeUniversitySlug(universityName);
-    const rawCountry = row[countryCol] !== undefined ? String(row[countryCol]).trim() : '';
-    const country = resolveUniversityCountry(universityName, rawCountry);
-
-    const parsedBaselineFd = parseRateCell(row[baselineFdCol]);
-    const parsedBaselineUg = parseRateCell(row[baselineUgCol]);
-    const parsedBaselinePg = parseRateCell(row[baselinePgCol]);
-
-    for (const agg of KNOWN_AGGREGATORS) {
-      const cols = aggCols[agg];
-      if (!cols) continue;
-
-      const ugVal = cols.ug !== undefined ? row[cols.ug] : undefined;
-      const pgVal = cols.pg !== undefined ? row[cols.pg] : undefined;
-
-      const parsedUg = parseRateCell(ugVal);
-      const parsedPg = parseRateCell(pgVal);
-
-      const levelConfigs: { level: StudyLevel; cell: ParsedRateCell | null; baselineCell: ParsedRateCell | null }[] = [
-        { level: 'UG', cell: parsedUg, baselineCell: parsedBaselineUg },
-        { level: 'PG', cell: parsedPg, baselineCell: parsedBaselinePg },
-      ];
-
-      for (const { level, cell, baselineCell } of levelConfigs) {
-        const effectiveCell = cell || (agg === 'BASECHAN' ? baselineCell : null);
-        if (!effectiveCell) continue;
-
-        let masterRate = 0;
-        let agentRate = 0;
-
-        if (baselineCell && baselineCell.value !== null) {
-          masterRate = baselineCell.value;
-        } else if (effectiveCell.value !== null) {
-          masterRate = effectiveCell.value;
-        }
-
-        if (effectiveCell.value !== null) {
-          agentRate = effectiveCell.value;
-        }
-
-        const diffMargin = parseFloat((masterRate - agentRate).toFixed(2));
-        const isFlatFee = effectiveCell.type === 'fixed_fee';
-
-        let notes: string | undefined;
-        if (effectiveCell.type === 'unconfirmed') {
-          notes = 'Rate Unconfirmed (TBC)';
-        } else if (effectiveCell.currency) {
-          notes = `Currency: ${effectiveCell.currency}`;
-        }
-
-        const id = generateCompositeId(universityName, intake, agg, level);
-
-        const rateObj: CommissionRate = {
-          id,
-          universityId,
-          universityName,
-          country: country || 'UK',
-          intake,
-          aggregator: agg || 'Direct',
-          studyLevel: level,
-          masterRate,
-          agentRate,
-          diffMargin,
-          isFlatFee,
-          netOrGross: 'NET',
-          guidance: 'ALLOWED',
-          notes: notes || '',
-          sourceSheet: sheetName,
-          sourceRow: r + 1,
-          updatedAt: new Date().toISOString(),
-        };
-
-        rateMap.set(id, rateObj);
-      }
-    }
-
-    if (parsedBaselineFd && parsedBaselineFd.value !== null) {
-      const fdId = generateCompositeId(universityName, intake, 'BASECHAN', 'FD');
-      if (!rateMap.has(fdId)) {
-        rateMap.set(fdId, {
-          id: fdId,
-          universityId,
-          universityName,
-          country,
-          intake,
-          aggregator: 'BASECHAN',
-          studyLevel: 'FD',
-          masterRate: parsedBaselineFd.value,
-          agentRate: parsedBaselineFd.value,
-          diffMargin: 0,
-          isFlatFee: parsedBaselineFd.type === 'fixed_fee',
-          netOrGross: 'NET',
-          sourceSheet: sheetName,
-          sourceRow: r + 1,
-          updatedAt: new Date().toISOString(),
-        });
-      }
-    }
-  }
-
-  return Array.from(rateMap.values());
+  const { records } = parseMasterCommissionWorkbook(buffer);
+  return institutionRecordsToCommissionRates(records, sheetName);
 }

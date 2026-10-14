@@ -18,6 +18,7 @@ import {
 } from '../../services/localRateDatabase';
 import { uploadRatesInBatches } from '../../utils/firestoreBatcher';
 import { forceGoOnline, isQuotaOffline, subscribeToFirestoreMode } from '../../services/firestoreOfflineMode';
+import { isSandboxActive, setSandboxActive } from '../../services/sandboxService';
 import {
   Search,
   Trash2,
@@ -66,6 +67,7 @@ export const SheetManager: React.FC<SheetManagerProps> = ({
   const [isQuotaMode, setIsQuotaMode] = useState(isQuotaOffline(user?.uid));
   const [pendingImports, setPendingImports] = useState<PendingOfflineImport[]>([]);
   const [isPushingOffline, setIsPushingOffline] = useState(false);
+  const [sandboxActiveState, setSandboxActiveState] = useState<boolean>(isSandboxActive());
 
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -374,6 +376,44 @@ export const SheetManager: React.FC<SheetManagerProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Offline Sandbox Control Card */}
+      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="font-extrabold text-sm text-amber-900 dark:text-amber-200">
+              Offline Sandbox Staging Environment
+            </span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+              sandboxActiveState
+                ? 'bg-amber-500 text-white'
+                : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+            }`}>
+              {sandboxActiveState ? 'Sandbox Active' : 'Sandbox Inactive'}
+            </span>
+          </div>
+          <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
+            When Sandbox Mode is active, imports and updates land in local IndexedDB without writing to live Firestore. You can test and review all 21 fields offline, then migrate to Cloud when ready.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            const next = !sandboxActiveState;
+            setSandboxActive(next);
+            setSandboxActiveState(next);
+            if (onRefreshRates) onRefreshRates();
+          }}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+            sandboxActiveState
+              ? 'bg-amber-600 hover:bg-amber-700 text-white'
+              : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 border border-amber-500/30'
+          }`}
+        >
+          {sandboxActiveState ? 'Disable Sandbox' : 'Enable Offline Sandbox'}
+        </button>
+      </div>
+
       {/* Top Banner & Quick Actions */}
       <div className="p-4 sm:p-5 rounded-3xl bg-slate-900 text-white border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
         <div className="flex items-start gap-3">

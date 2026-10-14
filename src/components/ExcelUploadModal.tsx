@@ -20,7 +20,7 @@ import type { CommissionRate } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { archivePreviousIntakes } from '../services/sheetManagementService';
 import { isQuotaOffline } from '../services/firestoreOfflineMode';
-import { saveLocalOfflineImport, stageRatesToLocalDatabase } from '../services/localRateDatabase';
+import { isSandboxActive, importToSandbox } from '../services/sandboxService';
 
 export interface UploadedFile {
   id: string;
@@ -256,7 +256,8 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
     setError(null);
 
     const userId = user?.uid || 'admin';
-    const isOffline = !navigator.onLine || isQuotaOffline(user?.uid);
+    const isSandbox = isSandboxActive();
+    const isOffline = !navigator.onLine || isQuotaOffline(user?.uid) || isSandbox;
 
     try {
       if (isOffline) {
@@ -267,27 +268,19 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
             ...parsedRates.map((r) => r.sourceSheet || r.intake).filter(Boolean) as string[],
           ])
         );
-        const importedAt = new Date().toISOString();
-        const importedBy = user?.email || 'Admin';
 
-        await saveLocalOfflineImport(userId, {
-          id: importId,
-          rates: parsedRates,
-          sheetNames,
-          importedAt,
-          importedBy,
-        });
-
-        await stageRatesToLocalDatabase(userId, parsedRates);
+        await importToSandbox(userId, parsedRates, sheetNames, importId, user?.email || 'Admin');
 
         setStatusMessage(
-          `Imported ${parsedRates.length} records locally to offline database. They will sync to Cloud when connection returns.`
+          isSandbox
+            ? `Imported ${parsedRates.length} records into Offline Sandbox Mode. Staged locally for testing & review.`
+            : `Imported ${parsedRates.length} records locally to offline database. They will sync to Cloud when connection returns.`
         );
 
         setTimeout(() => {
           onUploadComplete(parsedRates.length);
           onClose();
-        }, 1500);
+        }, 1200);
         return;
       }
 

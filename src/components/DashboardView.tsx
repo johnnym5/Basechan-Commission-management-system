@@ -192,6 +192,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         onUniversityChange={setSelectedUniversity}
         selectedCountry={controlledFilters.countries[0] || 'ALL'}
         onCountryChange={(c) => changeFilters({ countries: c === 'ALL' ? [] : [c] })}
+        selectedCommissionType={controlledFilters.agentPayoutKind === 'FLAT_FEE' ? 'Fixed Fee' : controlledFilters.agentPayoutKind === 'PERCENTAGE' ? 'Percentage' : 'ALL'}
+        onCommissionTypeChange={(t) => changeFilters({ agentPayoutKind: t === 'Fixed Fee' ? 'FLAT_FEE' : t === 'Percentage' ? 'PERCENTAGE' : undefined })}
         selectedLevel={controlledFilters.levels[0] || 'ALL'}
         onLevelChange={(l) => changeFilters({ levels: l === 'ALL' ? [] : [l as any] })}
         selectedIntake={controlledFilters.intakes[0] || 'ALL'}

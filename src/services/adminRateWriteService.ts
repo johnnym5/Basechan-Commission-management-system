@@ -302,6 +302,19 @@ export async function discardUnstartedRateOperation(operationId: string): Promis
   await deleteDoc(operationRef);
 }
 
+export async function deleteRateOperationLog(operationId: string): Promise<void> {
+  assertFirestoreWritesAllowed('Delete operation log');
+  const safeId = safeOperationId(operationId);
+  const operationRef = doc(db, 'admin_rate_operations', safeId);
+  const savedMutations = await getDocs(collection(db, 'admin_rate_operations', safeId, 'mutations'));
+  for (let offset = 0; offset < savedMutations.docs.length; offset += 400) {
+    const cleanup = writeBatch(db);
+    savedMutations.docs.slice(offset, offset + 400).forEach((item) => cleanup.delete(item.ref));
+    await cleanup.commit();
+  }
+  await deleteDoc(operationRef);
+}
+
 export const createRate = (rate: CommissionRate, adminEmail: string) => writeRateOperation({ mutations: [{ next: rate }], adminEmail, category: 'intake' });
 export const updateRate = (previous: CommissionRate, next: CommissionRate, adminEmail: string) => writeRateOperation({ mutations: [{ previous, next }], adminEmail });
 export const updateRates = (previousRates: CommissionRate[], transform: (rate: CommissionRate) => CommissionRate, adminEmail: string, category?: RateWriteCategory) =>

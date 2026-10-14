@@ -26,6 +26,7 @@ import { CommandPaletteModal } from './CommandPaletteModal';
 import { AuditLogsDrawer } from './AuditLogsDrawer';
 import { SheetVisibilityModal } from './SheetVisibilityModal';
 import { UserTutorialModal } from './UserTutorialModal';
+import { SandboxBanner } from './SandboxBanner';
 import { forceGoOnline, isQuotaOffline, subscribeToFirestoreMode } from '../services/firestoreOfflineMode';
 import { markUpdateRead, subscribeToUserUpdates } from '../services/chatPersistence';
 import {
@@ -732,6 +733,9 @@ export const AppLayout: React.FC = () => {
               Loading your authorized school data…
             </div>
           )}
+          {/* Offline Sandbox Banner for Admin */}
+          <SandboxBanner onRatesUpdated={() => { void refreshPendingImports(); }} />
+
           {/* Active Preview Mode Banner for Admin */}
           {role === 'ADMIN' && viewAsRole !== 'ADMIN' && (
             <div className="bg-blue-600 dark:bg-[#0E1526] border border-blue-500 dark:border-amber-400/50 text-white text-xs px-4 py-3 rounded-xl shadow-md flex items-center justify-between animate-in fade-in">

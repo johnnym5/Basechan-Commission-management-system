@@ -13,7 +13,7 @@ import {
   subscribeToOrganizations,
 } from '../services/accessRequestService';
 import { applyRatesToAgentTargets, clearAgentRateOverrides, ensureRoleRateModelMigration, resolveAgentTargets } from '../services/rateReadModels';
-import { discardUnstartedRateOperation, resumeRateOperation, subscribeToPendingRateOperations, type PendingRateOperation } from '../services/adminRateWriteService';
+import { deleteRateOperationLog, resumeRateOperation, subscribeToPendingRateOperations, type PendingRateOperation } from '../services/adminRateWriteService';
 import { useCommissionRates } from '../hooks/useCommissionRates';
 import {
   Users,
@@ -406,28 +406,28 @@ export const UserManagementView: React.FC = () => {
     }
   };
 
-  const handleDiscardRateOperation = async (operation: PendingRateOperation) => {
+  const handleDeleteOperationLog = async (operation: PendingRateOperation) => {
     try {
       setResumingOperationId(operation.operationId);
-      await discardUnstartedRateOperation(operation.operationId);
-      setNotice('The interrupted operation was discarded before it changed canonical rates. Re-run the Admin change if it is still needed.');
+      await deleteRateOperationLog(operation.operationId);
+      setNotice(`Operation log ${operation.operationId} was removed.`);
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Could not discard the incomplete operation.');
+      setNotice(err instanceof Error ? err.message : 'Could not delete operation log.');
     } finally {
       setResumingOperationId(null);
     }
   };
 
   const handleDiscardAllPendingOperations = async () => {
-    if (!window.confirm(`Are you sure you want to clear and discard all ${pendingRateOperations.length} pending operation logs?`)) return;
+    if (!window.confirm(`Are you sure you want to clear and delete all ${pendingRateOperations.length} rate operation logs?`)) return;
     try {
       setResumingOperationId('all');
       for (const op of pendingRateOperations) {
-        await discardUnstartedRateOperation(op.operationId).catch(() => {});
+        await deleteRateOperationLog(op.operationId).catch(() => {});
       }
-      setNotice('All pending rate operation logs have been discarded.');
+      setNotice('All rate operation logs have been deleted.');
     } catch (err) {
-      setNotice('Error discarding operations.');
+      setNotice('Error deleting operations.');
     } finally {
       setResumingOperationId(null);
     }
@@ -626,7 +626,25 @@ export const UserManagementView: React.FC = () => {
         </div>
         <div className="space-y-2">{pendingRateOperations.map((operation) => <div key={operation.operationId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-900 dark:bg-[#0E1526]">
           <div><p className="text-xs font-bold">{operation.count} rate records · {operation.stage}</p><p className="mt-1 font-mono text-[10px] text-slate-500">{operation.operationId}</p><p className="text-[10px] text-slate-500">Started by {operation.adminEmail || 'Admin'} · {operation.updatedAt ? new Date(operation.updatedAt).toLocaleString() : 'time unavailable'}</p></div>
-          <div className="flex gap-2">{operation.stage === 'preparing' && <button disabled={resumingOperationId !== null} onClick={() => void handleDiscardRateOperation(operation)} className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-bold text-amber-900 disabled:opacity-50">Discard before writes</button>}<button disabled={resumingOperationId !== null} onClick={() => void handleResumeRateOperation(operation)} className="inline-flex items-center gap-2 rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><RefreshCcw className={`h-3.5 w-3.5 ${resumingOperationId === operation.operationId ? 'animate-spin' : ''}`} />{resumingOperationId === operation.operationId ? 'Resuming…' : 'Resume operation'}</button></div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={resumingOperationId !== null}
+              onClick={() => void handleDeleteOperationLog(operation)}
+              className="rounded-lg border border-amber-300 dark:border-amber-800 px-3 py-2 text-xs font-bold text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-950/60 disabled:opacity-50 cursor-pointer"
+            >
+              Dismiss Log
+            </button>
+            <button
+              type="button"
+              disabled={resumingOperationId !== null}
+              onClick={() => void handleResumeRateOperation(operation)}
+              className="inline-flex items-center gap-2 rounded-lg bg-amber-700 hover:bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCcw className={`h-3.5 w-3.5 ${resumingOperationId === operation.operationId ? 'animate-spin' : ''}`} />
+              {resumingOperationId === operation.operationId ? 'Resuming…' : 'Resume operation'}
+            </button>
+          </div>
         </div>)}</div>
       </section>}
 

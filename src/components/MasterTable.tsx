@@ -28,6 +28,7 @@ import { formatCurrencyValue } from '../utils/currencyUtils';
 import { useSystemConfig } from '../hooks/useSystemConfig';
 import { BatchEditModal } from './BatchEditModal';
 import { ShareRateCardModal } from './ShareRateCardModal';
+import { UniversityDetailModal } from './UniversityDetailModal';
 import { doc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -50,6 +51,7 @@ import {
   ChevronRight,
   Target,
   GraduationCap,
+  Building2,
 } from 'lucide-react';
 
 interface MasterTableProps {
@@ -283,7 +285,8 @@ const GroupRoutesModal: React.FC<{
   onClose: () => void;
   onEdit: (rate: CommissionRate) => void;
   onShare: (rate: CommissionRate) => void;
-}> = ({ group, currency, onClose, onEdit, onShare }) => {
+  onOpenDetail?: (universityName: string) => void;
+}> = ({ group, currency, onClose, onEdit, onShare, onOpenDetail }) => {
   const [showPreviousIntakes, setShowPreviousIntakes] = useState(false);
 
   useEffect(() => {
@@ -395,12 +398,27 @@ const GroupRoutesModal: React.FC<{
             </p>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const uniName = group.displayName;
+                onClose();
+                if (onOpenDetail) onOpenDetail(uniName);
+              }}
+              className="px-2.5 py-1.5 bg-indigo-100 dark:bg-indigo-950/80 hover:bg-indigo-200 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl transition cursor-pointer text-xs flex items-center gap-1 border border-indigo-200 dark:border-indigo-800"
+              title="View full 21-column master record & aggregator benchmarks"
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Full 21 Columns</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Routes List */}
@@ -518,6 +536,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   // Modals
   const [activeGroupRate, setActiveGroupRate] = useState<GroupedUniversity | null>(null);
   const [sharingRate, setSharingRate] = useState<CommissionRate | null>(null);
+  const [selectedUniversityDetailName, setSelectedUniversityDetailName] = useState<string | null>(null);
 
   const [internalGroupByMode] = useState<GroupByMode>('UNIVERSITY');
   const groupByMode = externalGroupByMode || internalGroupByMode;
@@ -882,9 +901,14 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                 <Star className={`w-4 h-4 ${starred ? 'fill-amber-400 text-amber-400' : 'text-slate-400 hover:text-amber-400'}`} />
               </button>
               <div>
-                <div className="font-semibold text-slate-900 dark:text-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedUniversityDetailName(row.universityName)}
+                  className="font-semibold text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 text-left transition cursor-pointer"
+                  title="Click to view full 21-column master record & aggregator benchmarks"
+                >
                   {info.getValue() as string}
-                </div>
+                </button>
                 {row.country && row.country !== 'UK' && (
                   <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1">
                     <Globe className="w-2.5 h-2.5" />
@@ -1688,6 +1712,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         onClose={() => setActiveGroupRate(null)}
         onEdit={onEditRate}
         onShare={setSharingRate}
+        onOpenDetail={(uniName) => setSelectedUniversityDetailName(uniName)}
       />
 
       {/* Share Rate Card & PDF Quote Modal */}
@@ -1704,6 +1729,17 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         onClose={() => setIsBatchEditOpen(false)}
         selectedRates={selectedRates}
         onBatchUpdated={() => setRowSelection({})}
+      />
+
+      {/* 21-Field University Detail Modal */}
+      <UniversityDetailModal
+        isOpen={!!selectedUniversityDetailName}
+        onClose={() => setSelectedUniversityDetailName(null)}
+        universityName={selectedUniversityDetailName || ''}
+        ratesForUniversity={useMemo(
+          () => data.filter((r) => r.universityName === selectedUniversityDetailName),
+          [data, selectedUniversityDetailName]
+        )}
       />
     </div>
   );

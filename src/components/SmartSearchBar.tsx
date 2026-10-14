@@ -22,6 +22,8 @@ export interface SmartSearchBarProps {
   onUniversityChange?: (university: string) => void;
   selectedCountry?: string;
   onCountryChange?: (country: string) => void;
+  selectedCommissionType?: string;
+  onCommissionTypeChange?: (type: string) => void;
   selectedLevel?: string;
   onLevelChange?: (level: string) => void;
   selectedIntake?: string;
@@ -65,6 +67,8 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
   onUniversityChange,
   selectedCountry = 'ALL',
   onCountryChange,
+  selectedCommissionType = 'ALL',
+  onCommissionTypeChange,
   selectedLevel = 'ALL',
   onLevelChange,
   selectedIntake = 'ALL',
@@ -117,7 +121,22 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
   }, [rates]);
   const allUniversities = useMemo(() => Array.from(new Set(rates.map((r) => r.universityName).filter(Boolean))).sort(), [rates]);
   const allIntakes = useMemo(() => Array.from(new Set(rates.map((r) => r.intake).filter(Boolean))).sort(), [rates]);
-  const allAggregators = useMemo(() => Array.from(new Set(rates.map((r) => r.aggregator).filter(Boolean))).sort(), [rates]);
+  const allAggregators = useMemo(() => {
+    const set = new Set<string>([
+      'BASECHAN',
+      'EDVOY',
+      'SI-UK',
+      'UAP',
+      'CRIZAC',
+      'KC OVERSEAS',
+      'AIMS EDUCATION',
+      'Direct',
+    ]);
+    rates.forEach((r) => {
+      if (r.aggregator) set.add(r.aggregator);
+    });
+    return Array.from(set).sort();
+  }, [rates]);
 
   // Check if any filter is active
   const hasActiveFilters = activeTokens.length > 0 ||
@@ -420,8 +439,8 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
               </div>
             </div>
 
-            {/* Detailed Filters Grid (University, Country, Level, Intake, Status, Portal, Sort By) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-2.5">
+            {/* Detailed Filters Grid (University, Country, Commission Type, Level, Intake, Status, Portal, Sort By) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2.5">
               <div>
                 <label htmlFor="advance-university-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">University</label>
                 <StyledSelect
@@ -460,6 +479,24 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                   options={[
                     { value: 'ALL', label: 'All Countries' },
                     ...allCountries.map((c): SelectOption => ({ value: c, label: c })),
+                  ]}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="advance-commission-type-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Type</label>
+                <StyledSelect
+                  id="advance-commission-type-filter"
+                  aria-label="Commission Type"
+                  value={selectedCommissionType ?? 'ALL'}
+                  onChange={(val) => {
+                    if (onCommissionTypeChange) onCommissionTypeChange(val);
+                  }}
+                  options={[
+                    { value: 'ALL', label: 'All Types' },
+                    { value: 'Percentage', label: 'Percentage (%)' },
+                    { value: 'Fixed Fee', label: 'Fixed Fee (Cash)' },
+                    { value: 'Mixed (Fee/%)', label: 'Mixed (Fee/%)' },
                   ]}
                 />
               </div>
