@@ -425,9 +425,41 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
             <div className="flex items-center justify-between font-bold text-slate-300 border-b border-[#26334b] pb-2">
               <span className="flex items-center gap-1.5 font-extrabold text-blue-300">
                 <SlidersHorizontal className="w-4 h-4 text-amber-400" />
-                Advanced Filters, University & View Preferences
+                Advanced Filters & View Mode Preferences
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                {/* View Mode Switcher for Desktop */}
+                {onViewModeChange && (
+                  <div className="hidden md:flex items-center gap-1 bg-[#18181B] border border-slate-700 p-0.5 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => onViewModeChange('cards')}
+                      className={`px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
+                        viewMode === 'cards'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Grid Cards View"
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                      <span>Cards</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onViewModeChange('table')}
+                      className={`px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
+                        viewMode === 'table'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Table List View"
+                    >
+                      <TableProperties className="w-3.5 h-3.5" />
+                      <span>Table List</span>
+                    </button>
+                  </div>
+                )}
+
                 {hasActiveFilters && (
                   <button
                     type="button"
@@ -438,7 +470,7 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                     <span>Reset All</span>
                   </button>
                 )}
-                <button onClick={toggleAdvance} className="text-slate-400 hover:text-white cursor-pointer ml-2">✕</button>
+                <button onClick={toggleAdvance} className="text-slate-400 hover:text-white cursor-pointer ml-1">✕</button>
               </div>
             </div>
 

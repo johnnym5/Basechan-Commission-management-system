@@ -1017,13 +1017,19 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             {info.getValue() as string}
           </span>
         ),
-      },
-      {
+      }
+    );
+
+    if (role !== 'AGENT') {
+      cols.push({
         accessorKey: 'aggregator',
         header: 'Application Portal',
         cell: (info) => <AggregatorRouteCell rate={info.row.original} />,
-      },
-      {
+      });
+    }
+
+    if (isAdmin || role === 'STAFF') {
+      cols.push({
         accessorKey: 'masterRate',
         header: 'University Commission',
         cell: (info) => {
@@ -1035,21 +1041,27 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             </span>
           );
         },
-      },
-      {
+      });
+    }
+
+    if (isAdmin || role === 'AGENT') {
+      cols.push({
         accessorKey: 'agentRate',
-        header: 'Your Commission Payout',
+        header: role === 'AGENT' ? 'Your Guaranteed Payout' : 'Sub-Agent Payout',
         cell: (info) => {
           const row = info.row.original;
           const val = info.getValue() as number;
           return (
-            <span className="font-mono text-slate-600 dark:text-slate-400 text-sm">
+            <span className="font-mono text-emerald-600 dark:text-amber-400 text-sm font-bold">
               {formatCurrencyValue(val, activeCurrency, row.isFlatFee)}
             </span>
           );
         },
-      },
-      {
+      });
+    }
+
+    if (isAdmin) {
+      cols.push({
         accessorKey: 'diffMargin',
         header: 'Net Profit',
         cell: (info) => {
@@ -1061,35 +1073,36 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             </span>
           );
         },
-      },
-      {
-        id: 'actions',
-        header: 'Actions',
-        cell: (info) => (
-          <div className="flex items-center gap-1">
+      });
+    }
+
+    cols.push({
+      id: 'actions',
+      header: 'Actions',
+      cell: (info) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setSharingRate(info.row.original)}
+            className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/60 rounded-lg transition cursor-pointer"
+            title="Share Rate Card"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+          {isAdmin && (
             <button
-              onClick={() => setSharingRate(info.row.original)}
-              className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/60 rounded-lg transition cursor-pointer"
-              title="Share Rate Card"
+              onClick={() => onEditRate(info.row.original)}
+              className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg transition cursor-pointer"
+              title="Edit Rate & Guidance"
             >
-              <Share2 className="w-4 h-4" />
+              <Pencil className="w-4 h-4" />
             </button>
-            {isAdmin && (
-              <button
-                onClick={() => onEditRate(info.row.original)}
-                className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg transition cursor-pointer"
-                title="Edit Rate & Guidance"
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        ),
-      }
-    );
+          )}
+        </div>
+      ),
+    });
 
     return cols;
-  }, [isAdmin, onEditRate, isAllFilteredSelected, isSomeFilteredSelected, handleToggleAllFiltered, activeCurrency, watchlist, groupedUniversities]);
+  }, [isAdmin, role, onEditRate, isAllFilteredSelected, isSomeFilteredSelected, handleToggleAllFiltered, activeCurrency, watchlist, groupedUniversities]);
 
   const table = useReactTable({
     data: filteredData,
