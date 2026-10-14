@@ -351,6 +351,7 @@ export function institutionRecordsToCommissionRates(
         agentRate: record.agentRateFD.value * (record.agentRateFD.type === 'PERCENT' ? 100 : 1),
         diffMargin: 0,
         isFlatFee: record.agentRateFD.type === 'FIXED',
+        ...(record.agentRateFD.currency ? { currency: record.agentRateFD.currency } : {}),
         netOrGross: 'NET',
         sourceSheet: sheetName,
         updatedAt: new Date().toISOString(),
@@ -363,6 +364,7 @@ export function institutionRecordsToCommissionRates(
     const isPercentUg = record.agentRateUG.type === 'PERCENT' || record.masterRateUG.type === 'PERCENT';
     const ugMaster = isPercentUg ? masterUgVal * 100 : masterUgVal;
     const ugAgent = isPercentUg ? agentUgVal * 100 : agentUgVal;
+    const ugCurrency = record.agentRateUG.currency || record.masterRateUG.currency || undefined;
 
     const ugId = generateCompositeId(universityName, intake, 'BASECHAN', 'UG');
     list.push({
@@ -377,6 +379,7 @@ export function institutionRecordsToCommissionRates(
       agentRate: parseFloat(ugAgent.toFixed(2)),
       diffMargin: record.analytics.grossMarginSpreadUG ?? parseFloat((ugMaster - ugAgent).toFixed(2)),
       isFlatFee: record.agentRateUG.type === 'FIXED',
+      ...(ugCurrency ? { currency: ugCurrency } : {}),
       netOrGross: 'NET',
       sourceSheet: sheetName,
       updatedAt: new Date().toISOString(),
@@ -388,6 +391,7 @@ export function institutionRecordsToCommissionRates(
     const isPercentPg = record.agentRatePG.type === 'PERCENT' || record.masterRatePG.type === 'PERCENT';
     const pgMaster = isPercentPg ? masterPgVal * 100 : masterPgVal;
     const pgAgent = isPercentPg ? agentPgVal * 100 : agentPgVal;
+    const pgCurrency = record.agentRatePG.currency || record.masterRatePG.currency || undefined;
 
     const pgId = generateCompositeId(universityName, intake, 'BASECHAN', 'PG');
     list.push({
@@ -402,6 +406,7 @@ export function institutionRecordsToCommissionRates(
       agentRate: parseFloat(pgAgent.toFixed(2)),
       diffMargin: record.analytics.grossMarginSpreadPG ?? parseFloat((pgMaster - pgAgent).toFixed(2)),
       isFlatFee: record.agentRatePG.type === 'FIXED',
+      ...(pgCurrency ? { currency: pgCurrency } : {}),
       netOrGross: 'NET',
       sourceSheet: sheetName,
       updatedAt: new Date().toISOString(),
@@ -438,6 +443,7 @@ export function institutionRecordsToCommissionRates(
           agentRate: parseFloat(ugAgent.toFixed(2)),
           diffMargin: margin,
           isFlatFee: ug.type === 'FIXED',
+          ...(ug.currency || ugCurrency ? { currency: ug.currency || ugCurrency } : {}),
           netOrGross: 'NET',
           notes: ug.type === 'TBC' ? 'Rate Unconfirmed (TBC)' : '',
           sourceSheet: sheetName,
@@ -461,6 +467,7 @@ export function institutionRecordsToCommissionRates(
           agentRate: parseFloat(pgAgent.toFixed(2)),
           diffMargin: margin,
           isFlatFee: pg.type === 'FIXED',
+          ...(pg.currency || pgCurrency ? { currency: pg.currency || pgCurrency } : {}),
           netOrGross: 'NET',
           notes: pg.type === 'TBC' ? 'Rate Unconfirmed (TBC)' : '',
           sourceSheet: sheetName,

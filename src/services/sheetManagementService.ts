@@ -74,6 +74,7 @@ export async function deleteSheets(
         });
       } catch (err) {
         console.error(`Error querying target for sheet deletion (${sheetName}):`, err);
+        throw Object.assign(new Error(`Failed to query rate records for sheet deletion: ${err instanceof Error ? err.message : String(err)}`), { cause: err });
       }
     }
   }
@@ -239,6 +240,7 @@ export async function renameSheet(
       byIntake.docs.forEach(processDoc);
     } catch (err) {
       console.error(`Error querying target for sheet rename (${oldName}):`, err);
+      throw Object.assign(new Error(`Failed to query rate records for sheet rename: ${err instanceof Error ? err.message : String(err)}`), { cause: err });
     }
   }
 

@@ -254,7 +254,9 @@ export const AgentPortalView: React.FC<AgentPortalViewProps> = ({ rates, chatMod
       const basechanRate = ratesForKey.find(
         (r) => (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT'
       );
-      authorized.push(basechanRate || ratesForKey[0]);
+      if (basechanRate) {
+        authorized.push(basechanRate);
+      }
     });
 
     return authorized;

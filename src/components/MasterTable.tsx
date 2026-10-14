@@ -275,7 +275,9 @@ const GroupRoutesModal: React.FC<{
         const basechanRate = ratesForLevel.find(
           (r) => (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT'
         );
-        singleRoutePerLevel.push(basechanRate || ratesForLevel[0]);
+        if (basechanRate) {
+          singleRoutePerLevel.push(basechanRate);
+        }
       } else {
         // STAFF ROLE: Admin Default Route if set (guidance === 'FOCUS'); otherwise System Recommended Route (Top Yield)
         const adminDefault = ratesForLevel.find((r) => r.guidance === 'FOCUS');

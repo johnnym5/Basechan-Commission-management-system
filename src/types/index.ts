@@ -90,6 +90,7 @@ export interface CommissionRate {
   agentRate: number; // Outgoing % or flat fee
   diffMargin: number; // Calculated: masterRate - agentRate
   isFlatFee: boolean; // false = %, true = flat amount (e.g. £)
+  currency?: string; // Currency code for flat fee (e.g. "CAD", "USD", "GBP", "EUR", "CHF")
   netOrGross: NetOrGross;
   guidance?: SchoolGuidance; // FOCUS (In the Green), ALLOWED, DO_NOT_USE (Avoid)
   notes?: string;
