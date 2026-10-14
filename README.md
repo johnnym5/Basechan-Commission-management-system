@@ -124,7 +124,7 @@ graph TD
 - **Backend & Database**: Firebase Firestore (Real-time listeners, batch writes)
 - **Authentication**: Firebase Auth (Google OAuth)
 - **Offline Database**: IndexedDB with LocalStorage fallback
-- **Testing Suite**: Vitest (166+ unit tests across 23 test modules)
+- **Testing Suite**: Vitest (284 unit tests across 43 test modules)
 
 ---
 
