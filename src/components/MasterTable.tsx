@@ -222,59 +222,12 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
   );
 };
 
-// Interactive Aggregator Selector Dropdown for Admin
+// Aggregator Route Cell Badge
 const AggregatorRouteCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
-  const { role, user } = useAuth();
-  const isAdmin = role === 'ADMIN';
-  const [updating, setUpdating] = useState(false);
-
-  const handleUpdateAggregator = async (newAggregator: string) => {
-    if (newAggregator === rate.aggregator) return;
-    try {
-      setUpdating(true);
-      const nextRate: CommissionRate = {
-        ...rate,
-        aggregator: newAggregator,
-        updatedAt: new Date().toISOString(),
-      };
-      await writeRateOperation({
-        adminEmail: user?.email || 'admin@basechan.com',
-        category: 'routing',
-        mutations: [{ previous: rate, next: nextRate }],
-      });
-    } catch (err) {
-      console.error('Failed to update aggregator route:', err);
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  if (!isAdmin) {
-    return (
-      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-        Use {rate.aggregator}
-      </span>
-    );
-  }
-
   return (
-    <select
-      value={rate.aggregator}
-      disabled={updating}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => handleUpdateAggregator(e.target.value)}
-      title="Admin: Click to change aggregator route"
-      className="px-2.5 py-1 rounded-xl border border-slate-300 dark:border-[#222F43] bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-extrabold text-xs focus:ring-2 focus:ring-blue-500 cursor-pointer"
-    >
-      {COMMON_AGGREGATORS.map((agg) => (
-        <option key={agg} value={agg}>
-          Use {agg}
-        </option>
-      ))}
-      {!COMMON_AGGREGATORS.includes(rate.aggregator) && (
-        <option value={rate.aggregator}>Use {rate.aggregator}</option>
-      )}
-    </select>
+    <span className="inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-black uppercase bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+      {rate.aggregator || 'Direct'}
+    </span>
   );
 };
 
@@ -306,26 +259,24 @@ const GroupRoutesModal: React.FC<{
     if (!group) return [];
     if (!isAgent) return group.rates;
 
-    // For AGENT role: filter to ONLY the Admin-selected Default/Focus route per study level & intake
-    const levelMap = new Map<string, CommissionRate[]>();
-    group.rates.forEach((r) => {
-      const key = `${r.studyLevel}__${r.intake}`;
-      if (!levelMap.has(key)) levelMap.set(key, []);
-      levelMap.get(key)!.push(r);
+    // For AGENT role: keep ONLY BASECHAN / Direct Sub-Agent Payout Rates (Cols C, D, E)
+    const directRates = group.rates.filter((r) => {
+      const agg = (r.aggregator || '').toUpperCase();
+      return agg === 'BASECHAN' || agg === 'DIRECT';
     });
 
-    const authorized: CommissionRate[] = [];
-    levelMap.forEach((ratesForLevel) => {
-      const focusRate = ratesForLevel.find((r) => r.guidance === 'FOCUS');
-      if (focusRate) {
-        authorized.push(focusRate);
-      } else {
-        const directRate = ratesForLevel.find((r) => r.aggregator === 'BASECHAN' || r.aggregator === 'Direct');
-        authorized.push(directRate || ratesForLevel[0]);
+    const ratesToUse = directRates.length > 0 ? directRates : [group.rates[0]];
+
+    // Deduplicate / consolidate identical agent payout rates per study level
+    const uniqueMap = new Map<string, CommissionRate>();
+    ratesToUse.forEach((r) => {
+      const key = `${r.studyLevel}__${r.agentRate}__${r.isFlatFee ? 'flat' : 'pct'}`;
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, r);
       }
     });
 
-    return authorized;
+    return Array.from(uniqueMap.values());
   }, [group, isAgent]);
 
   const { activeRoutes, previousRoutes } = useMemo(() => {
@@ -344,15 +295,36 @@ const GroupRoutesModal: React.FC<{
     return { activeRoutes: active, previousRoutes: previous };
   }, [group, displayableRates]);
 
+  const handleSetAsDefaultRoute = async (targetRate: CommissionRate) => {
+    if (!group) return;
+    try {
+      const batch = writeBatch(db);
+      group.rates.forEach((r) => {
+        const isTarget = r.id === targetRate.id;
+        batch.update(doc(db, 'rates', r.id), {
+          guidance: isTarget ? 'FOCUS' : 'ALLOWED',
+          updatedAt: new Date().toISOString(),
+        });
+      });
+      await batch.commit();
+    } catch (err) {
+      console.error('Failed to set default route:', err);
+    }
+  };
+
   if (!group) return null;
 
   const renderRouteCard = (rate: CommissionRate) => {
+    const isDefaultRoute = rate.guidance === 'FOCUS';
     const isBest = !isAgent && group.bestRoute?.id === rate.id;
+
     return (
       <div
         key={rate.id}
         className={`p-3.5 rounded-2xl border transition-all flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 ${
-          isBest
+          isDefaultRoute
+            ? 'bg-amber-500/10 dark:bg-amber-950/30 border-amber-400/50 dark:border-amber-500/50 shadow-xs ring-1 ring-amber-400/20'
+            : isBest
             ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 shadow-xs'
             : 'bg-slate-50 dark:bg-[#18181B]/80 border-slate-200 dark:border-[#222F43]'
         }`}
@@ -367,10 +339,25 @@ const GroupRoutesModal: React.FC<{
             ) : (
               <AggregatorRouteCell rate={rate} />
             )}
-            {isBest && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400 text-slate-950">
-                BEST ROUTE
+
+            {/* Default Route Status Badge or Set Default Button */}
+            {isDefaultRoute ? (
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-400/40 flex items-center gap-1 shrink-0" title="Active Default Route for Staff & Agents">
+                <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                Default Route
               </span>
+            ) : (
+              isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => handleSetAsDefaultRoute(rate)}
+                  className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800 hover:bg-amber-500/20 text-slate-700 dark:text-slate-300 hover:text-amber-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer flex items-center gap-1 shrink-0"
+                  title="Set this route as default for this university"
+                >
+                  <Star className="w-3 h-3 text-amber-400" />
+                  Set as Default
+                </button>
+              )
             )}
           </div>
           <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
