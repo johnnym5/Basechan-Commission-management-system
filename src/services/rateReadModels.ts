@@ -1,11 +1,50 @@
 import { collection, collectionGroup, deleteDoc, deleteField, doc, getDoc, getDocs, query, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import type { AgentRateReadModel, CommissionRate, StaffRateReadModel } from '../types';
+import type { AgentRateReadModel, CommissionRate, RateSheetBucket, StaffRateReadModel } from '../types';
 import { normalizeOrganizationName } from './accessRequestService';
 import { publishRelevantUpdates } from './userUpdates';
 import { logRateChange } from '../utils/auditLogger';
 import { appendRateDelta } from './rateChangeFeed';
 import { assertFirestoreWritesAllowed } from './firestoreWriteGuard';
+import { sanitizeFirestoreData } from './adminRateWriteService';
+
+export function normalizeSheetKey(name: string): string {
+  return String(name || 'sheet')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'sheet';
+}
+
+export function buildRateSheetBucket(sheetName: string, rates: CommissionRate[], userEmail: string): RateSheetBucket {
+  return {
+    sheetKey: normalizeSheetKey(sheetName),
+    sheetName: sheetName.trim() || 'ALL',
+    rateCount: rates.length,
+    updatedAt: new Date().toISOString(),
+    updatedBy: userEmail,
+    rates,
+  };
+}
+
+export async function updateRateSheetsBuckets(rates: CommissionRate[], userEmail = 'Admin'): Promise<void> {
+  const buckets = new Map<string, { sheetName: string; rates: CommissionRate[] }>();
+
+  rates.forEach((rate) => {
+    const sheetName = String(rate.sourceSheet || rate.intake || 'ALL').trim();
+    const sheetKey = normalizeSheetKey(sheetName);
+    if (!buckets.has(sheetKey)) {
+      buckets.set(sheetKey, { sheetName, rates: [] });
+    }
+    buckets.get(sheetKey)!.rates.push(rate);
+  });
+
+  for (const [sheetKey, data] of buckets.entries()) {
+    const bucket = buildRateSheetBucket(data.sheetName, data.rates, userEmail);
+    const bucketRef = doc(db, 'rate_sheets', sheetKey);
+    await setDoc(bucketRef, sanitizeFirestoreData(bucket), { merge: true });
+  }
+}
 
 const legacyOpaqueRateId = (rate: CommissionRate) => encodeURIComponent(`${rate.universityId}_${rate.intake}_${rate.studyLevel}`.toLowerCase()).replaceAll('.', '%2E');
 const ensuredSheetSettings = new Map<string, Promise<void>>();

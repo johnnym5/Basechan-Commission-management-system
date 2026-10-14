@@ -16,9 +16,10 @@ service cloud.firestore {
 
     function isStaff() {
       return hasEmail()
+        && !isAdmin()
         && (
-          request.auth.token.email.lower().matches('.*[.]basechaninternational@gmail[.]com$')
-          || request.auth.token.email.lower().matches('staff.*@basechaninternational[.]com$')
+          request.auth.token.email.lower().matches('.*basechan.*')
+          || request.auth.token.email.lower().matches('.*staff.*')
         );
     }
 

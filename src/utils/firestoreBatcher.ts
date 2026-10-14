@@ -2,6 +2,7 @@ import { writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { CommissionRate } from '../types';
 import { deleteRates, writeRateOperation } from '../services/adminRateWriteService';
+import { updateRateSheetsBuckets } from '../services/rateReadModels';
 import { publishRelevantUpdates } from '../services/userUpdates';
 import { assertFirestoreWritesAllowed } from '../services/firestoreWriteGuard';
 
@@ -68,6 +69,7 @@ export async function uploadRatesInBatches(
   }
 
   if (completed > 0) {
+    await updateRateSheetsBuckets(successfullyUploaded, adminEmail).catch((e) => console.error('Failed to update rate sheets buckets:', e));
     await publishRelevantUpdates({
       type: 'rates',
       title: 'Commission rates imported',
