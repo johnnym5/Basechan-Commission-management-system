@@ -30,6 +30,8 @@ export interface PersonalWorkspaceWidgetProps {
   onStatusChange?: (status: string) => void;
   selectedAggregator?: string;
   onAggregatorChange?: (agg: string) => void;
+  selectedCommissionType?: string;
+  onCommissionTypeChange?: (type: string) => void;
   selectedSortBy?: string;
   onSortByChange?: (sort: string) => void;
   viewMode?: 'cards' | 'table';
@@ -66,6 +68,8 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
   onStatusChange,
   selectedAggregator,
   onAggregatorChange,
+  selectedCommissionType,
+  onCommissionTypeChange,
   selectedSortBy,
   onSortByChange,
   viewMode,
@@ -215,6 +219,8 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
           onStatusChange={onStatusChange}
           selectedAggregator={selectedAggregator}
           onAggregatorChange={onAggregatorChange}
+          selectedCommissionType={selectedCommissionType}
+          onCommissionTypeChange={onCommissionTypeChange}
           selectedSortBy={selectedSortBy}
           onSortByChange={onSortByChange}
           viewMode={viewMode}

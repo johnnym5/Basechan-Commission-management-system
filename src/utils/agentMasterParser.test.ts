@@ -133,14 +133,14 @@ describe('agentMasterParser', () => {
   describe('parseMasterCommissionWorkbook', () => {
     it('successfully parses 2027 Agent Consolidated Master.xlsx file', async () => {
       const path = 'C:/Users/HP/Documents/CODING/BASECHAN COMMISSION MANAGEMENT SYSTEM/2027 Agent Consolidated Master.xlsx';
-      const { parseMasterCommissionWorkbook } = await import('./agentMasterParser');
+      const { parseMasterCommissionWorkbook, institutionRecordsToCommissionRates } = await import('./agentMasterParser');
       const result = parseMasterCommissionWorkbook(path);
 
       expect(result.records).toBeDefined();
-      expect(result.records.length).toBeGreaterThan(0);
-      expect(result.records[0].country).toBeDefined();
-      expect(result.records[0].university).toBeDefined();
-      expect(result.records[0].competitors).toBeDefined();
+      expect(result.records.length).toBe(328);
+
+      const flatRates = institutionRecordsToCommissionRates(result.records);
+      expect(flatRates.length).toBe(1503);
     });
   });
 });

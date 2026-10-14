@@ -28,7 +28,7 @@ import { formatCurrencyValue } from '../utils/currencyUtils';
 import { useSystemConfig } from '../hooks/useSystemConfig';
 import { BatchEditModal } from './BatchEditModal';
 import { ShareRateCardModal } from './ShareRateCardModal';
-import { UniversityDetailModal } from './UniversityDetailModal';
+import { UniversityDetailModal, type UniversityDetailData } from './UniversityDetailModal';
 import { doc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -314,6 +314,9 @@ const GroupRoutesModal: React.FC<{
     return { activeRoutes: active, previousRoutes: previous };
   }, [group]);
 
+  const { role } = useAuth();
+  const isAdmin = role === 'ADMIN';
+
   if (!group) return null;
 
   const renderRouteCard = (rate: CommissionRate) => {
@@ -357,16 +360,18 @@ const GroupRoutesModal: React.FC<{
             <Share2 className="w-3.5 h-3.5" />
           </button>
 
-          <button
-            onClick={() => {
-              onClose();
-              onEdit(rate);
-            }}
-            className="p-2 bg-white dark:bg-[#0E1526] hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#222F43] rounded-xl text-slate-600 dark:text-slate-200 transition cursor-pointer"
-            title="Edit Rate"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => {
+                onClose();
+                onEdit(rate);
+              }}
+              className="p-2 bg-white dark:bg-[#0E1526] hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#222F43] rounded-xl text-slate-600 dark:text-slate-200 transition cursor-pointer"
+              title="Edit Rate"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
     );
@@ -399,18 +404,20 @@ const GroupRoutesModal: React.FC<{
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                const uniName = group.displayName;
-                onClose();
-                if (onOpenDetail) onOpenDetail(uniName);
-              }}
-              className="px-2.5 py-1.5 bg-indigo-100 dark:bg-indigo-950/80 hover:bg-indigo-200 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl transition cursor-pointer text-xs flex items-center gap-1 border border-indigo-200 dark:border-indigo-800"
-              title="View full 21-column master record & aggregator benchmarks"
-            >
-              <Building2 className="w-3.5 h-3.5" />
-              <span>Full 21 Columns</span>
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => {
+                  const uniName = group.displayName;
+                  onClose();
+                  if (onOpenDetail) onOpenDetail(uniName);
+                }}
+                className="px-2.5 py-1.5 bg-indigo-100 dark:bg-indigo-950/80 hover:bg-indigo-200 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl transition cursor-pointer text-xs flex items-center gap-1 border border-indigo-200 dark:border-indigo-800"
+                title="View full 21-column master record & aggregator benchmarks"
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span>Show Full Details</span>
+              </button>
+            )}
 
             <button
               onClick={onClose}
@@ -508,8 +515,9 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   externalGroupByMode,
   externalActiveCurrency,
 }) => {
-  const { role } = useAuth();
-  const { defaultIntake, activeIntakes } = useSystemConfig();
+  const { role, user } = useAuth();
+  const isAdmin = role === 'ADMIN';
+  const { defaultIntake, activeIntakes, updateDefaultIntake } = useSystemConfig();
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'diffMargin', desc: true },
   ]);
@@ -527,7 +535,6 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   void setInternalOnlyShowStarred;
   const [cardPage, setCardPage] = useState<number>(1);
   const CARDS_PER_PAGE = 24;
-  const [groupSortMode] = useState<GroupSortMode>('HIGHEST_MARGIN');
   const activeCurrency = externalActiveCurrency || 'GBP';
 
   // Filter Popover Drawer State
@@ -800,8 +807,14 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const groupedUniversities = useMemo(() => {
     if (effectiveGroupByMode !== 'UNIVERSITY') return [];
     const grouped = groupRatesByUniversity(sortedFilteredData);
-    return sortGroupedUniversities(grouped, groupSortMode);
-  }, [sortedFilteredData, effectiveGroupByMode, groupSortMode]);
+    const targetSortMode: GroupSortMode =
+      selectedSortBy === 'HIGHEST_MARGIN'
+        ? 'HIGHEST_MARGIN'
+        : selectedSortBy === 'MOST_ROUTES'
+        ? 'MOST_ROUTES'
+        : 'ALPHABETICAL';
+    return sortGroupedUniversities(grouped, targetSortMode);
+  }, [sortedFilteredData, effectiveGroupByMode, selectedSortBy]);
 
   // CARD GRID PAGINATION SLICES
   const totalGroupPages = Math.ceil(groupedUniversities.length / CARDS_PER_PAGE) || 1;
@@ -844,9 +857,11 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     }
   };
 
-  const columns = useMemo<ColumnDef<CommissionRate, any>[]>(
-    () => [
-      {
+  const columns = useMemo<ColumnDef<CommissionRate, any>[]>(() => {
+    const cols: ColumnDef<CommissionRate, any>[] = [];
+
+    if (isAdmin) {
+      cols.push({
         id: 'select',
         header: () => (
           <div className="flex items-center justify-center">
@@ -875,7 +890,10 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           </div>
         ),
         enableSorting: false,
-      },
+      });
+    }
+
+    cols.push(
       {
         accessorKey: 'universityName',
         header: ({ column }) => (
@@ -903,9 +921,16 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               <div>
                 <button
                   type="button"
-                  onClick={() => setSelectedUniversityDetailName(row.universityName)}
+                  onClick={() => {
+                    if (isAdmin) {
+                      setSelectedUniversityDetailName(row.universityName);
+                    } else {
+                      const groupMatch = groupedUniversities.find((g) => g.displayName === row.universityName);
+                      if (groupMatch) setActiveGroupRate(groupMatch);
+                    }
+                  }}
                   className="font-semibold text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 text-left transition cursor-pointer"
-                  title="Click to view full 21-column master record & aggregator benchmarks"
+                  title={isAdmin ? "Click to view full 21-column master record & aggregator benchmarks" : "Click to view university routes"}
                 >
                   {info.getValue() as string}
                 </button>
@@ -999,19 +1024,22 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             >
               <Share2 className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => onEditRate(info.row.original)}
-              className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg transition cursor-pointer"
-              title="Edit Rate & Guidance"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => onEditRate(info.row.original)}
+                className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg transition cursor-pointer"
+                title="Edit Rate & Guidance"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            )}
           </div>
         ),
-      },
-    ],
-    [onEditRate, isAllFilteredSelected, isSomeFilteredSelected, handleToggleAllFiltered, activeCurrency, watchlist]
-  );
+      }
+    );
+
+    return cols;
+  }, [isAdmin, onEditRate, isAllFilteredSelected, isSomeFilteredSelected, handleToggleAllFiltered, activeCurrency, watchlist, groupedUniversities]);
 
   const table = useReactTable({
     data: filteredData,
@@ -1030,10 +1058,115 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     },
   });
 
-  // Selected rates
+  // Selected rates & unique selected universities
   const selectedRates = useMemo(() => data.filter((rate) => rowSelection[rate.id]), [rowSelection, data]);
+  const selectedSchoolNames = useMemo(() => new Set(selectedRates.map((r) => r.universityName)), [selectedRates]);
 
   // Batch action handlers
+  const handleSaveUniversityRecord = async (
+    updatedData: UniversityDetailData,
+    makeDefaultIntake?: boolean
+  ) => {
+    const uniRates = data.filter((r) => r.universityName === updatedData.university);
+    if (uniRates.length === 0) return;
+
+    if (makeDefaultIntake && updatedData.baselineIntake) {
+      await updateDefaultIntake(updatedData.baselineIntake, user?.email || 'admin@basechan.com');
+    }
+
+    const parseRateNumber = (strVal: string): number => {
+      const clean = (strVal || '').replace(/[^0-9.]/g, '');
+      const num = parseFloat(clean);
+      return isNaN(num) ? 0 : num;
+    };
+
+    const isFlat = updatedData.commissionType === 'Fixed Fee';
+    const targetDefaultRoute = (updatedData.defaultRoute || 'BASECHAN').toUpperCase();
+
+    try {
+      setBatchActionLoading(true);
+      const batch = writeBatch(db);
+      uniRates.forEach((rate) => {
+        let newAgentRate = rate.agentRate;
+        let newMasterRate = rate.masterRate;
+
+        if (rate.aggregator === 'BASECHAN' || rate.aggregator === 'Direct') {
+          if (rate.studyLevel === 'FD') newAgentRate = parseRateNumber(updatedData.agentRateFD);
+          else if (rate.studyLevel === 'UG') {
+            newAgentRate = parseRateNumber(updatedData.agentRateUG);
+            newMasterRate = parseRateNumber(updatedData.masterRateUG);
+          } else if (rate.studyLevel === 'PG') {
+            newAgentRate = parseRateNumber(updatedData.agentRatePG);
+            newMasterRate = parseRateNumber(updatedData.masterRatePG);
+          }
+        } else {
+          const aggUpper = rate.aggregator.toUpperCase();
+          if (aggUpper.includes('EDVOY')) {
+            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.edvoyUG : updatedData.edvoyPG);
+          } else if (aggUpper.includes('SI-UK')) {
+            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.siUkUG : updatedData.siUkPG);
+          } else if (aggUpper.includes('UAP')) {
+            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.uapUG : updatedData.uapPG);
+          } else if (aggUpper.includes('CRIZAC')) {
+            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.crizacUG : updatedData.crizacPG);
+          } else if (aggUpper.includes('KC OVERSEAS')) {
+            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.kcOverseasUG : updatedData.kcOverseasPG);
+          } else if (aggUpper.includes('AIMS EDUCATION')) {
+            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.aimsEducationUG : updatedData.aimsEducationPG);
+          }
+        }
+
+        const diffMargin = parseFloat((newMasterRate - newAgentRate).toFixed(2));
+        const isSelectedDefaultRoute = rate.aggregator.toUpperCase().includes(targetDefaultRoute) ||
+          (targetDefaultRoute === 'BASECHAN' && rate.aggregator === 'Direct');
+
+        batch.set(
+          doc(db, 'rates', rate.id),
+          {
+            ...rate,
+            intake: updatedData.baselineIntake || rate.intake,
+            agentRate: newAgentRate,
+            masterRate: newMasterRate,
+            diffMargin,
+            isFlatFee: isFlat,
+            guidance: isSelectedDefaultRoute ? 'FOCUS' : 'ALLOWED',
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      });
+
+      await batch.commit();
+      if (onBatchActionComplete) {
+        onBatchActionComplete(`Successfully updated rates, default intake, and default route for ${updatedData.university}.`);
+      }
+    } catch (err) {
+      console.error('Error saving university record:', err);
+    } finally {
+      setBatchActionLoading(false);
+    }
+  };
+
+  const handleDeleteUniversityRecord = async (uniName: string) => {
+    const uniRates = data.filter((r) => r.universityName === uniName);
+    if (uniRates.length === 0) return;
+
+    try {
+      setBatchActionLoading(true);
+      const batch = writeBatch(db);
+      uniRates.forEach((r) => batch.delete(doc(db, 'rates', r.id)));
+      await batch.commit();
+
+      if (onBatchActionComplete) {
+        onBatchActionComplete(`Successfully deleted ${uniRates.length} rate records for ${uniName}.`);
+      }
+    } catch (err) {
+      console.error('Error deleting university records:', err);
+    } finally {
+      setBatchActionLoading(false);
+    }
+  };
+
   const handleDeleteSelected = async () => {
     if (selectedRates.length === 0) return;
     try {
@@ -1324,7 +1457,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             />
             <span className="text-slate-800 dark:text-slate-200 font-extrabold text-xs sm:text-sm">
               {selectedRates.length > 0
-                ? `${selectedRates.length} Selected`
+                ? `${selectedRates.length} Selected (${selectedSchoolNames.size} ${selectedSchoolNames.size === 1 ? 'School' : 'Schools'})`
                 : 'Select All Filtered'}
             </span>
           </label>
@@ -1387,6 +1520,22 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               <Check className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Set Allowed</span>
             </button>
+
+            {selectedSchoolNames.size === 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const uniName = Array.from(selectedSchoolNames)[0];
+                  setSelectedUniversityDetailName(uniName);
+                }}
+                disabled={batchActionLoading}
+                title="Single Edit 21-Column Spec for Selected School"
+                className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Single Edit (21 Cols)</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -1528,13 +1677,17 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                     const starred = isStarred(watchlist, group.displayName);
                     const isFocus = group.guidance === 'FOCUS';
                     const isDoNotUse = group.guidance === 'DO_NOT_USE';
+                    const isGroupSelected = group.rates.every((r) => rowSelection[r.id]);
+                    const isGroupSomeSelected = group.rates.some((r) => rowSelection[r.id]);
 
                     return (
                       <div
                         key={group.groupKey}
                         onClick={() => setActiveGroupRate(group)}
                         className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 cursor-pointer relative flex flex-col justify-between gap-2.5 select-none ${
-                          isFocus
+                          isGroupSelected
+                            ? 'bg-blue-50/60 dark:bg-blue-950/30 border-blue-400 ring-2 ring-blue-500/20 shadow-md'
+                            : isFocus
                             ? 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800'
                             : isDoNotUse
                             ? 'bg-rose-50/40 dark:bg-rose-950/20 border-rose-300 dark:border-rose-900/60'
@@ -1542,9 +1695,32 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                         }`}
                       >
                         <div className="flex items-center justify-between gap-1">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                            {group.totalRoutes} {group.totalRoutes === 1 ? 'Route' : 'Routes'}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isGroupSelected}
+                              ref={(el) => {
+                                if (el) el.indeterminate = !isGroupSelected && isGroupSomeSelected;
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                const newSel = { ...rowSelection };
+                                if (isGroupSelected) {
+                                  group.rates.forEach((r) => { delete newSel[r.id]; });
+                                } else {
+                                  group.rates.forEach((r) => { newSel[r.id] = true; });
+                                }
+                                setRowSelection(newSel);
+                              }}
+                              className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                              aria-label={`Select ${group.displayName}`}
+                              title={`Select all ${group.rates.length} routes for ${group.displayName}`}
+                            />
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                              {group.totalRoutes} {group.totalRoutes === 1 ? 'Route' : 'Routes'}
+                            </span>
+                          </div>
                           {group.guidance === 'FOCUS' && (
                             <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
                               FOCUS
@@ -1736,10 +1912,16 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         isOpen={!!selectedUniversityDetailName}
         onClose={() => setSelectedUniversityDetailName(null)}
         universityName={selectedUniversityDetailName || ''}
+        defaultIntake={defaultIntake}
+        onSetDefaultIntake={async (intakeName) => {
+          await updateDefaultIntake(intakeName, user?.email || 'admin@basechan.com');
+        }}
         ratesForUniversity={useMemo(
           () => data.filter((r) => r.universityName === selectedUniversityDetailName),
           [data, selectedUniversityDetailName]
         )}
+        onSaveUniversity={handleSaveUniversityRecord}
+        onDeleteUniversity={handleDeleteUniversityRecord}
       />
     </div>
   );

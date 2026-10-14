@@ -193,7 +193,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         selectedCountry={controlledFilters.countries[0] || 'ALL'}
         onCountryChange={(c) => changeFilters({ countries: c === 'ALL' ? [] : [c] })}
         selectedCommissionType={controlledFilters.agentPayoutKind === 'FLAT_FEE' ? 'Fixed Fee' : controlledFilters.agentPayoutKind === 'PERCENTAGE' ? 'Percentage' : 'ALL'}
-        onCommissionTypeChange={(t) => changeFilters({ agentPayoutKind: t === 'Fixed Fee' ? 'FLAT_FEE' : t === 'Percentage' ? 'PERCENTAGE' : undefined })}
+        onCommissionTypeChange={(t: string) => changeFilters({ agentPayoutKind: t === 'Fixed Fee' ? 'FLAT_FEE' : t === 'Percentage' ? 'PERCENTAGE' : undefined })}
         selectedLevel={controlledFilters.levels[0] || 'ALL'}
         onLevelChange={(l) => changeFilters({ levels: l === 'ALL' ? [] : [l as any] })}
         selectedIntake={controlledFilters.intakes[0] || 'ALL'}
@@ -391,7 +391,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 onClick={() => handleFilterByGuidance('ALLOWED')}
                 title="Click to filter for Allowed Schools"
-                className={`px-2.5 sm:px-3 py-1 rounded-full border transition cursor-pointer text-[11px] sm:text-xs ${
+                className={`px-2.5 sm:px-3 py-1 rounded-full border flex items-center gap-1 transition cursor-pointer text-[11px] sm:text-xs ${
                   (controlledFilters.guidances[0] || 'ALL') === 'ALLOWED'
                     ? 'bg-slate-800 dark:bg-amber-400 text-white dark:text-slate-950 border-slate-800 dark:border-amber-400 shadow-xs font-bold'
                     : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#222F43] hover:bg-slate-200 dark:hover:bg-slate-800'

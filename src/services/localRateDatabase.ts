@@ -109,7 +109,20 @@ export async function getAllLocalSheetBuckets(uid = 'global'): Promise<RateSheet
 }
 
 export async function getLocalRates(uid: string): Promise<CommissionRate[]> {
-  return readAll<CommissionRate>(uid, 'rates');
+  const [rates, pendingImports] = await Promise.all([
+    readAll<CommissionRate>(uid, 'rates'),
+    getPendingOfflineImports(uid),
+  ]);
+
+  if (!pendingImports || pendingImports.length === 0) return rates;
+
+  const rateMap = new Map<string, CommissionRate>();
+  rates.forEach((r) => rateMap.set(r.id, r));
+  pendingImports.forEach((item) => {
+    (item.rates || []).forEach((r) => rateMap.set(r.id, r));
+  });
+
+  return Array.from(rateMap.values());
 }
 
 export async function getLocalAgentOverrides(uid: string): Promise<{ organization: AgentRateReadModel[]; personal: AgentRateReadModel[] }> {

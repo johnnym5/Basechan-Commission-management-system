@@ -406,6 +406,66 @@ export function institutionRecordsToCommissionRates(
       sourceSheet: sheetName,
       updatedAt: new Date().toISOString(),
     });
+
+    // Competitor Benchmark Aggregators (EDVOY, SI-UK, UAP, CRIZAC, KC OVERSEAS, AIMS EDUCATION)
+    const competitorMap: Array<{
+      aggregator: string;
+      ug: ParsedRate;
+      pg: ParsedRate;
+    }> = [
+      { aggregator: 'EDVOY', ug: record.competitors.edvoy.ug, pg: record.competitors.edvoy.pg },
+      { aggregator: 'SI-UK', ug: record.competitors.siUk.ug, pg: record.competitors.siUk.pg },
+      { aggregator: 'UAP', ug: record.competitors.uap.ug, pg: record.competitors.uap.pg },
+      { aggregator: 'CRIZAC', ug: record.competitors.crizac.ug, pg: record.competitors.crizac.pg },
+      { aggregator: 'KC OVERSEAS', ug: record.competitors.kcOverseas.ug, pg: record.competitors.kcOverseas.pg },
+      { aggregator: 'AIMS EDUCATION', ug: record.competitors.aimsEducation.ug, pg: record.competitors.aimsEducation.pg },
+    ];
+
+    competitorMap.forEach(({ aggregator, ug, pg }) => {
+      if (ug.type !== 'NONE') {
+        const val = ug.value !== null ? (ug.type === 'PERCENT' ? ug.value * 100 : ug.value) : 0;
+        const id = generateCompositeId(universityName, intake, aggregator, 'UG');
+        list.push({
+          id,
+          universityId,
+          universityName,
+          country,
+          intake,
+          aggregator,
+          studyLevel: 'UG',
+          masterRate: parseFloat(ugMaster.toFixed(2)),
+          agentRate: parseFloat(val.toFixed(2)),
+          diffMargin: parseFloat((ugMaster - val).toFixed(2)),
+          isFlatFee: ug.type === 'FIXED',
+          netOrGross: 'NET',
+          notes: ug.type === 'TBC' ? 'Rate Unconfirmed (TBC)' : '',
+          sourceSheet: sheetName,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      if (pg.type !== 'NONE') {
+        const val = pg.value !== null ? (pg.type === 'PERCENT' ? pg.value * 100 : pg.value) : 0;
+        const id = generateCompositeId(universityName, intake, aggregator, 'PG');
+        list.push({
+          id,
+          universityId,
+          universityName,
+          country,
+          intake,
+          aggregator,
+          studyLevel: 'PG',
+          masterRate: parseFloat(pgMaster.toFixed(2)),
+          agentRate: parseFloat(val.toFixed(2)),
+          diffMargin: parseFloat((pgMaster - val).toFixed(2)),
+          isFlatFee: pg.type === 'FIXED',
+          netOrGross: 'NET',
+          notes: pg.type === 'TBC' ? 'Rate Unconfirmed (TBC)' : '',
+          sourceSheet: sheetName,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    });
   });
 
   return list;

@@ -103,14 +103,23 @@ export function useCommissionRates() {
       ]);
       if (!active) return false;
       const cachedBucketRates = buckets.flatMap((b: RateSheetBucket) => b.rates || []);
-      if (cachedBucketRates.length > 0) {
-        setRates(cachedBucketRates.map(indexRate));
+      const combinedRates = Array.from(
+        new Map([...cachedBucketRates, ...localRates].map((r) => [r.id, r])).values()
+      );
+
+      if (combinedRates.length > 0) {
+        const values = role === 'AGENT'
+          ? mergeAgentRateLayers(combinedRates.map(fromAgent), overrides.organization.map(fromAgent), overrides.personal.map(fromAgent))
+          : role === 'STAFF' ? combinedRates.map((rate: unknown) => fromStaff(rate as StaffRateReadModel)) : combinedRates;
+
+        setRates(values.map(indexRate));
         setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
         setLastSyncedAt(metadata?.lastSyncedAt || new Date().toISOString());
         setHasLocalCopy(true);
         setLoading(false);
         return true;
       }
+
       if (!metadata?.complete || metadata.role !== role || metadata.uid !== user.uid || metadata.organizationId !== scope.organizationId) return false;
       const values = role === 'AGENT'
         ? mergeAgentRateLayers(localRates.map(fromAgent), overrides.organization.map(fromAgent), overrides.personal.map(fromAgent))
@@ -134,8 +143,12 @@ export function useCommissionRates() {
           await verifyServerRateAccess(scope);
         }
         const freshRates = await syncRateSheetsCacheFirst(scope);
+        const localRates = await getLocalRates(user.uid);
+        const combined = Array.from(
+          new Map([...localRates, ...freshRates].map((r) => [r.id, r])).values()
+        );
         if (!active) return;
-        setRates(freshRates.map(indexRate));
+        setRates(combined.map(indexRate));
         setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
         setLastSyncedAt(new Date().toISOString());
         setHasLocalCopy(true);
