@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import type { AgentRateReadModel, CommissionRate, RateSheetBucket, StaffRateReadModel } from '../types';
+import type { CommissionRate, RateSheetBucket } from '../types';
 import { mergeAgentRateLayers } from '../services/rateReadModels';
 import {
   beginQuotaProbe, completeQuotaProbe, enterQuotaOfflineMode, getQuotaRetryAt, lockFirestoreNetworkForQuota,
@@ -17,16 +17,8 @@ export interface IndexedCommissionRate extends CommissionRate { _searchToken: st
 function indexRate(data: CommissionRate): IndexedCommissionRate {
   return {
     ...data,
-    _searchToken: [data.universityName, data.aggregator, data.intake, data.studyLevel, data.country || '', data.guidance || 'ALLOWED'].join(' ').toLowerCase(),
+    _searchToken: [data.universityName, data.aggregator || 'BASECHAN', data.intake, data.studyLevel, data.country || '', data.guidance || 'ALLOWED'].join(' ').toLowerCase(),
   };
-}
-
-function fromStaff(rate: StaffRateReadModel): CommissionRate {
-  return { ...rate, masterRate: 0, agentRate: 0, diffMargin: 0, isFlatFee: false, netOrGross: 'GROSS' };
-}
-
-function fromAgent(rate: AgentRateReadModel): CommissionRate {
-  return { ...rate, aggregator: '', masterRate: 0, diffMargin: 0 };
 }
 
 export function useCommissionRates() {
@@ -95,42 +87,61 @@ export function useCommissionRates() {
     setHasLocalCopy(false);
 
     const showLocal = async () => {
-      const [buckets, metadata, localRates, overrides] = await Promise.all([
-        getAllLocalSheetBuckets(user.uid),
-        getLocalRateMetadata(user.uid),
-        getLocalRates(user.uid),
-        getLocalAgentOverrides(user.uid),
-      ]);
-      if (!active) return false;
-      const cachedBucketRates = buckets.flatMap((b: RateSheetBucket) => b.rates || []);
-      const combinedRates = Array.from(
-        new Map([...cachedBucketRates, ...localRates].map((r) => [r.id, r])).values()
-      );
+      try {
+        const [globalBuckets, userBuckets, metadata, globalRates, userRates, overrides] = await Promise.all([
+          getAllLocalSheetBuckets('global').catch(() => []),
+          getAllLocalSheetBuckets(user.uid).catch(() => []),
+          getLocalRateMetadata(user.uid).catch(() => null),
+          getLocalRates('global').catch(() => []),
+          getLocalRates(user.uid).catch(() => []),
+          getLocalAgentOverrides(user.uid).catch(() => ({ organization: [], personal: [] })),
+        ]);
+        if (!active) return false;
 
-      if (combinedRates.length > 0) {
-        const values = role === 'AGENT'
-          ? mergeAgentRateLayers(combinedRates.map(fromAgent), overrides.organization.map(fromAgent), overrides.personal.map(fromAgent))
-          : role === 'STAFF' ? combinedRates.map((rate: unknown) => fromStaff(rate as StaffRateReadModel)) : combinedRates;
+        const cachedBucketRates = [...globalBuckets, ...userBuckets].flatMap((b: RateSheetBucket) => b.rates || []);
+        const combinedRates = Array.from(
+          new Map([...cachedBucketRates, ...globalRates, ...userRates].map((r) => [r.id, r])).values()
+        );
 
-        setRates(values.map(indexRate));
-        setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
-        setLastSyncedAt(metadata?.lastSyncedAt || new Date().toISOString());
-        setHasLocalCopy(true);
-        setLoading(false);
-        return true;
+        if (combinedRates.length > 0) {
+          const values = role === 'AGENT'
+            ? mergeAgentRateLayers(
+                combinedRates.map((r) => ({
+                  ...r,
+                  aggregator: r.aggregator || 'BASECHAN',
+                })),
+                overrides.organization,
+                overrides.personal
+              )
+            : combinedRates;
+
+          setRates(values.map((r) => indexRate(r as CommissionRate)));
+          setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
+          setLastSyncedAt(metadata?.lastSyncedAt || new Date().toISOString());
+          setHasLocalCopy(true);
+          setLoading(false);
+          setError(null);
+          return true;
+        }
+
+        if (metadata?.complete) {
+          const values = role === 'AGENT'
+            ? mergeAgentRateLayers(userRates, overrides.organization, overrides.personal)
+            : userRates;
+          if (values.length > 0) {
+            setRates(values.map((r) => indexRate(r as CommissionRate)));
+            setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
+            setLastSyncedAt(metadata.lastSyncedAt);
+            setHasLocalCopy(true);
+            setLoading(false);
+            setError(null);
+            return true;
+          }
+        }
+      } catch (err) {
+        console.error('Error loading local offline rates:', err);
       }
-
-      if (!metadata?.complete || metadata.role !== role || metadata.uid !== user.uid || metadata.organizationId !== scope.organizationId) return false;
-      const values = role === 'AGENT'
-        ? mergeAgentRateLayers(localRates.map(fromAgent), overrides.organization.map(fromAgent), overrides.personal.map(fromAgent))
-        : role === 'STAFF' ? localRates.map((rate: unknown) => fromStaff(rate as StaffRateReadModel)) : localRates;
-      if (values.length === 0) return false;
-      setRates(values.map(indexRate));
-      setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
-      setLastSyncedAt(metadata.lastSyncedAt);
-      setHasLocalCopy(true);
-      setLoading(false);
-      return true;
+      return false;
     };
 
     let syncInProgress = false;
