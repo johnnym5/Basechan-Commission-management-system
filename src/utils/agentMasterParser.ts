@@ -425,6 +425,7 @@ export function institutionRecordsToCommissionRates(
       if (ug.type !== 'NONE') {
         const val = ug.value !== null ? (ug.type === 'PERCENT' ? ug.value * 100 : ug.value) : 0;
         const id = generateCompositeId(universityName, intake, aggregator, 'UG');
+        const margin = val > 0 ? parseFloat((val - ugAgent).toFixed(2)) : 0;
         list.push({
           id,
           universityId,
@@ -433,9 +434,9 @@ export function institutionRecordsToCommissionRates(
           intake,
           aggregator,
           studyLevel: 'UG',
-          masterRate: parseFloat(ugMaster.toFixed(2)),
-          agentRate: parseFloat(val.toFixed(2)),
-          diffMargin: parseFloat((ugMaster - val).toFixed(2)),
+          masterRate: parseFloat(val.toFixed(2)),
+          agentRate: parseFloat(ugAgent.toFixed(2)),
+          diffMargin: margin,
           isFlatFee: ug.type === 'FIXED',
           netOrGross: 'NET',
           notes: ug.type === 'TBC' ? 'Rate Unconfirmed (TBC)' : '',
@@ -447,6 +448,7 @@ export function institutionRecordsToCommissionRates(
       if (pg.type !== 'NONE') {
         const val = pg.value !== null ? (pg.type === 'PERCENT' ? pg.value * 100 : pg.value) : 0;
         const id = generateCompositeId(universityName, intake, aggregator, 'PG');
+        const margin = val > 0 ? parseFloat((val - pgAgent).toFixed(2)) : 0;
         list.push({
           id,
           universityId,
@@ -455,9 +457,9 @@ export function institutionRecordsToCommissionRates(
           intake,
           aggregator,
           studyLevel: 'PG',
-          masterRate: parseFloat(pgMaster.toFixed(2)),
-          agentRate: parseFloat(val.toFixed(2)),
-          diffMargin: parseFloat((pgMaster - val).toFixed(2)),
+          masterRate: parseFloat(val.toFixed(2)),
+          agentRate: parseFloat(pgAgent.toFixed(2)),
+          diffMargin: margin,
           isFlatFee: pg.type === 'FIXED',
           netOrGross: 'NET',
           notes: pg.type === 'TBC' ? 'Rate Unconfirmed (TBC)' : '',
