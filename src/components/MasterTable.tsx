@@ -5,7 +5,6 @@ import {
   getCoreRowModel,
   getSortedRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   flexRender,
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState, RowSelectionState } from '@tanstack/react-table';
@@ -879,6 +878,14 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     return sortedFilteredData.slice(start, start + CARDS_PER_PAGE);
   }, [sortedFilteredData, cardPage]);
 
+  // Table Page State & Pagination Calculations
+  const [tablePage, setTablePage] = useState<number>(1);
+  const [tablePageSize, setTablePageSize] = useState<number>(25);
+
+  useEffect(() => {
+    setTablePage(1);
+  }, [sortedFilteredData.length, effectiveGroupByMode]);
+
   // Selection states across ALL filtered rows
   const isAllFilteredSelected = useMemo(() => {
     if (filteredData.length === 0) return false;
@@ -1115,11 +1122,20 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: {
-      pagination: { pageSize: 25 },
-    },
   });
+
+  // Paginated Rows for Table List View
+  const paginatedTableRows = useMemo(() => {
+    const allRows = table.getRowModel().rows;
+    if (tablePageSize === -1) return allRows;
+    const start = (tablePage - 1) * tablePageSize;
+    return allRows.slice(start, start + tablePageSize);
+  }, [table, tablePage, tablePageSize]);
+
+  const totalTablePages = useMemo(() => {
+    if (tablePageSize === -1) return 1;
+    return Math.ceil(table.getRowModel().rows.length / tablePageSize) || 1;
+  }, [table, tablePageSize]);
 
   // Selected rates & unique selected universities
   const selectedRates = useMemo(() => data.filter((rate) => rowSelection[rate.id]), [rowSelection, data]);
@@ -1933,17 +1949,77 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                 ))}
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-[#222F43]">
-                {table.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50">
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-4 py-3.5">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
+                {paginatedTableRows.length > 0 ? (
+                  paginatedTableRows.map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50">
+                      {row.getVisibleCells().map((cell) => (
+                        <td key={cell.id} className="px-4 py-3.5">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={columns.length} className="px-4 py-8 text-center text-slate-400 italic text-xs">
+                      No route/rate found for this uni
+                    </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
+          </div>
+
+          {/* Table List View Pagination Footer */}
+          <div className="px-5 py-3.5 bg-slate-50/90 dark:bg-[#18181B]/90 border-t border-slate-200 dark:border-[#222F43] flex flex-wrap items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-3">
+              <span>
+                Showing <strong className="text-slate-800 dark:text-slate-200">{tablePageSize === -1 || table.getRowModel().rows.length === 0 ? (table.getRowModel().rows.length === 0 ? 0 : 1) : (tablePage - 1) * tablePageSize + 1}</strong> -{' '}
+                <strong className="text-slate-800 dark:text-slate-200">{tablePageSize === -1 ? table.getRowModel().rows.length : Math.min(tablePage * tablePageSize, table.getRowModel().rows.length)}</strong> of{' '}
+                <strong className="text-slate-800 dark:text-slate-200">{table.getRowModel().rows.length}</strong> rows
+              </span>
+
+              {/* Rows Per Page Selector */}
+              <div className="flex items-center gap-1.5 ml-2">
+                <span className="text-[11px] text-slate-400 font-medium">Rows:</span>
+                <select
+                  value={tablePageSize}
+                  onChange={(e) => {
+                    setTablePageSize(Number(e.target.value));
+                    setTablePage(1);
+                  }}
+                  className="px-2 py-1 rounded-lg bg-white dark:bg-[#0E1526] border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer"
+                >
+                  <option value={25}>25 per page</option>
+                  <option value={50}>50 per page</option>
+                  <option value={100}>100 per page</option>
+                  <option value={-1}>All rows</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setTablePage((p) => Math.max(p - 1, 1))}
+                disabled={tablePage === 1 || tablePageSize === -1}
+                className="p-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                title="Previous Page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span>
+                Page <strong className="text-slate-700 dark:text-slate-300">{tablePage}</strong> of{' '}
+                <strong className="text-slate-700 dark:text-slate-300">{totalTablePages}</strong>
+              </span>
+              <button
+                onClick={() => setTablePage((p) => Math.min(p + 1, totalTablePages))}
+                disabled={tablePage === totalTablePages || tablePageSize === -1}
+                className="p-1.5 rounded-lg border border-slate-300 dark:border-[#222F43] hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                title="Next Page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
