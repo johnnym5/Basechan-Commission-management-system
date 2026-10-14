@@ -392,38 +392,6 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
               </button>
             )}
 
-            {/* Direct 1-Click Cards / Table List Toggle on Main Search Bar for Desktop */}
-            {onViewModeChange && (
-              <div className="hidden md:flex items-center gap-0.5 bg-[#18181B] border border-[#33415d] p-1 rounded-xl shrink-0">
-                <button
-                  type="button"
-                  onClick={() => onViewModeChange('cards')}
-                  className={`p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
-                    viewMode === 'cards'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                  title="Grid Cards View"
-                >
-                  <LayoutGrid className="w-4 h-4" />
-                  <span className="hidden lg:inline">Cards</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onViewModeChange('table')}
-                  className={`p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
-                    viewMode === 'table'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                  title="Table List View"
-                >
-                  <TableProperties className="w-4 h-4" />
-                  <span className="hidden lg:inline">Table List</span>
-                </button>
-              </div>
-            )}
-
             <button
               type="button"
               onClick={toggleAdvance}
