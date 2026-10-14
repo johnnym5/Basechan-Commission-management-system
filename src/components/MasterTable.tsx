@@ -32,6 +32,7 @@ import { doc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { writeRateOperation } from '../services/adminRateWriteService';
+import { exportMultiSheetRoleWorkbook } from '../utils/exportUtils';
 import {
   ArrowUpDown,
   Search,
@@ -51,6 +52,7 @@ import {
   Target,
   GraduationCap,
   Building2,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 interface MasterTableProps {
@@ -1656,9 +1658,23 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                   </button>
                 </div>
               ) : (
-                <span className="text-[11px] text-slate-400 dark:text-slate-400 font-medium hidden sm:inline">
-                  Check any school card to trigger bulk updates
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      exportMultiSheetRoleWorkbook({
+                        rates: filteredData,
+                        role,
+                        currency: activeCurrency,
+                      });
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs active:scale-95"
+                    title="Export filtered directory to multi-sheet Excel workbook by country"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+                    <span>Export Workbook (.xlsx)</span>
+                  </button>
+                </div>
               )
             )}
       </div>

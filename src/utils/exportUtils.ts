@@ -1,24 +1,109 @@
 import * as XLSX from 'xlsx';
-import type { CommissionRate } from '../types';
+import type { CommissionRate, UserRole } from '../types';
+
+export interface ExportWorkbookOptions {
+  rates: CommissionRate[];
+  role: UserRole;
+  currency?: string;
+  customFilename?: string;
+}
+
+export const exportMultiSheetRoleWorkbook = ({
+  rates,
+  role,
+  currency = 'GBP',
+  customFilename,
+}: ExportWorkbookOptions) => {
+  if (!rates || rates.length === 0) return;
+
+  // 1. Group rates by Country (e.g. 'UK', 'Canada', 'USA', 'Australia', etc.)
+  const countryMap = new Map<string, CommissionRate[]>();
+  rates.forEach((r) => {
+    const countryName = (r.country || 'UK').trim();
+    if (!countryMap.has(countryName)) {
+      countryMap.set(countryName, []);
+    }
+    countryMap.get(countryName)!.push(r);
+  });
+
+  const workbook = XLSX.utils.book_new();
+  const dateStr = new Date().toISOString().split('T')[0];
+
+  // 2. Build a dedicated worksheet for each country
+  countryMap.forEach((countryRates, countryName) => {
+    const sheetTabName = countryName.replace(/[:\\/?*\[\]]/g, '').slice(0, 30) || 'Rates';
+
+    const rowData = countryRates.map((r) => {
+      const isFlat = r.isFlatFee;
+      const fmtVal = (num: number) =>
+        isFlat ? `${currency} ${num.toLocaleString()}` : `${num}%`;
+
+      if (role === 'ADMIN') {
+        return {
+          'University Name': r.universityName,
+          'Country': r.country || 'UK',
+          'Intake': r.intake,
+          'Study Level': r.studyLevel,
+          'Application Portal': r.aggregator || 'Direct',
+          'Status Guidance': r.guidance || 'ALLOWED',
+          'Master Rate': fmtVal(r.masterRate),
+          'Sub-Agent Payout': fmtVal(r.agentRate),
+          'Net Profit Margin': fmtVal(r.diffMargin),
+          'Type': isFlat ? 'Fixed Fee' : 'Percentage',
+          'Notes': r.notes || '',
+        };
+      }
+
+      if (role === 'STAFF') {
+        return {
+          'University Name': r.universityName,
+          'Country': r.country || 'UK',
+          'Intake': r.intake,
+          'Study Level': r.studyLevel,
+          'Application Portal': r.aggregator || 'Direct',
+          'Status Guidance': r.guidance || 'ALLOWED',
+          'University Commission': fmtVal(r.masterRate),
+          'Type': isFlat ? 'Fixed Fee' : 'Percentage',
+          'Notes': r.notes || '',
+        };
+      }
+
+      // AGENT Role (Columns strictly sanitized for sub-agents)
+      return {
+        'University Name': r.universityName,
+        'Country': r.country || 'UK',
+        'Intake': r.intake,
+        'Study Level': r.studyLevel,
+        'Your Guaranteed Commission': fmtVal(r.agentRate),
+        'Type': isFlat ? 'Fixed Fee' : 'Percentage',
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rowData);
+
+    // Auto-fit column widths for clean readability
+    if (rowData.length > 0) {
+      const colWidths = Object.keys(rowData[0]).map((key) => ({
+        wch: Math.max(key.length, 18),
+      }));
+      worksheet['!cols'] = colWidths;
+    }
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetTabName);
+  });
+
+  const roleLabel = role === 'ADMIN' ? 'Admin' : role === 'STAFF' ? 'Staff' : 'Agent';
+  const fileName = customFilename || `Basechan_Commission_Directory_${roleLabel}_${dateStr}.xlsx`;
+
+  XLSX.writeFile(workbook, fileName);
+};
 
 export const exportToExcel = (rates: CommissionRate[], filename = 'Basechan_Commission_Rates.xlsx') => {
-  const exportData = rates.map((r) => ({
-    'University Name': r.universityName,
-    'School Guidance Status': r.guidance || 'ALLOWED',
-    'Intake': r.intake,
-    'Study Level': r.studyLevel,
-    'Aggregator / Portal': r.aggregator,
-    'Master Rate': r.isFlatFee ? `£${r.masterRate}` : `${r.masterRate}%`,
-    'Agent Rate': r.isFlatFee ? `£${r.agentRate}` : `${r.agentRate}%`,
-    'Profit Margin': r.isFlatFee ? `£${r.diffMargin}` : `${r.diffMargin}%`,
-    'Country': r.country || 'UK',
-    'Updated At': r.updatedAt || '',
-  }));
-
-  const worksheet = XLSX.utils.json_to_sheet(exportData);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Commission Rates');
-  XLSX.writeFile(workbook, filename);
+  exportMultiSheetRoleWorkbook({
+    rates,
+    role: 'ADMIN',
+    customFilename: filename,
+  });
 };
 
 export const exportToCSV = (rates: CommissionRate[], filename = 'Basechan_Commission_Rates.csv') => {
