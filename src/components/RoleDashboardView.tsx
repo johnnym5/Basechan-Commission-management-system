@@ -35,6 +35,7 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
   const [activeTokens, setActiveTokens] = useState<SearchToken[]>([]);
   const [selectedUniversity, setSelectedUniversity] = useState<string>('ALL');
   const [selectedSortBy, setSelectedSortBy] = useState<string>('ALPHABETICAL');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const options = useMemo(() => getDashboardFilterOptions(rates), [rates]);
   const visibleRates = useMemo(() => applyDashboardFilters(role, rates, filters), [role, rates, filters]);
   const kpis = useMemo(() => getDashboardKpis(visibleRates), [visibleRates]);
@@ -128,6 +129,8 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
         onAggregatorChange={(a) => changeFilters({ aggregators: a === 'ALL' ? [] : [a] })}
         selectedSortBy={selectedSortBy}
         onSortByChange={setSelectedSortBy}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
         favoriteCount={favoriteCount}
         onOpenChat={onOpenChat}
         onScrollToResults={scrollToTable}
@@ -285,6 +288,8 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
             onExternalCountryChange={(country: string) => changeFilters({ countries: country === 'ALL' ? [] : [country] })}
             externalSortBy={selectedSortBy}
             onExternalSortByChange={setSelectedSortBy}
+            externalViewMode={viewMode}
+            onExternalViewModeChange={setViewMode}
             activeTokens={activeTokens}
             onTokensChange={setActiveTokens}
             externalSchoolIdsFilter={filters.schoolIds}

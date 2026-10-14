@@ -62,6 +62,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [activeTokens, setActiveTokens] = useState<SearchToken[]>([]);
   const [selectedUniversity, setSelectedUniversity] = useState<string>('ALL');
   const [selectedSortBy, setSelectedSortBy] = useState<string>('ALPHABETICAL');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [advanceFiltersOpen, setAdvanceFiltersOpen] = useState<boolean>(false);
 
   const controlledFilters = filters ?? {
@@ -204,6 +205,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         onAggregatorChange={(a) => changeFilters({ aggregators: a === 'ALL' ? [] : [a] })}
         selectedSortBy={selectedSortBy}
         onSortByChange={setSelectedSortBy}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
         onResetFilters={handleClearAllFilters}
       />
 
@@ -544,6 +547,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onExternalIntakeChange={value => changeFilters({ intakes: value === 'ALL' ? [] : [value] })}
           externalSortBy={selectedSortBy}
           onExternalSortByChange={setSelectedSortBy}
+          externalViewMode={viewMode}
+          onExternalViewModeChange={setViewMode}
           activeTokens={activeTokens}
           onTokensChange={setActiveTokens}
           externalSchoolIdsFilter={controlledFilters.schoolIds}
