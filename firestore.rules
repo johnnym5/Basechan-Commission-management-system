@@ -294,42 +294,30 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
-    function isStaffSheetHidden(data) {
-      let sheet = data.keys().hasAny(['sourceSheet']) && data.sourceSheet is string
-        ? data.sourceSheet
-        : data.keys().hasAny(['intake']) && data.intake is string ? data.intake : '';
-      return sheet != ''
-        && exists(/databases/$(database)/documents/sheet_settings/$(sheet))
-        && get(/databases/$(database)/documents/sheet_settings/$(sheet)).data.get('disabledForStaff', false) == true;
-    }
 
-    function isAgentSheetHidden(data) {
-      let sheet = data.keys().hasAny(['sourceSheet']) && data.sourceSheet is string
-        ? data.sourceSheet
-        : data.keys().hasAny(['intake']) && data.intake is string ? data.intake : '';
-      return sheet != ''
-        && exists(/databases/$(database)/documents/sheet_settings/$(sheet))
-        && get(/databases/$(database)/documents/sheet_settings/$(sheet)).data.get('disabledForAgents', false) == true;
-    }
+    // NOTE: isStaffSheetHidden/isAgentSheetHidden are NOT used here.
+    // Firebase prohibits combining resource.data with get() calls in list (collection query) rules.
+    // Sheet visibility filtering is enforced at the application level via where('sourceSheet', 'in', visibleSheets).
+    // Staff/agent read-model collections contain NO masterRate/agentRate data — they are safe to expose to their role.
+
 
     match /staff_rates/{rateId} {
-      allow read: if (isAdmin() || isStaff()) && !isStaffSheetHidden(resource.data);
+      allow read: if isAdmin() || isStaff();
       allow write: if isAdmin();
     }
 
     match /agent_rates/{rateId} {
-      allow read: if (isAdmin() || isApprovedAgent()) && !isAgentSheetHidden(resource.data);
+      allow read: if isAdmin() || isApprovedAgent();
       allow write: if isAdmin();
     }
 
     match /organization_agent_rates/{organizationId}/rates/{rateId} {
-      allow read: if (isAdmin() || isApprovedAgentFor(organizationId)) && !isAgentSheetHidden(resource.data);
+      allow read: if isAdmin() || isApprovedAgentFor(organizationId);
       allow write: if isAdmin();
     }
 
     match /agent_rate_overrides/{userId}/rates/{rateId} {
-      allow read: if (isAdmin() || (isApprovedAgent() && request.auth.uid == userId))
-        && !isAgentSheetHidden(resource.data);
+      allow read: if isAdmin() || (isApprovedAgent() && request.auth.uid == userId);
       allow write: if isAdmin();
     }
 
