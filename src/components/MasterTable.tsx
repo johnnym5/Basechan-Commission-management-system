@@ -298,12 +298,42 @@ const GroupRoutesModal: React.FC<{
     };
   }, [group]);
 
+  const { role } = useAuth();
+  const isAdmin = role === 'ADMIN';
+  const isAgent = role === 'AGENT';
+
+  const displayableRates = useMemo(() => {
+    if (!group) return [];
+    if (!isAgent) return group.rates;
+
+    // For AGENT role: filter to ONLY the Admin-selected Default/Focus route per study level & intake
+    const levelMap = new Map<string, CommissionRate[]>();
+    group.rates.forEach((r) => {
+      const key = `${r.studyLevel}__${r.intake}`;
+      if (!levelMap.has(key)) levelMap.set(key, []);
+      levelMap.get(key)!.push(r);
+    });
+
+    const authorized: CommissionRate[] = [];
+    levelMap.forEach((ratesForLevel) => {
+      const focusRate = ratesForLevel.find((r) => r.guidance === 'FOCUS');
+      if (focusRate) {
+        authorized.push(focusRate);
+      } else {
+        const directRate = ratesForLevel.find((r) => r.aggregator === 'BASECHAN' || r.aggregator === 'Direct');
+        authorized.push(directRate || ratesForLevel[0]);
+      }
+    });
+
+    return authorized;
+  }, [group, isAgent]);
+
   const { activeRoutes, previousRoutes } = useMemo(() => {
     if (!group) return { activeRoutes: [], previousRoutes: [] };
     const active: CommissionRate[] = [];
     const previous: CommissionRate[] = [];
 
-    group.rates.forEach((rate) => {
+    displayableRates.forEach((rate) => {
       if (isHistoricalIntake(rate.intake)) {
         previous.push(rate);
       } else {
@@ -312,15 +342,12 @@ const GroupRoutesModal: React.FC<{
     });
 
     return { activeRoutes: active, previousRoutes: previous };
-  }, [group]);
-
-  const { role } = useAuth();
-  const isAdmin = role === 'ADMIN';
+  }, [group, displayableRates]);
 
   if (!group) return null;
 
   const renderRouteCard = (rate: CommissionRate) => {
-    const isBest = group.bestRoute?.id === rate.id;
+    const isBest = !isAgent && group.bestRoute?.id === rate.id;
     return (
       <div
         key={rate.id}
@@ -332,7 +359,14 @@ const GroupRoutesModal: React.FC<{
       >
         <div className="space-y-1.5 min-w-[160px]">
           <div className="flex items-center gap-2">
-            <AggregatorRouteCell rate={rate} />
+            {isAgent ? (
+              <span className="font-extrabold text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                Authorized Route
+              </span>
+            ) : (
+              <AggregatorRouteCell rate={rate} />
+            )}
             {isBest && (
               <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400 text-slate-950">
                 BEST ROUTE
@@ -346,9 +380,11 @@ const GroupRoutesModal: React.FC<{
 
         <div className="flex items-center gap-3">
           <div className="text-right">
-            <span className="text-[9px] font-bold uppercase text-slate-400 block">Profit Yield</span>
+            <span className="text-[9px] font-bold uppercase text-slate-400 block">
+              {isAgent ? 'Your Commission' : 'Profit Yield'}
+            </span>
             <span className="font-mono font-black text-emerald-600 dark:text-amber-400 text-sm">
-              {formatCurrencyValue(rate.diffMargin, currency, rate.isFlatFee)}
+              {formatCurrencyValue(isAgent ? rate.agentRate : rate.diffMargin, currency, rate.isFlatFee)}
             </span>
           </div>
 
@@ -399,7 +435,7 @@ const GroupRoutesModal: React.FC<{
             </h3>
             <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1 mt-0.5">
               <Globe className="w-3.5 h-3.5" />
-              <span>{group.country} • {group.totalRoutes} Available Routes</span>
+              <span>{group.country} • {isAgent ? 'Authorized Application Route' : `${group.totalRoutes} Available Routes`}</span>
             </p>
           </div>
 
@@ -430,8 +466,8 @@ const GroupRoutesModal: React.FC<{
 
         {/* Scrollable Routes List */}
         <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs">
-          {/* Best Route Banner */}
-          {group.bestRoute && (
+          {/* Best Route Banner - Only for Admin/Staff */}
+          {!isAgent && group.bestRoute && (
             <div className="p-3 bg-amber-500/15 border border-amber-400/40 rounded-2xl flex items-center justify-between text-amber-800 dark:text-amber-300">
               <span className="font-extrabold text-xs">
                 Recommended Top Yield Route:
@@ -1444,140 +1480,144 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           {/* TOP SELECTION & BATCH ACTIONS BAR */}
           <div className="flex flex-wrap items-center justify-between p-2.5 bg-[#F7F4EF] dark:bg-[#0E1526] rounded-2xl border border-slate-200 dark:border-[#222F43] text-xs font-semibold gap-3 transition-colors">
             {/* Left: Select All Checkbox & Count Indicator */}
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className="w-4 h-4 rounded border-slate-300 dark:border-[#222F43] text-blue-600 dark:text-amber-400 focus:ring-blue-500 cursor-pointer"
-              checked={isAllFilteredSelected}
-              ref={(el) => {
-                if (el) el.indeterminate = !isAllFilteredSelected && isSomeFilteredSelected;
-              }}
-              onChange={handleToggleAllFiltered}
-            />
-            <span className="text-slate-800 dark:text-slate-200 font-extrabold text-xs sm:text-sm">
-              {selectedRates.length > 0
-                ? `${selectedRates.length} Selected (${selectedSchoolNames.size} ${selectedSchoolNames.size === 1 ? 'School' : 'Schools'})`
-                : 'Select All Filtered'}
-            </span>
-          </label>
+            <div className="flex items-center gap-3">
+              {isAdmin && (
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded border-slate-300 dark:border-[#222F43] text-blue-600 dark:text-amber-400 focus:ring-blue-500 cursor-pointer"
+                    checked={isAllFilteredSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !isAllFilteredSelected && isSomeFilteredSelected;
+                    }}
+                    onChange={handleToggleAllFiltered}
+                  />
+                  <span className="text-slate-800 dark:text-slate-200 font-extrabold text-xs sm:text-sm">
+                    {selectedRates.length > 0
+                      ? `${selectedRates.length} Selected (${selectedSchoolNames.size} ${selectedSchoolNames.size === 1 ? 'School' : 'Schools'})`
+                      : 'Select All Filtered'}
+                  </span>
+                </label>
+              )}
 
-          <span className="text-slate-400 font-mono text-[10px] sm:text-[11px]">
-            ({filteredData.length} total)
-          </span>
-        </div>
+              <span className="text-slate-400 font-mono text-[10px] sm:text-[11px]">
+                ({filteredData.length} total commission rates)
+              </span>
+            </div>
 
-        {/* Right: Inline Bulk Update Controls */}
-        {selectedRates.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <select
-              defaultValue=""
-              onChange={(e) => {
-                if (e.target.value) {
-                  handleBatchSetAggregator(e.target.value);
-                  e.target.value = '';
-                }
-              }}
-              className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold transition cursor-pointer"
-            >
-              <option value="" disabled>Bulk Route...</option>
-              {COMMON_AGGREGATORS.map((agg) => (
-                <option key={agg} value={agg} className="text-slate-900 bg-white">
-                  Set to {agg}
-                </option>
-              ))}
-            </select>
+            {/* Right: Inline Bulk Update Controls */}
+            {isAdmin && (
+              selectedRates.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleBatchSetAggregator(e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold transition cursor-pointer"
+                  >
+                    <option value="" disabled>Bulk Route...</option>
+                    {COMMON_AGGREGATORS.map((agg) => (
+                      <option key={agg} value={agg} className="text-slate-900 bg-white">
+                        Set to {agg}
+                      </option>
+                    ))}
+                  </select>
 
-            <button
-              type="button"
-              onClick={() => handleBatchSetGuidance('FOCUS')}
-              disabled={batchActionLoading}
-              title="Set Guidance to Focus (Preferred)"
-              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Set Focus</span>
-            </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchSetGuidance('FOCUS')}
+                    disabled={batchActionLoading}
+                    title="Set Guidance to Focus (Preferred)"
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Set Focus</span>
+                  </button>
 
-            <button
-              type="button"
-              onClick={() => handleBatchSetGuidance('DO_NOT_USE')}
-              disabled={batchActionLoading}
-              title="Set Guidance to Do Not Use (Avoid)"
-              className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
-            >
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Set Do Not Use</span>
-            </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchSetGuidance('DO_NOT_USE')}
+                    disabled={batchActionLoading}
+                    title="Set Guidance to Do Not Use (Avoid)"
+                    className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Set Do Not Use</span>
+                  </button>
 
-            <button
-              type="button"
-              onClick={() => handleBatchSetGuidance('ALLOWED')}
-              disabled={batchActionLoading}
-              title="Set Guidance to Allowed"
-              className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Set Allowed</span>
-            </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchSetGuidance('ALLOWED')}
+                    disabled={batchActionLoading}
+                    title="Set Guidance to Allowed"
+                    className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Set Allowed</span>
+                  </button>
 
-            {selectedSchoolNames.size === 1 && (
-              <button
-                type="button"
-                onClick={() => {
-                  const uniName = Array.from(selectedSchoolNames)[0];
-                  setSelectedUniversityDetailName(uniName);
-                }}
-                disabled={batchActionLoading}
-                title="Single Edit 21-Column Spec for Selected School"
-                className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
-              >
-                <Building2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Single Edit (21 Cols)</span>
-              </button>
+                  {selectedSchoolNames.size === 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const uniName = Array.from(selectedSchoolNames)[0];
+                        setSelectedUniversityDetailName(uniName);
+                      }}
+                      disabled={batchActionLoading}
+                      title="Single Edit 21-Column Spec for Selected School"
+                      className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+                    >
+                      <Building2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Single Edit (21 Cols)</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedRates.length === 1) {
+                        onEditRate(selectedRates[0]);
+                      } else {
+                        setIsBatchEditOpen(true);
+                      }
+                    }}
+                    disabled={batchActionLoading}
+                    title="Bulk Edit Selected Records"
+                    className="px-2.5 py-1.5 bg-blue-600 dark:bg-amber-400 hover:bg-blue-700 dark:hover:bg-amber-500 text-white dark:text-slate-950 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Bulk Edit</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDeleteSelected}
+                    disabled={batchActionLoading}
+                    title="Delete Selected Records"
+                    className="p-1.5 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/60 rounded-xl transition cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRowSelection({})}
+                    title="Deselect All"
+                    className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition cursor-pointer ml-1"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <span className="text-[11px] text-slate-400 dark:text-slate-400 font-medium hidden sm:inline">
+                  Check any school card to trigger bulk updates
+                </span>
+              )
             )}
-
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedRates.length === 1) {
-                  onEditRate(selectedRates[0]);
-                } else {
-                  setIsBatchEditOpen(true);
-                }
-              }}
-              disabled={batchActionLoading}
-              title="Bulk Edit Selected Records"
-              className="px-2.5 py-1.5 bg-blue-600 dark:bg-amber-400 hover:bg-blue-700 dark:hover:bg-amber-500 text-white dark:text-slate-950 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Bulk Edit</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDeleteSelected}
-              disabled={batchActionLoading}
-              title="Delete Selected Records"
-              className="p-1.5 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/60 rounded-xl transition cursor-pointer"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setRowSelection({})}
-              title="Deselect All"
-              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition cursor-pointer ml-1"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
-          <span className="text-[11px] text-slate-400 dark:text-slate-400 font-medium hidden sm:inline">
-            Check any school card to trigger bulk updates
-          </span>
-        )}
       </div>
 
       {/* Filter Popover */}
@@ -1696,27 +1736,29 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                       >
                         <div className="flex items-center justify-between gap-1">
                           <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={isGroupSelected}
-                              ref={(el) => {
-                                if (el) el.indeterminate = !isGroupSelected && isGroupSomeSelected;
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                const newSel = { ...rowSelection };
-                                if (isGroupSelected) {
-                                  group.rates.forEach((r) => { delete newSel[r.id]; });
-                                } else {
-                                  group.rates.forEach((r) => { newSel[r.id] = true; });
-                                }
-                                setRowSelection(newSel);
-                              }}
-                              className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
-                              aria-label={`Select ${group.displayName}`}
-                              title={`Select all ${group.rates.length} routes for ${group.displayName}`}
-                            />
+                            {isAdmin && (
+                              <input
+                                type="checkbox"
+                                checked={isGroupSelected}
+                                ref={(el) => {
+                                  if (el) el.indeterminate = !isGroupSelected && isGroupSomeSelected;
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  const newSel = { ...rowSelection };
+                                  if (isGroupSelected) {
+                                    group.rates.forEach((r) => { delete newSel[r.id]; });
+                                  } else {
+                                    group.rates.forEach((r) => { newSel[r.id] = true; });
+                                  }
+                                  setRowSelection(newSel);
+                                }}
+                                className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                                aria-label={`Select ${group.displayName}`}
+                                title={`Select all ${group.rates.length} routes for ${group.displayName}`}
+                              />
+                            )}
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                               {group.totalRoutes} {group.totalRoutes === 1 ? 'Route' : 'Routes'}
                             </span>

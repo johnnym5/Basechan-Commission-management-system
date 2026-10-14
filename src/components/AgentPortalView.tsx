@@ -240,8 +240,31 @@ export const AgentPortalView: React.FC<AgentPortalViewProps> = ({ rates, chatMod
     return Array.from(set).sort();
   }, [visibleRates]);
 
+  // Filter for AGENTS: Group visibleRates by universityId + studyLevel + intake, keep ONLY Admin-selected route
+  const agentAuthorizedRates = useMemo(() => {
+    const map = new Map<string, CommissionRate[]>();
+    visibleRates.forEach((r) => {
+      const key = `${r.universityId || r.universityName}__${r.studyLevel}__${r.intake}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    });
+
+    const authorized: CommissionRate[] = [];
+    map.forEach((ratesForKey) => {
+      const focusRate = ratesForKey.find((r) => r.guidance === 'FOCUS');
+      if (focusRate) {
+        authorized.push(focusRate);
+      } else {
+        const directRate = ratesForKey.find((r) => r.aggregator === 'BASECHAN' || r.aggregator === 'Direct');
+        authorized.push(directRate || ratesForKey[0]);
+      }
+    });
+
+    return authorized;
+  }, [visibleRates]);
+
   const filteredRates = useMemo(() => {
-    return visibleRates.filter((row) => {
+    return agentAuthorizedRates.filter((row) => {
       if (onlyShowStarred && !isStarred(watchlist, row.universityName)) return false;
 
       if (searchQuery) {
