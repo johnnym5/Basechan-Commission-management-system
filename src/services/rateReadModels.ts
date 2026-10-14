@@ -39,11 +39,19 @@ export async function updateRateSheetsBuckets(rates: CommissionRate[], userEmail
     buckets.get(sheetKey)!.rates.push(rate);
   });
 
+  const now = new Date().toISOString();
+
   for (const [sheetKey, data] of buckets.entries()) {
     const bucket = buildRateSheetBucket(data.sheetName, data.rates, userEmail);
     const bucketRef = doc(db, 'rate_sheets', sheetKey);
     await setDoc(bucketRef, sanitizeFirestoreData(bucket), { merge: true });
   }
+
+  // Update global manifest timestamp so clients know rate data changed (Cost: 1 write)
+  await setDoc(doc(db, 'settings', 'system_config'), {
+    ratesLastUpdatedAt: now,
+    updatedBy: userEmail,
+  }, { merge: true }).catch((err) => console.error('Failed to update system_config timestamp:', err));
 }
 
 const legacyOpaqueRateId = (rate: CommissionRate) => encodeURIComponent(`${rate.universityId}_${rate.intake}_${rate.studyLevel}`.toLowerCase()).replaceAll('.', '%2E');

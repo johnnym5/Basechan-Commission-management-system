@@ -1,4 +1,4 @@
-import { collection, doc, getDocFromServer, getDocsFromServer, query, where } from 'firebase/firestore';
+import { collection, doc, getDocFromServer, getDocs, getDocsFromServer, query, where } from 'firebase/firestore';
 import type { AgentRateReadModel, CommissionRate, RateSheetBucket, StaffRateReadModel, UserRole } from '../types';
 import { db } from '../lib/firebase';
 import { isQuotaOffline } from './firestoreOfflineMode';
@@ -51,7 +51,7 @@ function normalizeAgent(id: string, data: AgentRateReadModel): CommissionRate {
 }
 
 async function visibleSheetNames(role: Exclude<UserRole, 'ADMIN'>): Promise<string[] | null> {
-  const settings = await getDocsFromServer(collection(db, 'sheet_settings'));
+  const settings = await getDocs(collection(db, 'sheet_settings'));
   if (settings.empty) return null;
   const disabledField = role === 'AGENT' ? 'disabledForAgents' : 'disabledForStaff';
   return Array.from(new Set(settings.docs
@@ -61,12 +61,12 @@ async function visibleSheetNames(role: Exclude<UserRole, 'ADMIN'>): Promise<stri
 }
 
 async function readVisibleProjection(collectionPath: ReturnType<typeof collection>, sheets: string[] | null) {
-  if (sheets === null) return (await getDocsFromServer(collectionPath)).docs;
+  if (sheets === null) return (await getDocs(collectionPath)).docs;
   if (!sheets.length) return [];
   const snapshots = [];
   for (let offset = 0; offset < sheets.length; offset += 30) {
     const chunk = sheets.slice(offset, offset + 30);
-    snapshots.push(await getDocsFromServer(query(collectionPath, where('sourceSheet', 'in', chunk))));
+    snapshots.push(await getDocs(query(collectionPath, where('sourceSheet', 'in', chunk))));
   }
   return snapshots.flatMap((snapshot) => snapshot.docs);
 }
@@ -74,7 +74,7 @@ async function readVisibleProjection(collectionPath: ReturnType<typeof collectio
 async function fetchRows(scope: RateScope) {
   const sheets = scope.role === 'ADMIN' ? [] : await visibleSheetNames(scope.role);
   const rowsPromise = scope.role === 'ADMIN'
-    ? getDocsFromServer(collection(db, 'rates'))
+    ? getDocs(collection(db, 'rates'))
     : readVisibleProjection(collection(db, scope.role === 'STAFF' ? 'staff_rates' : 'agent_rates'), sheets);
   const organizationPromise = scope.role === 'AGENT' && scope.organizationId
     ? readVisibleProjection(collection(db, 'organization_agent_rates', scope.organizationId, 'rates'), sheets)
@@ -167,11 +167,11 @@ export async function syncRateSheetsCacheFirst(scope: RateSyncScope): Promise<Co
   const uid = scope.uid || 'global';
 
   // 1. Check local cache from IndexedDB
-  const cachedBuckets = await getAllLocalSheetBuckets(uid);
-  const metadata = await getLocalRateMetadata(uid);
+  const cachedBuckets = await getAllLocalSheetBuckets(uid).catch(() => []);
+  const metadata = await getLocalRateMetadata(uid).catch(() => null);
   const cachedRates = cachedBuckets.flatMap((bucket: RateSheetBucket) => bucket.rates || []);
 
-  // 2. Query 1 document: settings/system_config for ratesLastUpdatedAt
+  // 2. Query EXACTLY 1 document: settings/system_config for ratesLastUpdatedAt (Cost: 1 single read)
   let serverTimestamp: string | undefined;
   try {
     const configSnap = await getDocFromServer(doc(db, 'settings', 'system_config'));
@@ -182,10 +182,9 @@ export async function syncRateSheetsCacheFirst(scope: RateSyncScope): Promise<Co
     if (cachedRates.length > 0) {
       return cachedRates;
     }
-    throw err;
   }
 
-  // 3. If cache is non-empty and timestamp matches, return cached rates
+  // 3. If cache is non-empty and timestamp matches, return cached rates IMMEDIATELY (0 additional reads!)
   if (
     cachedBuckets.length > 0 &&
     serverTimestamp &&
@@ -194,7 +193,7 @@ export async function syncRateSheetsCacheFirst(scope: RateSyncScope): Promise<Co
     return cachedRates;
   }
 
-  // 4. Fetch updated rate_sheets collection from Firestore
+  // 4. Fetch updated rate_sheets collection from Firestore using getDocsFromServer
   try {
     const sheetsSnap = await getDocsFromServer(collection(db, 'rate_sheets'));
     const freshBuckets: RateSheetBucket[] = [];
@@ -235,8 +234,6 @@ export async function syncRateSheetsCacheFirst(scope: RateSyncScope): Promise<Co
       return freshRates;
     }
 
-    // If rate_sheets has 0 documents (e.g. database not yet partitioned into rate_sheets),
-    // fallback to querying the canonical rates collection
     const canonicalSnapshot = await fetchRows(scope);
     if (canonicalSnapshot.rows.length > 0) {
       return canonicalSnapshot.rows;
@@ -244,16 +241,6 @@ export async function syncRateSheetsCacheFirst(scope: RateSyncScope): Promise<Co
 
     return cachedRates;
   } catch (err) {
-    // If rate_sheets fails (permission-denied or network), attempt fallback to canonical fetchRows
-    try {
-      const canonicalSnapshot = await fetchRows(scope);
-      if (canonicalSnapshot.rows.length > 0) {
-        return canonicalSnapshot.rows;
-      }
-    } catch {
-      // Ignore fallback error and continue to cache check or rethrow
-    }
-
     if (cachedRates.length > 0) {
       return cachedRates;
     }
