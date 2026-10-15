@@ -252,10 +252,33 @@ export const AgentPortalView: React.FC<AgentPortalViewProps> = ({ rates, chatMod
     const authorized: CommissionRate[] = [];
     map.forEach((ratesForKey) => {
       const basechanRate = ratesForKey.find(
-        (r) => (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT'
+        (r) =>
+          !r.aggregator ||
+          (r.aggregator || '').toUpperCase() === 'BASECHAN' ||
+          (r.aggregator || '').toUpperCase() === 'DIRECT'
       );
+
       if (basechanRate) {
         authorized.push(basechanRate);
+      } else {
+        const uniName = ratesForKey[0]?.universityName;
+        const fallbackBasechan = visibleRates.find(
+          (r) =>
+            r.universityName === uniName &&
+            (!r.aggregator || (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT')
+        );
+
+        if (fallbackBasechan && ratesForKey.length > 0) {
+          authorized.push({
+            ...ratesForKey[0],
+            aggregator: 'BASECHAN',
+            agentRate: fallbackBasechan.agentRate,
+            masterRate: fallbackBasechan.masterRate,
+            diffMargin: fallbackBasechan.diffMargin,
+          });
+        } else if (ratesForKey.length > 0) {
+          authorized.push(ratesForKey[0]);
+        }
       }
     });
 

@@ -277,9 +277,29 @@ const GroupRoutesModal: React.FC<{
             !r.aggregator ||
             (r.aggregator || '').toUpperCase() === 'BASECHAN' ||
             (r.aggregator || '').toUpperCase() === 'DIRECT'
-        ) || ratesForLevel[0];
+        );
+
         if (basechanRate) {
           singleRoutePerLevel.push(basechanRate);
+        } else {
+          // If no explicit BASECHAN record for this level, find any BASECHAN rate in the university group
+          const fallbackBasechan = group.rates.find(
+            (r) =>
+              (r.aggregator || '').toUpperCase() === 'BASECHAN' ||
+              (r.aggregator || '').toUpperCase() === 'DIRECT'
+          );
+
+          if (fallbackBasechan && ratesForLevel.length > 0) {
+            singleRoutePerLevel.push({
+              ...ratesForLevel[0],
+              aggregator: 'BASECHAN',
+              agentRate: fallbackBasechan.agentRate,
+              masterRate: fallbackBasechan.masterRate,
+              diffMargin: fallbackBasechan.diffMargin,
+            });
+          } else if (ratesForLevel.length > 0) {
+            singleRoutePerLevel.push(ratesForLevel[0]);
+          }
         }
       } else {
         // STAFF ROLE: Admin Default Route if set (guidance === 'FOCUS'); otherwise System Recommended Route (Top Yield)
