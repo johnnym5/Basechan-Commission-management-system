@@ -271,7 +271,8 @@ const GroupRoutesModal: React.FC<{
     const singleRoutePerLevel: CommissionRate[] = [];
     levelMap.forEach((ratesForLevel) => {
       if (isAgent) {
-        // AGENT ROLE: Strictly use BASECHAN / Direct Sub-Agent Payout Rate (Cols C, D, E)!
+        // AGENT ROLE: Strictly use BASECHAN / Direct Sub-Agent Payout Rate!
+        // Never borrow or fallback to third-party aggregator routes (e.g. SI-UK, EDVOY).
         const basechanRate = ratesForLevel.find(
           (r) =>
             !r.aggregator ||
@@ -279,27 +280,31 @@ const GroupRoutesModal: React.FC<{
             (r.aggregator || '').toUpperCase() === 'DIRECT'
         );
 
-        if (basechanRate) {
+        if (basechanRate && (basechanRate.agentRate > 0 || basechanRate.isFlatFee)) {
           singleRoutePerLevel.push(basechanRate);
         } else {
-          // If no explicit BASECHAN record for this level, find any BASECHAN rate in the university group
-          const fallbackBasechan = group.rates.find(
+          // Check if there is an explicit sub-agent rate for this university with the same study level
+          const fallbackForLevel = group.rates.find(
             (r) =>
-              (r.aggregator || '').toUpperCase() === 'BASECHAN' ||
-              (r.aggregator || '').toUpperCase() === 'DIRECT'
+              r.studyLevel === ratesForLevel[0]?.studyLevel &&
+              (!r.aggregator ||
+                (r.aggregator || '').toUpperCase() === 'BASECHAN' ||
+                (r.aggregator || '').toUpperCase() === 'DIRECT') &&
+              (r.agentRate > 0 || r.isFlatFee)
           );
 
-          if (fallbackBasechan && ratesForLevel.length > 0) {
+          if (fallbackForLevel) {
             singleRoutePerLevel.push({
               ...ratesForLevel[0],
+              id: fallbackForLevel.id,
               aggregator: 'BASECHAN',
-              agentRate: fallbackBasechan.agentRate,
-              masterRate: fallbackBasechan.masterRate,
-              diffMargin: fallbackBasechan.diffMargin,
+              agentRate: fallbackForLevel.agentRate,
+              masterRate: fallbackForLevel.masterRate,
+              diffMargin: fallbackForLevel.diffMargin,
+              isFlatFee: fallbackForLevel.isFlatFee,
             });
-          } else if (ratesForLevel.length > 0) {
-            singleRoutePerLevel.push(ratesForLevel[0]);
           }
+          // If no Basechan sub-agent rate exists for this level, DO NOT push third-party aggregator rates!
         }
       } else {
         // STAFF ROLE: Admin Default Route if set (guidance === 'FOCUS'); otherwise System Recommended Route (Top Yield)
@@ -529,7 +534,7 @@ const GroupRoutesModal: React.FC<{
               (activeRoutes.length > 0 ? activeRoutes : previousRoutes).map((rate) => renderRouteCard(rate))
             ) : (
               <p className="text-slate-400 italic text-xs py-4 text-center">
-                No route/rate found for this uni
+                No rate for this school
               </p>
             )}
           </div>
@@ -1883,11 +1888,20 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                             <span className={`text-xs ${isStaff ? 'font-extrabold text-indigo-600 dark:text-indigo-400' : 'font-mono font-black text-emerald-600 dark:text-amber-400'}`}>
                               {isStaff
                                 ? (group.bestRoute?.aggregator || group.rates[0]?.aggregator || 'Basechan')
-                                : formatCurrencyValue(
-                                    isAgent ? (group.bestRoute?.agentRate ?? group.rates[0]?.agentRate ?? 0) : group.maxMargin,
-                                    activeCurrency,
-                                    group.bestRoute?.isFlatFee
-                                  )}
+                                : isAgent
+                                ? (() => {
+                                    const basechanRate = group.rates.find(
+                                      (r) =>
+                                        (!r.aggregator ||
+                                          (r.aggregator || '').toUpperCase() === 'BASECHAN' ||
+                                          (r.aggregator || '').toUpperCase() === 'DIRECT') &&
+                                        (r.agentRate > 0 || r.isFlatFee)
+                                    );
+                                    return basechanRate
+                                      ? formatCurrencyValue(basechanRate.agentRate, activeCurrency, basechanRate.isFlatFee)
+                                      : 'No Rate';
+                                  })()
+                                : formatCurrencyValue(group.maxMargin, activeCurrency, group.bestRoute?.isFlatFee)}
                             </span>
                           </div>
 

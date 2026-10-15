@@ -218,4 +218,113 @@ describe('MasterTable', () => {
     expect(await screen.findByText(/Previous Intakes \(1\)/i)).toBeInTheDocument();
     expect(screen.getByText('Jan 2024')).toBeInTheDocument();
   });
+
+  it('strictly displays Basechan sub-agent rates for Agents without borrowing third-party aggregator rates', async () => {
+    // Scenario matching user report: Aberdeen University has SI-UK UG 15%, PG 15% and Basechan PG 8%, but NO Basechan UG rate
+    const testRates: CommissionRate[] = [
+      {
+        id: 'aberdeen-siuk-ug',
+        universityId: 'u-aberdeen',
+        universityName: 'Aberdeen University',
+        country: 'UK',
+        intake: 'Sept 2026',
+        studyLevel: 'UG',
+        aggregator: 'SI-UK',
+        masterRate: 20,
+        agentRate: 15,
+        diffMargin: 5,
+        isFlatFee: false,
+        netOrGross: 'GROSS',
+        guidance: 'ALLOWED',
+      },
+      {
+        id: 'aberdeen-siuk-pg',
+        universityId: 'u-aberdeen',
+        universityName: 'Aberdeen University',
+        country: 'UK',
+        intake: 'Sept 2026',
+        studyLevel: 'PG',
+        aggregator: 'SI-UK',
+        masterRate: 20,
+        agentRate: 15,
+        diffMargin: 5,
+        isFlatFee: false,
+        netOrGross: 'GROSS',
+        guidance: 'ALLOWED',
+      },
+      {
+        id: 'aberdeen-basechan-pg',
+        universityId: 'u-aberdeen',
+        universityName: 'Aberdeen University',
+        country: 'UK',
+        intake: 'Sept 2026',
+        studyLevel: 'PG',
+        aggregator: 'BASECHAN',
+        masterRate: 12,
+        agentRate: 8,
+        diffMargin: 4,
+        isFlatFee: false,
+        netOrGross: 'GROSS',
+        guidance: 'FOCUS',
+      },
+    ];
+
+    render(
+      <MasterTable
+        data={testRates}
+        loading={false}
+        onEditRate={() => {}}
+        externalSearchQuery="Aberdeen"
+        externalIntakeFilter="ALL"
+      />
+    );
+
+    // Open the university routes modal
+    fireEvent.click(screen.getByText('Aberdeen University'));
+
+    // The modal should show 1 active intake rate (PG: 8%), and NOT borrow SI-UK UG 15%
+    expect(await screen.findByText(/Active Intakes \(1\)/i)).toBeInTheDocument();
+    expect(screen.getAllByText('8%').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('15%')).not.toBeInTheDocument();
+  });
+
+  it('displays "No rate for this school" when an institution has no Basechan sub-agent rates', async () => {
+    const onlyCompetitorRates: CommissionRate[] = [
+      {
+        id: 'uni-only-siuk',
+        universityId: 'u-dundee',
+        universityName: 'University of Dundee',
+        country: 'UK',
+        intake: 'Sept 2026',
+        studyLevel: 'UG',
+        aggregator: 'SI-UK',
+        masterRate: 15,
+        agentRate: 12,
+        diffMargin: 3,
+        isFlatFee: false,
+        netOrGross: 'GROSS',
+        guidance: 'ALLOWED',
+      },
+    ];
+
+    render(
+      <MasterTable
+        data={onlyCompetitorRates}
+        loading={false}
+        onEditRate={() => {}}
+        externalSearchQuery="Dundee"
+        externalIntakeFilter="ALL"
+      />
+    );
+
+    // On the university card, it should display 'No Rate'
+    expect(screen.getByText('No Rate')).toBeInTheDocument();
+
+    // Open the modal
+    fireEvent.click(screen.getByText('University of Dundee'));
+
+    // In the modal, it should state 'No rate for this school'
+    expect(await screen.findByText('No rate for this school')).toBeInTheDocument();
+  });
 });
+
