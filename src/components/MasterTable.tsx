@@ -574,6 +574,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const { role, user } = useAuth();
   const isAdmin = role === 'ADMIN';
   const isAgent = role === 'AGENT';
+  const isStaff = role === 'STAFF';
   const { defaultIntake, activeIntakes, updateDefaultIntake } = useSystemConfig();
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'diffMargin', desc: true },
@@ -1857,14 +1858,16 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                         <div className="pt-2 border-t border-slate-100 dark:border-[#222F43] flex items-center justify-between">
                           <div className="flex flex-col">
                             <span className="text-[9px] font-bold text-slate-400 uppercase">
-                              {isAgent ? 'Your Commission:' : 'Top Yield:'}
+                              {isAgent ? 'Your Commission:' : isStaff ? 'Route:' : 'Top Yield:'}
                             </span>
-                            <span className="font-mono font-black text-xs text-emerald-600 dark:text-amber-400">
-                              {formatCurrencyValue(
-                                isAgent ? (group.bestRoute?.agentRate ?? group.rates[0]?.agentRate ?? 0) : group.maxMargin,
-                                activeCurrency,
-                                group.bestRoute?.isFlatFee
-                              )}
+                            <span className={`text-xs ${isStaff ? 'font-extrabold text-indigo-600 dark:text-indigo-400' : 'font-mono font-black text-emerald-600 dark:text-amber-400'}`}>
+                              {isStaff
+                                ? (group.bestRoute?.aggregator || group.rates[0]?.aggregator || 'Basechan')
+                                : formatCurrencyValue(
+                                    isAgent ? (group.bestRoute?.agentRate ?? group.rates[0]?.agentRate ?? 0) : group.maxMargin,
+                                    activeCurrency,
+                                    group.bestRoute?.isFlatFee
+                                  )}
                             </span>
                           </div>
 
