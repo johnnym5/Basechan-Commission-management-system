@@ -234,6 +234,25 @@ export async function syncRateSheetsCacheFirst(scope: RateSyncScope): Promise<Co
       return freshRates;
     }
 
+    // If rate_sheets is empty, automatically partition 'rates' into rate_sheets buckets
+    try {
+      const { partitionMasterIntoRateSheets } = await import('./rateReadModels');
+      const count = await partitionMasterIntoRateSheets();
+      if (count > 0) {
+        const recheckSnap = await getDocsFromServer(collection(db, 'rate_sheets'));
+        const autoBuckets: RateSheetBucket[] = recheckSnap.docs.map((d) => d.data() as RateSheetBucket);
+        const autoRates = autoBuckets.flatMap((b) => b.rates || []);
+        if (autoRates.length > 0) {
+          for (const b of autoBuckets) {
+            await saveLocalSheetBucket(b.sheetKey, b, uid);
+          }
+          return autoRates;
+        }
+      }
+    } catch (partErr) {
+      console.warn('Auto-partition of rate_sheets skipped:', partErr);
+    }
+
     const canonicalSnapshot = await fetchRows(scope);
     if (canonicalSnapshot.rows.length > 0) {
       return canonicalSnapshot.rows;

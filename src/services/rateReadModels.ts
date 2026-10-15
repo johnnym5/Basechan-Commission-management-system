@@ -54,6 +54,19 @@ export async function updateRateSheetsBuckets(rates: CommissionRate[], userEmail
   }, { merge: true }).catch((err) => console.error('Failed to update system_config timestamp:', err));
 }
 
+export async function partitionMasterIntoRateSheets(userEmail = 'Admin'): Promise<number> {
+  const ratesSnap = await getDocs(collection(db, 'rates'));
+  if (ratesSnap.empty) return 0;
+
+  const allRates: CommissionRate[] = ratesSnap.docs.map((docSnap) => ({
+    ...docSnap.data(),
+    id: docSnap.id,
+  } as CommissionRate));
+
+  await updateRateSheetsBuckets(allRates, userEmail);
+  return allRates.length;
+}
+
 const legacyOpaqueRateId = (rate: CommissionRate) => encodeURIComponent(`${rate.universityId}_${rate.intake}_${rate.studyLevel}`.toLowerCase()).replaceAll('.', '%2E');
 const ensuredSheetSettings = new Map<string, Promise<void>>();
 
