@@ -273,8 +273,11 @@ const GroupRoutesModal: React.FC<{
       if (isAgent) {
         // AGENT ROLE: Strictly use BASECHAN / Direct Sub-Agent Payout Rate (Cols C, D, E)!
         const basechanRate = ratesForLevel.find(
-          (r) => (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT'
-        );
+          (r) =>
+            !r.aggregator ||
+            (r.aggregator || '').toUpperCase() === 'BASECHAN' ||
+            (r.aggregator || '').toUpperCase() === 'DIRECT'
+        ) || ratesForLevel[0];
         if (basechanRate) {
           singleRoutePerLevel.push(basechanRate);
         }
@@ -570,6 +573,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 }) => {
   const { role, user } = useAuth();
   const isAdmin = role === 'ADMIN';
+  const isAgent = role === 'AGENT';
   const { defaultIntake, activeIntakes, updateDefaultIntake } = useSystemConfig();
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'diffMargin', desc: true },
@@ -1852,9 +1856,15 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
                         <div className="pt-2 border-t border-slate-100 dark:border-[#222F43] flex items-center justify-between">
                           <div className="flex flex-col">
-                            <span className="text-[9px] font-bold text-slate-400 uppercase">Top Yield:</span>
+                            <span className="text-[9px] font-bold text-slate-400 uppercase">
+                              {isAgent ? 'Your Commission:' : 'Top Yield:'}
+                            </span>
                             <span className="font-mono font-black text-xs text-emerald-600 dark:text-amber-400">
-                              {formatCurrencyValue(group.maxMargin, activeCurrency, group.bestRoute?.isFlatFee)}
+                              {formatCurrencyValue(
+                                isAgent ? (group.bestRoute?.agentRate ?? group.rates[0]?.agentRate ?? 0) : group.maxMargin,
+                                activeCurrency,
+                                group.bestRoute?.isFlatFee
+                              )}
                             </span>
                           </div>
 
