@@ -13,6 +13,7 @@ import { AgentAccessGate } from './AgentAccessGate';
 import { ChatExperience } from './ChatExperience';
 import { ChatAssistantLauncher } from './ChatAssistantLauncher';
 import { RoleDashboardView } from './RoleDashboardView';
+import { RateChangeBasket } from './RateChangeBasket';
 import { buildDashboardRates } from '../services/dashboardData';
 import { createEmptyDashboardFilters } from '../services/dashboardFilters';
 import type { DashboardFilters } from '../types/dashboard';
@@ -67,7 +68,7 @@ export const AppLayout: React.FC = () => {
   const { theme, setTheme } = useTheme();
 
   // Custom hook with real-time Firestore sync & pre-computed search indexing
-  const { rates, loading, error: ratesError, quotaMode, hasLocalCopy, lastSyncedAt } = useCommissionRates();
+  const { rates, loading, error: ratesError, quotaMode, hasLocalCopy, lastSyncedAt, refresh: refreshCommissionRates } = useCommissionRates();
   const [isRatesErrorOpen, setIsRatesErrorOpen] = useState(Boolean(ratesError));
   const [isQuotaOfflineMode, setIsQuotaOfflineMode] = useState(isQuotaOffline(user?.uid));
   const [showQuotaToast, setShowQuotaToast] = useState(isQuotaOffline(user?.uid));
@@ -772,8 +773,44 @@ export const AppLayout: React.FC = () => {
 
           <div key={`${effectiveRole}-${access.accessState}-${access.organizationId || 'none'}`} className="animate-page-enter">
             {currentPage === 'Dashboard' && (effectiveRole === 'ADMIN'
-              ? <DashboardView rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} filters={dashboardFilters} onFiltersChange={setDashboardFilters} pendingOperations={pendingRateChanges.operations} syncState={pendingRateChanges.syncState} onRetryPending={(id) => void pendingRateChanges.retry(id)} onDiscardPending={(id) => void pendingRateChanges.discard(id)} onResolvePendingConflict={(id, resolution) => void pendingRateChanges.resolveConflict(id, resolution)} />
-              : <RoleDashboardView role={effectiveRole} rates={dashboardRates} loading={loading} filters={dashboardFilters} onFiltersChange={setDashboardFilters} agentDirectory={agentUniversityDirectory} />)}
+              ? <DashboardView
+                  rates={rates}
+                  loading={loading}
+                  readOnly={!canWriteRates}
+                  onEditRate={handleEditRate}
+                  filters={dashboardFilters}
+                  onFiltersChange={setDashboardFilters}
+                  pendingOperations={pendingRateChanges.operations}
+                  syncState={pendingRateChanges.syncState}
+                  onRetryPending={(id) => {
+                    if (id) void pendingRateChanges.retry(id);
+                    else void refreshCommissionRates();
+                  }}
+                  onDiscardPending={(id) => void pendingRateChanges.discard(id)}
+                  onResolvePendingConflict={(id, resolution) => void pendingRateChanges.resolveConflict(id, resolution)}
+                  lastSyncedAt={lastSyncedAt}
+                  errorMessage={ratesError}
+                />
+              : <RoleDashboardView
+                  role={effectiveRole}
+                  rates={dashboardRates}
+                  loading={loading}
+                  filters={dashboardFilters}
+                  onFiltersChange={setDashboardFilters}
+                  agentDirectory={agentUniversityDirectory}
+                  lastSyncedAt={lastSyncedAt}
+                  syncError={ratesError}
+                  onRetrySync={() => void refreshCommissionRates()}
+                  syncIndicator={
+                    <RateChangeBasket
+                      operations={[]}
+                      syncState={loading ? 'syncing' : (ratesError ? 'offline' : 'idle')}
+                      onRetry={() => void refreshCommissionRates()}
+                      lastSyncedAt={lastSyncedAt}
+                      errorMessage={ratesError}
+                    />
+                  }
+                />)}
             {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && (currentPage === 'Compare Rates' || currentPage === 'Compare') && <CompareView allRates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Deal Calculator' && <DealCalculatorView rates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Settings' && (

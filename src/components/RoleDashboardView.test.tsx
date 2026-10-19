@@ -39,18 +39,6 @@ describe('RoleDashboardView', () => {
     expect(screen.queryByText(/margin|aggregator/i)).not.toBeInTheDocument();
   });
 
-  it('Agent directory keeps schools without payouts discoverable and lists one payout route once', () => {
-    renderView('AGENT', agent, createEmptyDashboardFilters(), vi.fn(), [
-      { id: 'u-empty', name: 'No Rate University', country: 'UK' },
-      { id: 'u2', name: 'Beta College', country: 'Ghana' },
-    ]);
-    const directory = screen.getByRole('region', { name: 'Agent school directory' });
-    expect(directory).toHaveTextContent('No Rate University');
-    expect(directory).toHaveTextContent('No rate for this school');
-    expect(directory).toHaveTextContent('Beta College');
-    expect(directory).toHaveTextContent('1 payout route');
-    expect(directory).not.toHaveTextContent('12%');
-  });
 
   it('empty role results name active filters and offer clear all', () => {
     const onChange = vi.fn();

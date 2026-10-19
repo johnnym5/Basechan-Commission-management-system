@@ -1,46 +1,222 @@
-import React from 'react';
-import { AlertCircle, CheckCircle2, Clock3, CloudOff, LoaderCircle, RefreshCw, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { CheckCircle2, LoaderCircle, XCircle, RefreshCw, AlertTriangle, Clock, X } from 'lucide-react';
 import type { PendingRateOperation } from '../types/rateWriteQueue';
 
-type Props = {
-  operations: PendingRateOperation[];
-  syncState: 'idle' | 'syncing' | 'offline' | 'quota-paused';
-  onRetry: (id: string) => void;
-  onDiscard: (id: string) => void;
-  onResolveConflict: (id: string, resolution: 'keep-cloud' | 'apply-local') => void;
-};
-const statusLabel: Record<PendingRateOperation['status'], string> = {
-  pending: 'Waiting to sync', syncing: 'Syncing', 'quota-paused': 'Quota paused', conflict: 'Needs review', failed: 'Sync failed', cancelled: 'Cancelled',
-};
-const statusIcon = (status: PendingRateOperation['status']) => status === 'syncing'
-  ? <LoaderCircle className="h-4 w-4 animate-spin" />
-  : status === 'quota-paused' ? <CloudOff className="h-4 w-4" />
-  : status === 'conflict' || status === 'failed' ? <AlertCircle className="h-4 w-4" />
-  : <Clock3 className="h-4 w-4" />;
+export type SyncState = 'idle' | 'syncing' | 'offline' | 'quota-paused';
 
-export const RateChangeBasket: React.FC<Props> = ({ operations, syncState, onRetry, onDiscard, onResolveConflict }) => {
-  if (!operations.length) return null;
-  const counts = operations.reduce<Record<string, number>>((result, item) => { result[item.status] = (result[item.status] || 0) + 1; return result; }, {});
-  return <section aria-label="Pending rate changes" className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h2 className="font-bold text-slate-900 dark:text-slate-100">Pending rate changes <span className="ml-1 rounded-full bg-amber-200 px-2 py-0.5 text-xs dark:bg-amber-900">{operations.length}</span></h2>
-        <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{syncState === 'offline' ? 'Saved on this device. Waiting for a connection.' : syncState === 'quota-paused' ? 'Saved on this device. Sync will retry after database access is restored.' : syncState === 'syncing' ? 'Saved locally. Sending changes to Firestore.' : 'Saved locally. Changes will appear to other users after Firestore confirms them.'}</p></div>
-      <span className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300"><CheckCircle2 className="h-4 w-4 text-emerald-600" />Local copy is safe</span>
-    </div>
-    <div className="mt-3 flex flex-wrap gap-2 text-xs">{Object.entries(counts).map(([status, count]) => <span key={status} className="rounded-full bg-white px-2.5 py-1 text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-200">{statusLabel[status as PendingRateOperation['status']]}: {count}</span>)}</div>
-    <ul className="mt-3 divide-y divide-amber-200 dark:divide-amber-900">{operations.map((operation) => {
-      const affected = new Set(operation.mutations.flatMap((mutation) => mutation.kind === 'create' ? [mutation.next.universityName] : mutation.kind === 'update' ? [mutation.baseSnapshot?.universityName || mutation.id] : [mutation.baseRate?.universityName || mutation.id]));
-      return <li key={operation.operationId} className="flex flex-wrap items-center justify-between gap-3 py-3">
-        <div className="min-w-0"><div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">{statusIcon(operation.status)}<span>{operation.category === 'guidance' ? 'Guidance update' : operation.category === 'routing' ? 'Route update' : operation.category === 'intake' ? 'Intake or rate update' : 'Rate edit'}</span><span className="text-xs font-normal text-slate-500">{operation.mutations.length} change{operation.mutations.length === 1 ? '' : 's'}</span></div>
-          <p className="mt-1 truncate text-xs text-slate-600 dark:text-slate-300">{Array.from(affected).slice(0, 3).join(', ')}{affected.size > 3 ? ` and ${affected.size - 3} more` : ''}</p>
-          {operation.lastError && <p className="mt-1 text-xs text-rose-700 dark:text-rose-300">{operation.lastError}</p>}
-          {operation.conflicts?.map((conflict) => <p key={`${conflict.mutationIndex}-${conflict.id}`} className="mt-1 text-xs text-rose-700 dark:text-rose-300">{conflict.reason}</p>)}
+type Props = {
+  operations?: PendingRateOperation[];
+  syncState: SyncState;
+  onRetry: (id?: string) => void;
+  onDiscard?: (id: string) => void;
+  onResolveConflict?: (id: string, resolution: 'keep-cloud' | 'apply-local') => void;
+  lastSyncedAt?: string | null;
+  errorMessage?: string | null;
+  lastSyncUploadName?: string | null;
+};
+
+export const RateChangeBasket: React.FC<Props> = ({
+  operations = [],
+  syncState,
+  onRetry,
+  lastSyncedAt,
+  errorMessage,
+  lastSyncUploadName,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const hasFailed =
+    Boolean(errorMessage) ||
+    operations.some((op) => op.status === 'failed' || op.status === 'conflict' || op.status === 'quota-paused') ||
+    syncState === 'offline';
+
+  const isSyncing =
+    syncState === 'syncing' ||
+    operations.some((op) => op.status === 'syncing' || op.status === 'pending');
+
+  const pendingOps = operations.filter((op) => op.status === 'pending' || op.status === 'syncing');
+  const failedOps = operations.filter((op) => op.status === 'failed' || op.status === 'conflict' || op.status === 'quota-paused');
+
+  // Elapsed time calculation for pending items
+  const earliestPendingTime = pendingOps[0]?.createdAt ? new Date(pendingOps[0].createdAt).getTime() : null;
+  const [pendingDurationText, setPendingDurationText] = useState<string>('');
+
+  useEffect(() => {
+    if (!earliestPendingTime) {
+      setPendingDurationText('');
+      return;
+    }
+    const updateDuration = () => {
+      const diffSec = Math.max(0, Math.floor((Date.now() - earliestPendingTime) / 1000));
+      if (diffSec < 60) setPendingDurationText(`${diffSec}s ago`);
+      else if (diffSec < 3600) setPendingDurationText(`${Math.floor(diffSec / 60)}m ${diffSec % 60}s`);
+      else setPendingDurationText(`${Math.floor(diffSec / 3600)}h ${Math.floor((diffSec % 3600) / 60)}m`);
+    };
+    updateDuration();
+    const interval = setInterval(updateDuration, 1000);
+    return () => clearInterval(interval);
+  }, [earliestPendingTime]);
+
+  const formatLastSync = (iso?: string | null) => {
+    if (!iso) return 'Never synced this session';
+    try {
+      const date = new Date(iso);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) +
+        ' (' + date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ')';
+    } catch {
+      return iso;
+    }
+  };
+
+  const handleRetryClick = () => {
+    const failedOp = failedOps[0];
+    if (failedOp) {
+      onRetry(failedOp.operationId);
+    } else if (operations.length > 0) {
+      onRetry(operations[0].operationId);
+    } else {
+      onRetry();
+    }
+  };
+
+  // Detailed reason for failure
+  const failureReason =
+    errorMessage ||
+    failedOps[0]?.conflicts?.[0]?.reason ||
+    (syncState === 'offline' ? 'Offline - No network connection' : null) ||
+    'Rate synchronization could not connect to Firestore (Permission or Quota limitation)';
+
+  return (
+    <div className="relative inline-block" ref={popoverRef}>
+      {/* Sync Status Button Trigger */}
+      {hasFailed ? (
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          title="Sync failed or pending - Click to retry"
+          aria-label="Sync failed or pending - Click to retry"
+          className="inline-flex items-center justify-center p-2 rounded-2xl bg-rose-500/10 dark:bg-rose-950/40 border border-rose-500/30 text-rose-500 dark:text-rose-400 hover:bg-rose-500/20 active:scale-95 transition cursor-pointer shadow-xs shrink-0"
+        >
+          <XCircle className="h-5 w-5" />
+        </button>
+      ) : isSyncing ? (
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          title="Syncing changes to Firestore..."
+          aria-label="Syncing changes to Firestore"
+          className="inline-flex items-center justify-center p-2 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/30 text-amber-500 dark:text-amber-400 hover:bg-amber-500/20 active:scale-95 transition cursor-pointer shadow-xs shrink-0"
+        >
+          <LoaderCircle className="h-5 w-5 animate-spin" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          title="All data is synced"
+          aria-label="All data is synced"
+          className="inline-flex items-center justify-center p-2 rounded-2xl bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/30 text-emerald-500 dark:text-emerald-400 hover:bg-emerald-500/20 active:scale-95 transition cursor-pointer shadow-xs shrink-0"
+        >
+          <CheckCircle2 className="h-5 w-5" />
+        </button>
+      )}
+
+      {/* Popover State Details */}
+      {isOpen && (
+        <div
+          data-testid="sync-status-popover"
+          className="absolute right-0 top-full mt-2 w-72 sm:w-80 rounded-2xl bg-[#0E1526] border border-[#222F43] p-4 text-xs text-slate-200 shadow-2xl z-50 space-y-3 animate-in fade-in zoom-in-95 duration-150"
+        >
+          <div className="flex items-center justify-between pb-2 border-b border-[#222F43]">
+            <div className="flex items-center gap-2">
+              {hasFailed ? (
+                <XCircle className="w-4 h-4 text-rose-400" />
+              ) : isSyncing ? (
+                <LoaderCircle className="w-4 h-4 text-amber-400 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              )}
+              <span className="font-extrabold text-sm text-white">
+                {hasFailed ? 'Sync Issue' : isSyncing ? 'Syncing...' : 'Sync Up to Date'}
+              </span>
+            </div>
+            <button
+              onClick={() => setIsOpen(false)}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              title="Close"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* If Failed: Explain Why */}
+          {hasFailed && (
+            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 space-y-1.5">
+              <div className="flex items-center gap-1.5 font-bold text-rose-400 text-[11px]">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>Why did sync fail?</span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed break-words font-mono">
+                {failureReason}
+              </p>
+            </div>
+          )}
+
+          {/* If Pending / Syncing: Show how long */}
+          {isSyncing && (
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-amber-400 text-[11px]">
+                <Clock className="w-3.5 h-3.5 shrink-0" />
+                <span>Pending synchronization</span>
+              </div>
+              <p className="text-[11px] text-slate-300">
+                {pendingOps.length > 0
+                  ? `${pendingOps.length} operations queued ${pendingDurationText ? `(${pendingDurationText})` : ''}`
+                  : 'Downloading fresh rate models from server...'}
+              </p>
+            </div>
+          )}
+
+          {/* Last Successful Sync info */}
+          <div className="space-y-1 text-[11px]">
+            <div className="flex items-center justify-between text-slate-400">
+              <span>Last Synced:</span>
+              <span className="font-mono text-slate-200">{formatLastSync(lastSyncedAt)}</span>
+            </div>
+            {lastSyncUploadName && (
+              <div className="flex items-center justify-between text-slate-400">
+                <span>Last Upload Sheet:</span>
+                <span className="font-mono text-emerald-400 truncate max-w-[140px]">{lastSyncUploadName}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Action / Retry Button */}
+          <div className="pt-2 border-t border-[#222F43] flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleRetryClick}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-[11px] transition shadow-xs active:scale-95 cursor-pointer"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Retry Sync Now</span>
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">{operation.status === 'conflict' ? <><button className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold dark:border-slate-700" onClick={() => onResolveConflict(operation.operationId, 'keep-cloud')}>Keep cloud</button>{!operation.conflicts?.some((conflict) => conflict.reason.toLowerCase().includes('already exists')) && <button className="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white" onClick={() => onResolveConflict(operation.operationId, 'apply-local')}>Apply my change</button>}</> : <>
-          {(operation.status === 'pending' || operation.status === 'failed' || operation.status === 'quota-paused') && <button className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold dark:border-slate-700" onClick={() => onRetry(operation.operationId)}><RefreshCw className="h-3 w-3" />Retry</button>}
-          {operation.status === 'pending' && <button aria-label="Discard pending change" className="rounded-lg border border-slate-300 p-1.5 dark:border-slate-700" onClick={() => onDiscard(operation.operationId)}><Trash2 className="h-3.5 w-3.5" /></button>}
-        </>}</div>
-      </li>;
-    })}</ul>
-  </section>;
+      )}
+    </div>
+  );
 };
