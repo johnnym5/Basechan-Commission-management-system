@@ -31,7 +31,10 @@ service cloud.firestore {
     function isStaff() {
       return hasEmail()
         && !isAdmin()
-        && request.auth.token.email.lower().matches('.*[.]basechaninternational@gmail[.]com$');
+        && (
+          request.auth.token.email.lower().matches('.*[.]basechaninternational@gmail[.]com$')
+          || request.auth.token.email.lower().matches('.*@basechaninternational[.]com$')
+        );
     }
 
     function safeUniversityDirectoryRecord(data) {
@@ -43,17 +46,6 @@ service cloud.firestore {
         && data.status in ['ACTIVE', 'TBC', 'NIL'];
     }
 
-    function isStaffSheetVisible(sheetName) {
-      return sheetName is string
-        && (!exists(/databases/$(database)/documents/sheet_settings/$(sheetName))
-          || get(/databases/$(database)/documents/sheet_settings/$(sheetName)).data.get('disabledForStaff', false) != true);
-    }
-
-    function isAgentSheetVisible(sheetName) {
-      return sheetName is string
-        && (!exists(/databases/$(database)/documents/sheet_settings/$(sheetName))
-          || get(/databases/$(database)/documents/sheet_settings/$(sheetName)).data.get('disabledForAgents', false) != true);
-    }
 
     function accessRequestExists(uid) {
       return exists(/databases/$(database)/documents/agent_access_requests/$(uid));
@@ -334,34 +326,25 @@ service cloud.firestore {
 
 
     match /staff_rates/{rateId} {
-      allow read: if isAdmin() || (isStaff() && isStaffSheetVisible(resource.data.sourceSheet));
+      allow read: if isAdmin() || isStaff();
       allow write: if isAdmin();
     }
 
     match /agent_rates/{rateId} {
-      allow read: if isAdmin() || (isApprovedAgent() && isAgentSheetVisible(resource.data.sourceSheet));
+      // IMPORTANT: resource.data + get() is forbidden in list rules by Firebase.
+      // Sheet visibility is enforced at the app level via where('sourceSheet', 'in', visibleSheets).
+      allow read: if isAdmin() || isApprovedAgent();
       allow write: if isAdmin();
     }
 
     match /organization_agent_rates/{organizationId}/rates/{rateId} {
-      allow read: if isAdmin() || (isApprovedAgentFor(organizationId) && isAgentSheetVisible(resource.data.sourceSheet));
+      allow read: if isAdmin() || isApprovedAgentFor(organizationId);
       allow write: if isAdmin();
     }
 
     match /agent_rate_overrides/{userId}/rates/{rateId} {
-      allow read: if isAdmin() || (isApprovedAgent() && request.auth.uid == userId && isAgentSheetVisible(resource.data.sourceSheet));
+      allow read: if isAdmin() || (isApprovedAgent() && request.auth.uid == userId);
       allow write: if isAdmin();
-    }
-
-    // CollectionGroup rules required for admin migration queries:
-    // pruneRedundantOrganizationDefaults uses collectionGroup('rates')
-    // removeLegacyRateFeedSnapshots uses collectionGroup('changes')
-    match /{path=**}/rates/{rateId} {
-      allow read, write: if isAdmin();
-    }
-
-    match /{path=**}/changes/{changeId} {
-      allow read, write: if isAdmin();
     }
 
     function canReadRateFeed(feedId) {
@@ -376,7 +359,7 @@ service cloud.firestore {
       return record is map
         && record.keys().hasOnly([
           'id', 'universityId', 'universityName', 'country', 'intake', 'studyLevel',
-          'aggregator', 'guidance', 'notes', 'updatedAt', 'sourceSheet'
+          'aggregator', 'guidance', 'isDefaultRoute', 'notes', 'updatedAt', 'sourceSheet'
         ])
         && record.keys().hasAll(['id', 'universityId', 'universityName', 'intake', 'studyLevel', 'aggregator']);
     }
@@ -385,7 +368,7 @@ service cloud.firestore {
       return record is map
         && record.keys().hasOnly([
           'id', 'universityId', 'universityName', 'country', 'intake', 'studyLevel',
-          'agentRate', 'isFlatFee', 'netOrGross', 'guidance', 'notes', 'updatedAt', 'sourceSheet'
+          'agentRate', 'isFlatFee', 'netOrGross', 'guidance', 'isDefaultRoute', 'notes', 'updatedAt', 'sourceSheet'
         ])
         && record.keys().hasAll([
           'id', 'universityId', 'universityName', 'intake', 'studyLevel',
@@ -409,9 +392,20 @@ service cloud.firestore {
         allow write: if isAdmin();
       }
 
-      match /operations/{operationId} {
+      match /{document=**} {
         allow read, write: if isAdmin();
       }
+    }
+
+    // CollectionGroup rules required for admin migration queries:
+    // pruneRedundantOrganizationDefaults uses collectionGroup('rates')
+    // removeLegacyRateFeedSnapshots uses collectionGroup('changes')
+    match /{path=**}/rates/{rateId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /{path=**}/changes/{changeId} {
+      allow read, write: if isAdmin();
     }
 
     match /rate_audit_logs/{logId} {
@@ -421,7 +415,7 @@ service cloud.firestore {
     match /admin_rate_operations/{operationId} {
       allow read, write: if isAdmin();
 
-      match /mutations/{mutationId} {
+      match /{document=**} {
         allow read, write: if isAdmin();
       }
     }
