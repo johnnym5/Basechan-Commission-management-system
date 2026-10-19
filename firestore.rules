@@ -9,18 +9,50 @@ service cloud.firestore {
       return signedIn() && request.auth.token.email is string;
     }
 
+    function isApprovedAdminEmail() {
+      return hasEmail()
+        && request.auth.token.email.lower().matches('^(egbase|ithub)@basechaninternational[.]com$');
+    }
+
+    function hasAdminMembership() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.get('email', '')
+          == request.auth.token.email.lower();
+    }
+
     function isAdmin() {
       return hasEmail()
-        && request.auth.token.email.lower().matches('.*@basechaninternational[.]com$');
+        && request.auth.token.email_verified == true
+        && isApprovedAdminEmail()
+        && hasAdminMembership();
     }
 
     function isStaff() {
       return hasEmail()
         && !isAdmin()
-        && (
-          request.auth.token.email.lower().matches('.*basechan.*')
-          || request.auth.token.email.lower().matches('.*staff.*')
-        );
+        && request.auth.token.email.lower().matches('.*[.]basechaninternational@gmail[.]com$');
+    }
+
+    function safeUniversityDirectoryRecord(data) {
+      return data is map
+        && data.keys().hasOnly(['id', 'name', 'country', 'status', 'lastUpdated'])
+        && data.keys().hasAll(['id', 'name', 'status'])
+        && data.id is string
+        && data.name is string
+        && data.status in ['ACTIVE', 'TBC', 'NIL'];
+    }
+
+    function isStaffSheetVisible(sheetName) {
+      return sheetName is string
+        && (!exists(/databases/$(database)/documents/sheet_settings/$(sheetName))
+          || get(/databases/$(database)/documents/sheet_settings/$(sheetName)).data.get('disabledForStaff', false) != true);
+    }
+
+    function isAgentSheetVisible(sheetName) {
+      return sheetName is string
+        && (!exists(/databases/$(database)/documents/sheet_settings/$(sheetName))
+          || get(/databases/$(database)/documents/sheet_settings/$(sheetName)).data.get('disabledForAgents', false) != true);
     }
 
     function accessRequestExists(uid) {
@@ -94,6 +126,11 @@ service cloud.firestore {
     match /system_config/{document=**} {
       allow read: if signedIn();
       allow write: if isAdmin();
+    }
+
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update, delete: if false;
     }
 
     match /settings/{document=**} {
@@ -287,7 +324,8 @@ service cloud.firestore {
 
     match /universities/{universityId} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow create, update: if isAdmin() && safeUniversityDirectoryRecord(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /rates/{rateId} {
@@ -295,29 +333,23 @@ service cloud.firestore {
     }
 
 
-    // NOTE: isStaffSheetHidden/isAgentSheetHidden are NOT used here.
-    // Firebase prohibits combining resource.data with get() calls in list (collection query) rules.
-    // Sheet visibility filtering is enforced at the application level via where('sourceSheet', 'in', visibleSheets).
-    // Staff/agent read-model collections contain NO masterRate/agentRate data — they are safe to expose to their role.
-
-
     match /staff_rates/{rateId} {
-      allow read: if isAdmin() || isStaff();
+      allow read: if isAdmin() || (isStaff() && isStaffSheetVisible(resource.data.sourceSheet));
       allow write: if isAdmin();
     }
 
     match /agent_rates/{rateId} {
-      allow read: if isAdmin() || isApprovedAgent();
+      allow read: if isAdmin() || (isApprovedAgent() && isAgentSheetVisible(resource.data.sourceSheet));
       allow write: if isAdmin();
     }
 
     match /organization_agent_rates/{organizationId}/rates/{rateId} {
-      allow read: if isAdmin() || isApprovedAgentFor(organizationId);
+      allow read: if isAdmin() || (isApprovedAgentFor(organizationId) && isAgentSheetVisible(resource.data.sourceSheet));
       allow write: if isAdmin();
     }
 
     match /agent_rate_overrides/{userId}/rates/{rateId} {
-      allow read: if isAdmin() || (isApprovedAgent() && request.auth.uid == userId);
+      allow read: if isAdmin() || (isApprovedAgent() && request.auth.uid == userId && isAgentSheetVisible(resource.data.sourceSheet));
       allow write: if isAdmin();
     }
 
@@ -404,7 +436,7 @@ service cloud.firestore {
     }
 
     match /rate_sheets/{sheetId} {
-      allow read: if signedIn();
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 

@@ -69,6 +69,7 @@ export async function partitionMasterIntoRateSheets(userEmail = 'Admin'): Promis
 
 const legacyOpaqueRateId = (rate: CommissionRate) => encodeURIComponent(`${rate.universityId}_${rate.intake}_${rate.studyLevel}`.toLowerCase()).replaceAll('.', '%2E');
 const ensuredSheetSettings = new Map<string, Promise<void>>();
+export const ROLE_RATE_MODEL_MIGRATION_ID = 'role-rate-models-v3';
 
 async function ensureSheetVisibilityRecord(rate: CommissionRate): Promise<void> {
   const sheetName = String(rate.sourceSheet || rate.intake || '').trim();
@@ -118,6 +119,11 @@ export function mergeAgentRateLayers<T extends { id: string }>(defaults: T[], or
   return Array.from(effective.values());
 }
 
+export function isEligibleAgentPayout(aggregator: string | undefined): boolean {
+  const normalized = String(aggregator || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '');
+  return normalized === 'BASECHAN' || normalized === 'DIRECT' || normalized === 'BASECHANDIRECT';
+}
+
 function visibleForRole(rate: CommissionRate, role: 'STAFF' | 'AGENT', settings: Record<string, Record<string, boolean>>) {
   const key = rate.sourceSheet || rate.intake;
   return settings[key]?.[role] !== false;
@@ -140,6 +146,9 @@ export function buildStaffProjection(rate: CommissionRate): StaffRateReadModel {
 }
 
 export function buildAgentProjection(rate: CommissionRate): AgentRateReadModel {
+  if (!isEligibleAgentPayout(rate.aggregator)) {
+    throw new Error(`Only a Basechan/Direct sub-agent payout can be projected to Agents (received "${rate.aggregator}").`);
+  }
   return {
     id: opaqueRateId(rate),
     universityId: rate.universityId,
@@ -166,7 +175,7 @@ export function isRedundantOrganizationDefault(data: Record<string, unknown>, de
 }
 
 export async function pruneRedundantOrganizationDefaults(rates: CommissionRate[]): Promise<number> {
-  const projectionById = new Map(rates.map((rate) => [opaqueRateId(rate), buildAgentProjection(rate)]));
+  const projectionById = new Map(rates.filter((rate) => isEligibleAgentPayout(rate.aggregator)).map((rate) => [opaqueRateId(rate), buildAgentProjection(rate)]));
   const snapshots = await getDocs(collectionGroup(db, 'rates'));
   const redundant = snapshots.docs.filter((item) => {
     if (!item.ref.path.startsWith('organization_agent_rates/')) return false;
@@ -193,6 +202,7 @@ async function removeLegacyRateFeedSnapshots(): Promise<number> {
 }
 
 export async function migrateLegacyAgentOverrideIds(rates: CommissionRate[]): Promise<number> {
+  rates = rates.filter((rate) => isEligibleAgentPayout(rate.aggregator));
   const ratesByLegacyId = new Map<string, CommissionRate[]>();
   rates.forEach((rate) => {
     const group = ratesByLegacyId.get(legacyOpaqueRateId(rate)) || [];
@@ -230,7 +240,7 @@ export async function migrateLegacyAgentOverrideIds(rates: CommissionRate[]): Pr
 }
 
 export async function pruneStaleAgentOverrides(rates: CommissionRate[]): Promise<number> {
-  const currentIds = new Set(rates.map(opaqueRateId));
+  const currentIds = new Set(rates.filter((rate) => isEligibleAgentPayout(rate.aggregator)).map(opaqueRateId));
   const snapshots = await getDocs(collectionGroup(db, 'rates'));
   const stale = snapshots.docs.filter((item) => {
     const path = item.ref.path.split('/');
@@ -253,6 +263,7 @@ export interface RateProjectionOptions {
   publishUpdate?: boolean;
   agentTargets?: AgentRateTarget[];
   operationId?: string;
+  publishFeed?: boolean;
 }
 
 export function shouldClearAgentOverride(rate: CommissionRate, overrideIds: string[], preserveOverrides: boolean): boolean {
@@ -272,7 +283,7 @@ export async function syncRateReadModels(rate: CommissionRate, options: RateProj
     operations.push((batch) => batch.delete(doc(db, 'agent_rates', opaqueRateId(options.previousRate!))));
   }
   const staffVisible = visibleForRole(rate, 'STAFF', visibility);
-  const agentVisible = visibleForRole(rate, 'AGENT', visibility);
+  const agentVisible = visibleForRole(rate, 'AGENT', visibility) && isEligibleAgentPayout(rate.aggregator);
   if (staffVisible) operations.push((batch) => batch.set(staffRef, buildStaffProjection(rate)));
   else operations.push((batch) => batch.delete(staffRef));
   if (agentVisible) operations.push((batch) => batch.set(agentRef, buildAgentProjection(rate)));
@@ -282,14 +293,14 @@ export async function syncRateReadModels(rate: CommissionRate, options: RateProj
   await batch.commit();
   const operationId = options.operationId || `projection-${crypto.randomUUID()}`;
   const previousKey = options.previousRate ? opaqueRateId(options.previousRate) : undefined;
-  if (previousKey && previousKey !== key) {
+  if (options.publishFeed !== false && previousKey && previousKey !== key) {
     await appendRateDelta('staff', { operationId: `${operationId}-staff-old`, kind: 'delete', id: previousKey, target: 'rates' });
     await appendRateDelta('agent', { operationId: `${operationId}-agent-old`, kind: 'delete', id: previousKey, target: 'rates' });
   }
-  await appendRateDelta('staff', staffVisible
+  if (options.publishFeed !== false) await appendRateDelta('staff', staffVisible
     ? { operationId: `${operationId}-staff`, kind: 'upsert', id: key, target: 'rates', record: buildStaffProjection(rate) }
     : { operationId: `${operationId}-staff`, kind: 'delete', id: key, target: 'rates' });
-  await appendRateDelta('agent', agentVisible
+  if (options.publishFeed !== false) await appendRateDelta('agent', agentVisible
     ? { operationId: `${operationId}-agent`, kind: 'upsert', id: key, target: 'rates', record: buildAgentProjection(rate) }
     : { operationId: `${operationId}-agent`, kind: 'delete', id: key, target: 'rates' });
   if (options.previousRate && opaqueRateId(options.previousRate) !== key) {
@@ -301,7 +312,7 @@ export async function syncRateReadModels(rate: CommissionRate, options: RateProj
         layerBatch.delete(doc(db, 'agent_rate_overrides', target.uid, 'rates', opaqueRateId(options.previousRate)));
       }
       await layerBatch.commit();
-      for (const target of targets.slice(offset, offset + 200)) {
+      if (options.publishFeed !== false) for (const target of targets.slice(offset, offset + 200)) {
         await appendRateDelta(`org_${target.organizationId}`, { operationId: `${operationId}-org-old-${target.uid}`, kind: 'delete', id: previousKey!, target: 'organizationOverrides' });
         await appendRateDelta(`user_${target.uid}`, { operationId: `${operationId}-user-old`, kind: 'delete', id: previousKey!, target: 'personalOverrides' });
       }
@@ -312,15 +323,17 @@ export async function syncRateReadModels(rate: CommissionRate, options: RateProj
   await publishRelevantUpdates({ type, title: `${rate.universityName} ${type === 'guidance' ? 'guidance' : type === 'routing' ? 'routing' : 'rate'} updated`, summary: type === 'guidance' ? `School guidance was changed to ${rate.guidance || 'ALLOWED'}.` : type === 'routing' ? 'The application routing portal was updated.' : type === 'intake' ? `A new ${rate.intake} route is available.` : 'Commission rate information was updated.', rates: [rate], ...(type === 'routing' ? { includeStaff: true, roles: ['STAFF'] as Array<'STAFF' | 'AGENT'> } : {}) });
 }
 
-export async function removeRateReadModels(rate: CommissionRate, agentTargets?: AgentRateTarget[], operationId = `remove-${crypto.randomUUID()}`): Promise<void> {
+export async function removeRateReadModels(rate: CommissionRate, agentTargets?: AgentRateTarget[], operationId = `remove-${crypto.randomUUID()}`, publishFeed = true): Promise<void> {
   assertFirestoreWritesAllowed('Rate projections');
   const key = opaqueRateId(rate);
   const batch = writeBatch(db);
   batch.delete(doc(db, 'staff_rates', key));
   batch.delete(doc(db, 'agent_rates', key));
   await batch.commit();
-  await appendRateDelta('staff', { operationId: `${operationId}-staff`, kind: 'delete', id: key, target: 'rates' });
-  await appendRateDelta('agent', { operationId: `${operationId}-agent`, kind: 'delete', id: key, target: 'rates' });
+  if (publishFeed) {
+    await appendRateDelta('staff', { operationId: `${operationId}-staff`, kind: 'delete', id: key, target: 'rates' });
+    await appendRateDelta('agent', { operationId: `${operationId}-agent`, kind: 'delete', id: key, target: 'rates' });
+  }
   const targets = agentTargets || await resolveAgentTargets();
   for (let offset = 0; offset < targets.length; offset += 200) {
     const layerBatch = writeBatch(db);
@@ -330,8 +343,10 @@ export async function removeRateReadModels(rate: CommissionRate, agentTargets?: 
     }
     await layerBatch.commit();
     for (const target of targets.slice(offset, offset + 200)) {
-      await appendRateDelta(`org_${target.organizationId}`, { operationId: `${operationId}-org-${target.uid}`, kind: 'delete', id: key, target: 'organizationOverrides' });
-      await appendRateDelta(`user_${target.uid}`, { operationId: `${operationId}-user-${target.uid}`, kind: 'delete', id: key, target: 'personalOverrides' });
+      if (publishFeed) {
+        await appendRateDelta(`org_${target.organizationId}`, { operationId: `${operationId}-org-${target.uid}`, kind: 'delete', id: key, target: 'organizationOverrides' });
+        await appendRateDelta(`user_${target.uid}`, { operationId: `${operationId}-user-${target.uid}`, kind: 'delete', id: key, target: 'personalOverrides' });
+      }
     }
   }
 }
@@ -350,11 +365,12 @@ export async function syncAllRateReadModels(rates: CommissionRate[], settings: R
       const key = opaqueRateId(rate);
       if (visibleForRole(rate, 'STAFF', visibility)) batch.set(doc(db, 'staff_rates', key), buildStaffProjection(rate));
       else batch.delete(doc(db, 'staff_rates', key));
-      if (visibleForRole(rate, 'AGENT', visibility)) batch.set(doc(db, 'agent_rates', key), buildAgentProjection(rate));
+      if (visibleForRole(rate, 'AGENT', visibility) && isEligibleAgentPayout(rate.aggregator)) batch.set(doc(db, 'agent_rates', key), buildAgentProjection(rate));
       else batch.delete(doc(db, 'agent_rates', key));
     }
     await batch.commit();
   }
+  const eligibleAgentRates = rates.filter((rate) => isEligibleAgentPayout(rate.aggregator));
   const rateKeys = new Set(rates.map(opaqueRateId));
   const modelSnapshots: Array<{ collectionName: string; docs: NonNullable<typeof existingStaff>['docs']; visible: (rate: CommissionRate) => boolean }> = removeStale && existingStaff && existingAgents ? [
     { collectionName: 'staff_rates', docs: existingStaff.docs, visible: (rate) => visibleForRole(rate, 'STAFF', visibility) },
@@ -368,10 +384,10 @@ export async function syncAllRateReadModels(rates: CommissionRate[], settings: R
       await cleanup.commit();
     }
   }
-  await migrateLegacyAgentOverrideIds(rates);
-  await pruneStaleAgentOverrides(rates);
-  const prunedOrganizationDefaults = await pruneRedundantOrganizationDefaults(rates);
-  await syncAllAgentRatesFromMaster(rates, visibility, removeStale);
+  await migrateLegacyAgentOverrideIds(eligibleAgentRates);
+  await pruneStaleAgentOverrides(eligibleAgentRates);
+  const prunedOrganizationDefaults = await pruneRedundantOrganizationDefaults(eligibleAgentRates);
+  await syncAllAgentRatesFromMaster(eligibleAgentRates, visibility, removeStale);
   if (publishUpdates && rates.length) {
     await publishRelevantUpdates({ type: 'rates', title: 'Commission rates updated', summary: 'Commission rate information was updated.', rates });
   }
@@ -380,7 +396,7 @@ export async function syncAllRateReadModels(rates: CommissionRate[], settings: R
 
 export async function ensureRoleRateModelMigration(rates: CommissionRate[], adminEmail: string, force = false): Promise<{ migrated: boolean; prunedOrganizationDefaults: number }> {
   assertFirestoreWritesAllowed('Rate model migration');
-  const migrationRef = doc(db, 'admin_migrations', 'role-rate-models-v2');
+  const migrationRef = doc(db, 'admin_migrations', ROLE_RATE_MODEL_MIGRATION_ID);
   const current = await getDoc(migrationRef);
   if (!force && current.exists() && current.get('status') === 'complete') return { migrated: false, prunedOrganizationDefaults: 0 };
   await setDoc(migrationRef, { status: 'running', adminEmail, updatedAt: new Date().toISOString() }, { merge: true });
@@ -438,6 +454,9 @@ export async function applyRateToAgentTargets(
   options: { applyOrganization: boolean; applyIndividual: boolean; replaceOverrides: boolean; notify?: boolean; organizationIds?: string[] },
 ): Promise<void> {
   assertFirestoreWritesAllowed('Agent rate assignments');
+  if (!isEligibleAgentPayout(rate.aggregator)) {
+    throw new Error('Only Basechan/Direct sub-agent payout rates can be assigned to Agents.');
+  }
   await ensureSheetVisibilityRecord(rate);
   const operationId = `agent-assignment-${crypto.randomUUID()}`;
   const key = opaqueRateId(rate);
@@ -501,6 +520,9 @@ export async function applyRatesToAgentTargets(
   targets: AgentRateTarget[],
   options: { applyOrganization: boolean; applyIndividual: boolean; replaceOverrides: boolean; notify?: boolean; organizationIds?: string[] },
 ): Promise<void> {
+  if (rates.some((rate) => !isEligibleAgentPayout(rate.aggregator))) {
+    throw new Error('Only Basechan/Direct sub-agent payout rates can be assigned to Agents.');
+  }
   for (const rate of rates) await applyRateToAgentTargets(rate, targets, { ...options, notify: false });
   if (options.notify && rates.length) {
     await publishRelevantUpdates({
@@ -616,6 +638,7 @@ export async function resolveOrganizationRate(orgName: string): Promise<string |
 export async function syncAllAgentRatesFromMaster(rates: CommissionRate[], settings: Record<string, Record<string, boolean>> = {}, removeStale = false): Promise<void> {
   assertFirestoreWritesAllowed('Agent rate projections');
   const BATCH_SIZE = 400;
+  rates = rates.filter((rate) => isEligibleAgentPayout(rate.aggregator));
   const rateKeys = new Set(rates.map(opaqueRateId));
   if (removeStale) {
     const existing = await getDocs(collection(db, 'agent_rates'));

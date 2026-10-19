@@ -414,7 +414,7 @@ export const AddRateModal: React.FC<AddRateModalProps> = ({
             className="px-4 py-2 flex items-center gap-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <Save className="w-4 h-4" />
-            {isSubmitting ? 'Saving...' : 'Save Rate'}
+            {isSubmitting ? 'Saving locally...' : 'Save Rate Locally'}
           </button>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { writeRateOperation } from '../services/adminRateWriteService';
+import { createRates } from '../services/adminRateWriteService';
 import { useAuth } from '../context/AuthContext';
 import { generateCompositeId } from '../utils/idGenerator';
 import { PredictiveInput } from './PredictiveInput';
@@ -123,11 +123,7 @@ export const MigrateIntakeModal: React.FC<MigrateIntakeModalProps> = ({
 
           return clonedRate;
       });
-      await writeRateOperation({
-        mutations: clonedRates.map((next) => ({ next })),
-        adminEmail: user?.email || 'Admin',
-        category: 'intake',
-      });
+      await createRates(clonedRates, user?.email || 'Admin');
       setProgress({ completed: total, total, percentage: 100 });
 
       onMigratedComplete(total, newTargetIntake);

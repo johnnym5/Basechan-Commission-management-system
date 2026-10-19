@@ -13,9 +13,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { uid: 'user-1', email: 'test@example.com' }, role: mocks.role, access: { role: mocks.role, accessState: mocks.accessState, organizationId: 'org-1' }, signOut: vi.fn() }) }));
 vi.mock('../context/ThemeContext', () => ({ useTheme: () => ({ theme: 'dark', setTheme: vi.fn() }) }));
 vi.mock('../hooks/useCommissionRates', () => ({ useCommissionRates: () => ({ rates: mocks.rates, loading: false, error: null, quotaMode: mocks.quotaMode, hasLocalCopy: mocks.rates.length > 0, lastSyncedAt: null }) }));
+vi.mock('../hooks/useAgentUniversityDirectory', () => ({ useAgentUniversityDirectory: () => [] }));
+vi.mock('../hooks/usePendingRateChanges', () => ({ usePendingRateChanges: () => ({ operations: [], pendingCount: 0, syncState: 'idle', retry: vi.fn(), discard: vi.fn(), resolveConflict: vi.fn() }) }));
 vi.mock('../services/firestoreOfflineMode', () => ({ isQuotaOffline: () => false, subscribeToFirestoreMode: () => () => {} }));
 vi.mock('../services/chatPersistence', () => ({ markUpdateRead: vi.fn(), subscribeToUserUpdates: () => () => {} }));
-vi.mock('../services/rateReadModels', () => ({ ensureRoleRateModelMigration: vi.fn(), ensureSheetVisibilityRecords: vi.fn() }));
+vi.mock('../services/rateReadModels', () => ({ ensureRoleRateModelMigration: vi.fn(), ensureSheetVisibilityRecords: vi.fn(), isEligibleAgentPayout: (aggregator: string) => ['BASECHAN', 'DIRECT', 'BASECHANDIRECT'].includes(String(aggregator).toUpperCase().replace(/[^A-Z0-9]+/g, '')) }));
 vi.mock('../services/localRateDatabase', () => ({
   getPendingOfflineImports: vi.fn().mockImplementation(() => Promise.resolve(mocks.pendingImports)),
   clearPendingOfflineImports: vi.fn().mockImplementation(() => {
@@ -72,7 +74,7 @@ describe('role dashboard integration', () => {
     mocks.role = 'AGENT';
     mocks.accessState = 'approved';
     mocks.quotaMode = true;
-    mocks.rates = [{ id: 'r1', universityId: 'u1', universityName: 'Cached School', intake: 'Jan 2027', aggregator: '', studyLevel: 'UG', masterRate: 0, agentRate: 10, diffMargin: 0, isFlatFee: false, netOrGross: 'GROSS' }];
+    mocks.rates = [{ id: 'r1', universityId: 'u1', universityName: 'Cached School', intake: 'Jan 2027', aggregator: 'BASECHAN', studyLevel: 'UG', masterRate: 0, agentRate: 10, diffMargin: 0, isFlatFee: false, netOrGross: 'GROSS' }];
     render(<AppLayout />);
     expect(screen.getByTestId('role-dashboard')).toHaveTextContent('AGENT dashboard (1 routes; query=)');
     expect(screen.getByRole('button', { name: /Quota limit reached/i })).toBeInTheDocument();
@@ -136,4 +138,3 @@ describe('role dashboard integration', () => {
     expect(mocks.uploadRatesInBatches).toHaveBeenCalled();
   });
 });
-

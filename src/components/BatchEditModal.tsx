@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { updateRates } from '../services/adminRateWriteService';
 import { useAuth } from '../context/AuthContext';
 import type { CommissionRate, StudyLevel, SchoolGuidance } from '../types';
+import { generateCompositeId } from '../utils/idGenerator';
 import { X, Save, AlertCircle, Info } from 'lucide-react';
 
 interface BatchEditModalProps {
@@ -59,7 +60,11 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
       await updateRates(selectedRates, (rate) => {
         const newMasterRate = updates.masterRate !== undefined ? updates.masterRate : rate.masterRate;
         const newAgentRate = updates.agentRate !== undefined ? updates.agentRate : rate.agentRate;
-        return { ...rate, ...updates, masterRate: newMasterRate, agentRate: newAgentRate, diffMargin: Number((newMasterRate - newAgentRate).toFixed(2)), updatedAt: new Date().toISOString() };
+        const next = { ...rate, ...updates, masterRate: newMasterRate, agentRate: newAgentRate, diffMargin: Number((newMasterRate - newAgentRate).toFixed(2)), updatedAt: new Date().toISOString() };
+        if (next.intake !== rate.intake || next.aggregator !== rate.aggregator || next.studyLevel !== rate.studyLevel) {
+          next.id = generateCompositeId(next.universityName, next.intake, next.aggregator, next.studyLevel);
+        }
+        return next;
       }, user?.email || 'Admin', updates.guidance ? 'guidance' : undefined);
       setProgress(100);
       onBatchUpdated(totalSelected);
@@ -94,7 +99,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
           <div>
             <h2 className="text-xl font-bold text-white">Batch Edit</h2>
             <p className="text-sm text-slate-400 mt-1">
-              Updating {totalSelected} selected items
+              Changes are saved on this device first, then synced for {totalSelected} selected items.
             </p>
           </div>
           <button
@@ -332,7 +337,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
             className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <Save className="w-4 h-4" />
-            {loading ? 'Updating...' : `Apply to ${totalSelected} Items`}
+            {loading ? 'Saving locally...' : `Save ${totalSelected} Items Locally`}
           </button>
         </div>
       </div>

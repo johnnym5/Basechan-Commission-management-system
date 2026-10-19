@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { DashboardFilters, DashboardRate } from '../types/dashboard';
+import type { DirectoryUniversity } from '../hooks/useAgentUniversityDirectory';
 import { createEmptyDashboardFilters } from '../services/dashboardFilters';
 import { RoleDashboardView } from './RoleDashboardView';
 
@@ -19,7 +20,7 @@ vi.mock('../hooks/useSystemConfig', () => ({
 
 const staff: DashboardRate[] = [{ role: 'STAFF', id: 'r1', universityId: 'u1', universityName: 'Alpha University', country: 'UK', intake: 'Jan 2026', aggregator: 'SI-UK', studyLevel: 'UG', guidance: 'FOCUS' }];
 const agent: DashboardRate[] = [{ role: 'AGENT', id: 'r2', universityId: 'u2', universityName: 'Beta College', country: 'Ghana', intake: 'Sept 2026', studyLevel: 'PG', guidance: 'ALLOWED', agentRate: 12, isFlatFee: false, netOrGross: 'NET' }];
-const renderView = (role: 'STAFF' | 'AGENT', rates: DashboardRate[], filters: DashboardFilters = createEmptyDashboardFilters(), onFiltersChange = vi.fn()) => render(<RoleDashboardView role={role} rates={rates} loading={false} filters={filters} onFiltersChange={onFiltersChange} />);
+const renderView = (role: 'STAFF' | 'AGENT', rates: DashboardRate[], filters: DashboardFilters = createEmptyDashboardFilters(), onFiltersChange = vi.fn(), agentDirectory: DirectoryUniversity[] = []) => render(<RoleDashboardView role={role} rates={rates} loading={false} filters={filters} onFiltersChange={onFiltersChange} agentDirectory={agentDirectory} />);
 
 describe('RoleDashboardView', () => {
   it('Staff sees route, school, country, and Focus KPIs without payout metrics', () => {
@@ -36,6 +37,19 @@ describe('RoleDashboardView', () => {
     expect(screen.getAllByText('Beta College').length).toBeGreaterThan(0);
     expect(screen.getByText(/12%/)).toBeInTheDocument();
     expect(screen.queryByText(/margin|aggregator/i)).not.toBeInTheDocument();
+  });
+
+  it('Agent directory keeps schools without payouts discoverable and lists one payout route once', () => {
+    renderView('AGENT', agent, createEmptyDashboardFilters(), vi.fn(), [
+      { id: 'u-empty', name: 'No Rate University', country: 'UK' },
+      { id: 'u2', name: 'Beta College', country: 'Ghana' },
+    ]);
+    const directory = screen.getByRole('region', { name: 'Agent school directory' });
+    expect(directory).toHaveTextContent('No Rate University');
+    expect(directory).toHaveTextContent('No rate for this school');
+    expect(directory).toHaveTextContent('Beta College');
+    expect(directory).toHaveTextContent('1 payout route');
+    expect(directory).not.toHaveTextContent('12%');
   });
 
   it('empty role results name active filters and offer clear all', () => {

@@ -33,21 +33,34 @@ export async function getFeedCursor(scope: string): Promise<number> {
   return Number(snapshot.data()?.sequence || 0);
 }
 
-export async function appendRateDelta(scope: string, delta: Omit<RateDelta, 'sequence'>): Promise<void> {
+export async function appendRateDeltas(scope: string, deltas: Array<Omit<RateDelta, 'sequence'>>): Promise<void> {
+  if (!deltas.length) return;
+  const unique = new Map<string, Omit<RateDelta, 'sequence'>>();
+  deltas.forEach((delta) => unique.set(encodeURIComponent([delta.operationId, delta.target, delta.id, delta.kind].join('|')), delta));
+  const entries = Array.from(unique.entries());
+  if (entries.length > 150) throw new Error('A rate feed package cannot exceed 150 changes per scope.');
   const metadataRef = feedRef(scope);
   await runTransaction(db, async (transaction) => {
-    const markerId = encodeURIComponent([delta.operationId, delta.target, delta.id, delta.kind].join('|'));
-    const markerRef = doc(metadataRef, 'operations', markerId);
-    if ((await transaction.get(markerRef)).exists()) return;
+    const markerRefs = entries.map(([markerId]) => doc(metadataRef, 'operations', markerId));
+    const markerSnapshots = await Promise.all(markerRefs.map((ref) => transaction.get(ref)));
     const metadata = await transaction.get(metadataRef);
-    const sequence = Number(metadata.data()?.sequence || 0) + 1;
-    const recordRef = doc(collection(metadataRef, 'changes'), String(sequence).padStart(16, '0'));
-    transaction.set(metadataRef, { sequence, updatedAt: new Date().toISOString() }, { merge: true });
-    transaction.set(recordRef, buildRateDeltaFeedRecord(scope, delta, sequence, new Date().toISOString()));
-    transaction.set(markerRef, { sequence });
+    const pending = entries.map(([markerId, delta], index) => ({ markerId, delta, exists: markerSnapshots[index].exists() })).filter((entry) => !entry.exists);
+    let sequence = Number(metadata.data()?.sequence || 0);
+    const createdAt = new Date().toISOString();
+    for (const { markerId, delta } of pending) {
+      sequence += 1;
+      const recordRef = doc(collection(metadataRef, 'changes'), String(sequence).padStart(16, '0'));
+      const markerRef = doc(metadataRef, 'operations', markerId);
+      transaction.set(recordRef, buildRateDeltaFeedRecord(scope, delta, sequence, createdAt));
+      transaction.set(markerRef, { sequence });
+    }
+    if (pending.length) transaction.set(metadataRef, { sequence, updatedAt: createdAt }, { merge: true });
   });
 }
 
+export async function appendRateDelta(scope: string, delta: Omit<RateDelta, 'sequence'>): Promise<void> {
+  return appendRateDeltas(scope, [delta]);
+}
 export async function readRateDeltas(scope: string, after: number, pageSize = 200): Promise<FeedRecord[]> {
   const changes = collection(feedRef(scope), 'changes');
   const page = await getDocsFromServer(query(changes, where('sequence', '>', after), orderBy('sequence'), limit(pageSize)));

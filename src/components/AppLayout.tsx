@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useCommissionRates } from '../hooks/useCommissionRates';
+import { useAgentUniversityDirectory } from '../hooks/useAgentUniversityDirectory';
+import { usePendingRateChanges } from '../hooks/usePendingRateChanges';
 import { ensureRoleRateModelMigration, ensureSheetVisibilityRecords } from '../services/rateReadModels';
 import type { CommissionRate, UserRole, UserUpdate } from '../types';
 import { DashboardView } from './DashboardView';
@@ -158,10 +160,12 @@ export const AppLayout: React.FC = () => {
 
   // Effective role used across views and sidebar
   const effectiveRole = role === 'ADMIN' ? viewAsRole : role;
+  const pendingRateChanges = usePendingRateChanges(user?.uid, role === 'ADMIN' && viewAsRole === 'ADMIN');
+  const agentUniversityDirectory = useAgentUniversityDirectory(effectiveRole === 'AGENT' && access.accessState === 'approved');
   const canUseAdminNavigation = role === 'ADMIN' && viewAsRole === 'ADMIN';
   const isQuotaMode = isQuotaOfflineMode || quotaMode;
   const isLocalOnly = isQuotaMode || isOffline;
-  const canWriteRates = role === 'ADMIN' && !isLocalOnly;
+  const canWriteRates = role === 'ADMIN';
   const connectionState = isQuotaMode ? 'quota' : (isOffline ? 'offline' : 'online');
   const connectionRing = connectionState === 'quota'
     ? 'ring-gray-400 dark:ring-gray-500'
@@ -309,11 +313,7 @@ export const AppLayout: React.FC = () => {
 
   const handleEditRate = (rate: CommissionRate) => {
     if (role !== 'ADMIN') return;
-    if (!canWriteRates) {
-      setBannerNotice('Rate edits are unavailable while using saved offline data.');
-      window.setTimeout(() => setBannerNotice(null), 5000);
-      return;
-    }
+
     setEditingRate(rate);
     setIsEditModalOpen(true);
   };
@@ -325,7 +325,7 @@ export const AppLayout: React.FC = () => {
   };
 
   const handleRateAdded = (newRate: CommissionRate) => {
-    setBannerNotice(`Successfully added commission rate for ${newRate.universityName} (${newRate.aggregator} - ${newRate.intake}).`);
+    setBannerNotice(`Saved commission rate for ${newRate.universityName} locally; waiting to sync.`);
     setTimeout(() => setBannerNotice(null), 6000);
   };
 
@@ -772,8 +772,8 @@ export const AppLayout: React.FC = () => {
 
           <div key={`${effectiveRole}-${access.accessState}-${access.organizationId || 'none'}`} className="animate-page-enter">
             {currentPage === 'Dashboard' && (effectiveRole === 'ADMIN'
-              ? <DashboardView rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />
-              : <RoleDashboardView role={effectiveRole} rates={dashboardRates} loading={loading} filters={dashboardFilters} onFiltersChange={setDashboardFilters} />)}
+              ? <DashboardView rates={rates} loading={loading} readOnly={!canWriteRates} onEditRate={handleEditRate} filters={dashboardFilters} onFiltersChange={setDashboardFilters} pendingOperations={pendingRateChanges.operations} syncState={pendingRateChanges.syncState} onRetryPending={(id) => void pendingRateChanges.retry(id)} onDiscardPending={(id) => void pendingRateChanges.discard(id)} onResolvePendingConflict={(id, resolution) => void pendingRateChanges.resolveConflict(id, resolution)} />
+              : <RoleDashboardView role={effectiveRole} rates={dashboardRates} loading={loading} filters={dashboardFilters} onFiltersChange={setDashboardFilters} agentDirectory={agentUniversityDirectory} />)}
             {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && (currentPage === 'Compare Rates' || currentPage === 'Compare') && <CompareView allRates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Deal Calculator' && <DealCalculatorView rates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Settings' && (
@@ -876,11 +876,11 @@ export const AppLayout: React.FC = () => {
               setEditingRate(null);
             }}
             onSaved={() => {
-              setBannerNotice('Commission rate updated successfully.');
+              setBannerNotice('Saved locally — waiting to sync to Firestore.');
               setTimeout(() => setBannerNotice(null), 4000);
             }}
             onDeleted={() => {
-              setBannerNotice('Deletion completed successfully.');
+              setBannerNotice('Deletion saved locally — waiting to sync to Firestore.');
               setTimeout(() => setBannerNotice(null), 4000);
             }}
           />

@@ -46,7 +46,7 @@ function normalizeStaff(id: string, data: StaffRateReadModel): CommissionRate {
 
 function normalizeAgent(id: string, data: AgentRateReadModel): CommissionRate {
   return {
-    ...data, id, aggregator: '', masterRate: 0, agentRate: data.agentRate, diffMargin: 0,
+    ...data, id, aggregator: 'BASECHAN', masterRate: 0, agentRate: data.agentRate, diffMargin: 0,
   };
 }
 

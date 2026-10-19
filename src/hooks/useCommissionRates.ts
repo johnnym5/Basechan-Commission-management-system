@@ -8,8 +8,8 @@ import {
   beginQuotaProbe, completeQuotaProbe, enterQuotaOfflineMode, getQuotaRetryAt, lockFirestoreNetworkForQuota,
   isQuotaError, isQuotaOffline, isConnectivityError, subscribeToFirestoreMode,
 } from '../services/firestoreOfflineMode';
-import { getAllLocalSheetBuckets, getLocalAgentOverrides, getLocalRateMetadata, getLocalRates } from '../services/localRateDatabase';
-import { scopeForUser, syncRateSheetsCacheFirst, verifyServerRateAccess } from '../services/rateSyncService';
+import { getAllLocalSheetBuckets, getLocalAgentOverrides, getLocalRateMetadata, getLocalRates, subscribeToLocalRateChanges } from '../services/localRateDatabase';
+import { scopeForUser, syncLocalRateData, syncRateSheetsCacheFirst, verifyServerRateAccess } from '../services/rateSyncService';
 import { selectRatesForScope } from '../services/rateSnapshot';
 
 export interface IndexedCommissionRate extends CommissionRate { _searchToken: string }
@@ -88,20 +88,33 @@ export function useCommissionRates() {
 
     const showLocal = async () => {
       try {
-        const [globalBuckets, userBuckets, metadata, globalRates, userRates, overrides] = await Promise.all([
-          getAllLocalSheetBuckets('global').catch(() => []),
-          getAllLocalSheetBuckets(user.uid).catch(() => []),
+        const [metadata, userRates, overrides] = await Promise.all([
           getLocalRateMetadata(user.uid).catch(() => null),
-          getLocalRates('global').catch(() => []),
           getLocalRates(user.uid).catch(() => []),
-          getLocalAgentOverrides(user.uid).catch(() => ({ organization: [], personal: [] })),
+          role === 'AGENT'
+            ? getLocalAgentOverrides(user.uid).catch(() => ({ organization: [], personal: [] }))
+            : Promise.resolve({ organization: [], personal: [] }),
         ]);
         if (!active) return false;
 
-        const cachedBucketRates = [...globalBuckets, ...userBuckets].flatMap((b: RateSheetBucket) => b.rates || []);
-        const combinedRates = Array.from(
-          new Map([...cachedBucketRates, ...globalRates, ...userRates].map((r) => [r.id, r])).values()
+        const scopedCacheIsValid = role === 'ADMIN' || (
+          metadata?.complete === true
+          && metadata.uid === user.uid
+          && metadata.role === role
+          && (metadata.organizationId || '') === (scope.organizationId || '')
         );
+        const scopedUserRates = scopedCacheIsValid ? userRates : [];
+        const scopedOverrides = scopedCacheIsValid ? overrides : { organization: [], personal: [] };
+        let combinedRates = scopedUserRates;
+        if (role === 'ADMIN') {
+          const [globalBuckets, userBuckets, globalRates] = await Promise.all([
+            getAllLocalSheetBuckets('global').catch(() => []),
+            getAllLocalSheetBuckets(user.uid).catch(() => []),
+            getLocalRates('global').catch(() => []),
+          ]);
+          const cachedBucketRates = [...globalBuckets, ...userBuckets].flatMap((b: RateSheetBucket) => b.rates || []);
+          combinedRates = Array.from(new Map([...cachedBucketRates, ...globalRates, ...userRates].map((r) => [r.id, r])).values());
+        }
 
         if (combinedRates.length > 0) {
           const values = role === 'AGENT'
@@ -110,9 +123,9 @@ export function useCommissionRates() {
                   ...r,
                   aggregator: r.aggregator || 'BASECHAN',
                 })),
-                overrides.organization,
-                overrides.personal
-              )
+                scopedOverrides.organization,
+                scopedOverrides.personal
+              ).map((rate) => ({ ...rate, aggregator: 'BASECHAN' }))
             : combinedRates;
 
           setRates(values.map((r) => indexRate(r as CommissionRate)));
@@ -126,8 +139,8 @@ export function useCommissionRates() {
 
         if (metadata?.complete) {
           const values = role === 'AGENT'
-            ? mergeAgentRateLayers(userRates, overrides.organization, overrides.personal)
-            : userRates;
+            ? mergeAgentRateLayers(scopedUserRates, scopedOverrides.organization, scopedOverrides.personal).map((rate) => ({ ...rate, aggregator: 'BASECHAN' }))
+            : scopedUserRates;
           if (values.length > 0) {
             setRates(values.map((r) => indexRate(r as CommissionRate)));
             setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
@@ -144,6 +157,10 @@ export function useCommissionRates() {
       return false;
     };
 
+    const unsubscribeLocalRates = role === 'ADMIN'
+      ? subscribeToLocalRateChanges(user.uid, () => { void showLocal(); })
+      : () => {};
+
     let syncInProgress = false;
     const refresh = async (probe = false) => {
       if (!active || !navigator.onLine || syncInProgress) return;
@@ -153,11 +170,27 @@ export function useCommissionRates() {
           await beginQuotaProbe(user.uid);
           await verifyServerRateAccess(scope);
         }
-        const freshRates = await syncRateSheetsCacheFirst(scope);
-        const localRates = await getLocalRates(user.uid);
-        const combined = Array.from(
-          new Map([...localRates, ...freshRates].map((r) => [r.id, r])).values()
-        );
+        let combined: CommissionRate[];
+        if (role === 'ADMIN') {
+          const freshRates = await syncRateSheetsCacheFirst(scope);
+          const localRates = await getLocalRates(user.uid);
+          combined = Array.from(new Map([...localRates, ...freshRates].map((r) => [r.id, r])).values());
+        } else {
+          await syncLocalRateData(scope);
+          const localRates = await getLocalRates(user.uid);
+          const overrides = role === 'AGENT'
+            ? await getLocalAgentOverrides(user.uid)
+            : { organization: [], personal: [] };
+          const roleRates = role === 'AGENT'
+            ? mergeAgentRateLayers(localRates, overrides.organization, overrides.personal)
+            : localRates;
+          combined = Array.from(new Map(roleRates.map((r) => [
+            r.id,
+            role === 'AGENT'
+              ? { ...r, aggregator: 'BASECHAN', masterRate: 0, diffMargin: 0 } as CommissionRate
+              : r as CommissionRate,
+          ])).values());
+        }
         if (!active) return;
         setRates(combined.map(indexRate));
         setRatesScope(`${user.uid}:${role}:${access.accessState}:${access.organizationId || ''}`);
@@ -262,6 +295,7 @@ export function useCommissionRates() {
 
     return () => {
       active = false;
+      unsubscribeLocalRates();
       if (retryTimer) clearTimeout(retryTimer);
       unsubscribeMode();
       window.removeEventListener('online', onOnline);

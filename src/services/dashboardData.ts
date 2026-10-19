@@ -1,10 +1,22 @@
 import type { UserRole, CommissionRate } from '../types';
 import type { DashboardKpis, DashboardRate } from '../types/dashboard';
+import { isEligibleAgentPayout } from './rateReadModels';
+
+export function selectAgentPayoutRates(rates: CommissionRate[]): CommissionRate[] {
+  const selected = new Map<string, CommissionRate>();
+  rates.forEach((rate) => {
+    if (!isEligibleAgentPayout(rate.aggregator)) return;
+    const key = `${rate.universityId || rate.universityName}__${rate.studyLevel}__${rate.intake}`;
+    if (!selected.has(key)) selected.set(key, rate);
+  });
+  return Array.from(selected.values());
+}
 
 export function buildDashboardRates(role: UserRole, rates: CommissionRate[]): DashboardRate[] {
   if (role === 'ADMIN') {
     return rates.map((rate) => ({ ...rate, role: 'ADMIN' }));
   }
+  if (role === 'AGENT') rates = selectAgentPayoutRates(rates);
 
   // Filter 1 single authorized route per university, studyLevel, and intake for STAFF & AGENT
   const groupMap = new Map<string, CommissionRate[]>();
@@ -16,14 +28,13 @@ export function buildDashboardRates(role: UserRole, rates: CommissionRate[]): Da
 
   const singleRoutes: CommissionRate[] = [];
   groupMap.forEach((ratesForKey) => {
+    if (role === 'AGENT') {
+      singleRoutes.push(ratesForKey[0]);
+      return;
+    }
     const focusRate = ratesForKey.find((r) => r.guidance === 'FOCUS');
     if (focusRate) {
       singleRoutes.push(focusRate);
-    } else if (role === 'AGENT') {
-      const directRate = ratesForKey.find(
-        (r) => (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT'
-      );
-      singleRoutes.push(directRate || ratesForKey[0]);
     } else {
       const topYield = ratesForKey.reduce((best, curr) => (curr.diffMargin > best.diffMargin ? curr : best), ratesForKey[0]);
       singleRoutes.push(topYield);

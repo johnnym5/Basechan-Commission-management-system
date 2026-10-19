@@ -1,5 +1,6 @@
 import type { AgentRateReadModel, ChatConversation, CommissionRate, FavoriteSchool, RateSheetBucket, StaffRateReadModel, UserRole } from '../types';
 import type { AgentChatProfile } from '../types/chat';
+import type { PendingRateOperation, PendingRateOperationPatch } from '../types/rateWriteQueue';
 
 export interface RateScope {
   uid: string;
@@ -15,14 +16,21 @@ export interface LocalRateMetadata extends RateScope {
   lastVerifiedAt: string;
   quotaRetryAt?: number;
   ratesLastUpdatedAt?: string;
+  adminMembershipVerified?: boolean;
+  adminEmail?: string;
 }
 
 const DB_PREFIX = 'basechan-rate-cache-v1-';
-const STORES = ['metadata', 'rates', 'organizationOverrides', 'personalOverrides', 'chatProfile', 'chatConversations', 'chatFavorites', 'chatFavoriteDeletes', 'chatUsage', 'sheetBuckets', 'pendingOfflineImports'] as const;
+const STORES = ['metadata', 'rates', 'organizationOverrides', 'personalOverrides', 'chatProfile', 'chatConversations', 'chatFavorites', 'chatFavoriteDeletes', 'chatUsage', 'sheetBuckets', 'pendingOfflineImports', 'pendingRateOperations'] as const;
 const activeConnections = new Map<string, Set<IDBDatabase>>();
 const databaseChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('basechan-local-rate-database');
+const LOCAL_RATE_CHANGE_EVENT = 'basechan-local-rate-change';
 
 databaseChannel?.addEventListener('message', (event) => {
+  if (event.data?.type === 'rates-changed' && typeof event.data?.uid === 'string') {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(LOCAL_RATE_CHANGE_EVENT, { detail: { uid: event.data.uid } }));
+    return;
+  }
   if (event.data?.type !== 'close' || typeof event.data?.uid !== 'string') return;
   for (const database of activeConnections.get(event.data.uid) || []) database.close();
   activeConnections.delete(event.data.uid);
@@ -36,7 +44,7 @@ function databaseName(uid: string) {
 function openDatabase(uid: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const name = databaseName(uid);
-    const request = indexedDB.open(name, 5);
+    const request = indexedDB.open(name, 6);
     request.onupgradeneeded = () => {
       const database = request.result;
       for (const store of STORES) {
@@ -123,6 +131,202 @@ export async function getLocalRates(uid: string): Promise<CommissionRate[]> {
   });
 
   return Array.from(rateMap.values());
+}
+
+export function subscribeToLocalRateChanges(uid: string, listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const handler = (event: Event) => {
+    if ((event as CustomEvent<{ uid?: string }>).detail?.uid === uid) listener();
+  };
+  window.addEventListener(LOCAL_RATE_CHANGE_EVENT, handler);
+  return () => window.removeEventListener(LOCAL_RATE_CHANGE_EVENT, handler);
+}
+
+function announceLocalRateChanges(uid: string) {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(LOCAL_RATE_CHANGE_EVENT, { detail: { uid } }));
+  databaseChannel?.postMessage({ type: 'rates-changed', uid });
+}
+
+export async function stageLocalRateOperation(
+  uid: string,
+  operation: PendingRateOperation,
+  cancelledOperationId?: string,
+): Promise<PendingRateOperation> {
+  const database = await openDatabase(uid);
+  let result = operation;
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['rates', 'pendingRateOperations'], 'readwrite');
+    const ratesStore = tx.objectStore('rates');
+    const operationsStore = tx.objectStore('pendingRateOperations');
+    const queueRequest = operationsStore.getAll();
+    queueRequest.onsuccess = () => {
+      try {
+      const queued = queueRequest.result as PendingRateOperation[];
+      const incoming = operation.mutations.length === 1 ? operation.mutations[0] : undefined;
+      const coalesce = incoming?.kind === 'update' && operation.mutations.length === 1
+        ? queued.find((candidate) => candidate.status === 'pending'
+          && candidate.mutations.length === 1
+          && candidate.mutations[0].kind === 'update'
+          && candidate.mutations[0].id === incoming.id
+          && candidate.mutations[0].nextId === incoming.nextId)
+        : undefined;
+      const pendingCreate = incoming?.kind === 'delete'
+        ? queued.find((candidate) => candidate.status === 'pending'
+          && candidate.mutations.length === 1
+          && candidate.mutations[0].kind === 'create'
+          && candidate.mutations[0].next.id === incoming.id)
+        : undefined;
+
+      if (pendingCreate && incoming?.kind === 'delete') {
+        operationsStore.delete(pendingCreate.operationId);
+        ratesStore.delete(incoming.id);
+        result = { ...pendingCreate, status: 'cancelled', updatedAt: operation.updatedAt };
+      } else if (coalesce && incoming?.kind === 'update') {
+        const prior = coalesce.mutations[0];
+        if (prior.kind !== 'update') throw new Error('Only queued update operations can be coalesced.');
+        const merged: PendingRateOperation = {
+          ...coalesce,
+          category: operation.category,
+          notify: coalesce.notify || operation.notify,
+          updatedAt: operation.updatedAt,
+          mutations: [{ ...prior, patch: { ...prior.patch, ...incoming.patch } }],
+        };
+        operationsStore.put({ ...merged, id: merged.operationId });
+        ratesStore.get(incoming.id).onsuccess = (event) => {
+          const current = (event.target as IDBRequest<CommissionRate | undefined>).result;
+          const next = { ...(current || { id: incoming.id }), ...incoming.patch, id: incoming.nextId } as CommissionRate;
+          if (incoming.nextId !== incoming.id) ratesStore.delete(incoming.id);
+          ratesStore.put(next);
+        };
+        result = merged;
+      } else {
+        operationsStore.put({ ...operation, id: operation.operationId });
+        operation.mutations.forEach((mutation) => {
+          if (mutation.kind === 'create') ratesStore.put(mutation.next);
+          else if (mutation.kind === 'delete') ratesStore.delete(mutation.id);
+          else {
+            ratesStore.get(mutation.id).onsuccess = (event) => {
+              const current = (event.target as IDBRequest<CommissionRate | undefined>).result;
+              const next = { ...(current || { id: mutation.id }), ...mutation.patch, id: mutation.nextId } as CommissionRate;
+              if (mutation.nextId !== mutation.id) ratesStore.delete(mutation.id);
+              ratesStore.put(next);
+            };
+          }
+        });
+      }
+      if (cancelledOperationId) operationsStore.delete(cancelledOperationId);
+      } catch {
+        tx.abort();
+      }
+    };
+    queueRequest.onerror = () => tx.abort();
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onerror = () => { database.close(); reject(tx.error || new Error('Could not save this rate change locally.')); };
+    tx.onabort = () => { database.close(); reject(tx.error || new Error('Could not save this rate change locally.')); };
+  });
+  announceLocalRateChanges(uid);
+  return result;
+}
+
+export async function finishLocalRateOperation(
+  uid: string,
+  operationId: string,
+  canonicalRates: CommissionRate[],
+): Promise<void> {
+  await transact<void>(uid, ['rates', 'pendingRateOperations'], 'readwrite', (tx) => {
+    const operations = tx.objectStore('pendingRateOperations');
+    const rates = tx.objectStore('rates');
+    canonicalRates.forEach((rate) => rates.put(rate));
+    operations.delete(operationId);
+  });
+  announceLocalRateChanges(uid);
+}
+export async function resolveLocalRateOperationWithCloud(
+  uid: string,
+  operationId: string,
+  conflicts: Map<number, { cloudRate?: CommissionRate }>,
+): Promise<void> {
+  const database = await openDatabase(uid);
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['rates', 'pendingRateOperations'], 'readwrite');
+    const rates = tx.objectStore('rates');
+    const operations = tx.objectStore('pendingRateOperations');
+    const request = operations.get(operationId);
+    request.onsuccess = () => {
+      const operation = request.result as PendingRateOperation | undefined;
+      if (!operation || operation.status !== 'conflict') return;
+      operation.mutations.forEach((mutation, index) => {
+        if (mutation.kind === 'create') rates.delete(mutation.next.id);
+        else if (mutation.kind === 'update') {
+          rates.delete(mutation.nextId);
+          if (mutation.baseSnapshot) rates.put(mutation.baseSnapshot);
+        } else if (mutation.baseRate) rates.put(mutation.baseRate);
+        const cloud = conflicts.get(index)?.cloudRate;
+        if (cloud) rates.put(cloud);
+      });
+      operations.delete(operationId);
+    };
+    request.onerror = () => tx.abort();
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onerror = () => { database.close(); reject(tx.error || new Error('Could not keep the Firestore version.')); };
+    tx.onabort = () => { database.close(); reject(tx.error || new Error('Could not keep the Firestore version.')); };
+  });
+  announceLocalRateChanges(uid);
+}
+export async function discardLocalRateOperation(uid: string, operationId: string): Promise<boolean> {
+  const database = await openDatabase(uid);
+  let discarded = false;
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['rates', 'pendingRateOperations'], 'readwrite');
+    const rates = tx.objectStore('rates');
+    const operations = tx.objectStore('pendingRateOperations');
+    const request = operations.get(operationId);
+    request.onsuccess = () => {
+      const operation = request.result as PendingRateOperation | undefined;
+      if (!operation || operation.status !== 'pending') return;
+      discarded = true;
+      operation.mutations.forEach((mutation) => {
+        if (mutation.kind === 'create') rates.delete(mutation.next.id);
+        else if (mutation.kind === 'update') {
+          rates.delete(mutation.nextId);
+          if (mutation.baseSnapshot) rates.put(mutation.baseSnapshot);
+        } else if (mutation.baseRate) rates.put(mutation.baseRate);
+      });
+      operations.delete(operationId);
+    };
+    request.onerror = () => tx.abort();
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onerror = () => { database.close(); reject(tx.error || new Error('Could not discard this local rate operation.')); };
+    tx.onabort = () => { database.close(); reject(tx.error || new Error('Could not discard this local rate operation.')); };
+  });
+  if (discarded) announceLocalRateChanges(uid);
+  return discarded;
+}
+export async function getLocalRateOperations(uid: string): Promise<PendingRateOperation[]> {
+  return (await readAll<PendingRateOperation>(uid, 'pendingRateOperations'))
+    .filter((operation) => operation.status !== 'cancelled')
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function updateLocalRateOperation(
+  uid: string,
+  operationId: string,
+  patch: PendingRateOperationPatch,
+): Promise<void> {
+  const database = await openDatabase(uid);
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction('pendingRateOperations', 'readwrite');
+    const store = tx.objectStore('pendingRateOperations');
+    const request = store.get(operationId);
+    request.onsuccess = () => {
+      if (request.result) store.put({ ...request.result, ...patch, id: operationId });
+    };
+    request.onerror = () => tx.abort();
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onerror = () => { database.close(); reject(tx.error || new Error('Could not update local rate operation.')); };
+    tx.onabort = () => { database.close(); reject(tx.error || new Error('Could not update local rate operation.')); };
+  });
+  announceLocalRateChanges(uid);
 }
 
 export async function getLocalAgentOverrides(uid: string): Promise<{ organization: AgentRateReadModel[]; personal: AgentRateReadModel[] }> {
@@ -338,4 +542,3 @@ export async function stageRatesToLocalDatabase(uid: string, newRates: Commissio
     });
   }
 }
-

@@ -12,7 +12,7 @@ import {
   subscribeToAgentAccessRequests,
   subscribeToOrganizations,
 } from '../services/accessRequestService';
-import { applyRatesToAgentTargets, clearAgentRateOverrides, ensureRoleRateModelMigration, resolveAgentTargets } from '../services/rateReadModels';
+import { applyRatesToAgentTargets, clearAgentRateOverrides, ensureRoleRateModelMigration, isEligibleAgentPayout, resolveAgentTargets } from '../services/rateReadModels';
 import { deleteRateOperationLog, resumeRateOperation, subscribeToPendingRateOperations, type PendingRateOperation } from '../services/adminRateWriteService';
 import { useCommissionRates } from '../hooks/useCommissionRates';
 import {
@@ -259,6 +259,7 @@ const UserDetailModal: React.FC<{
 export const UserManagementView: React.FC = () => {
   const { setUserDisabledStatus, deleteUserRecord, user: currentUser } = useAuth();
   const { rates: masterRates, loading: masterRatesLoading } = useCommissionRates();
+  const agentAssignableRates = masterRates.filter((rate) => isEligibleAgentPayout(rate.aggregator));
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [usersError, setUsersError] = useState<string | null>(null);
@@ -447,7 +448,7 @@ export const UserManagementView: React.FC = () => {
   };
 
   const handleRateAssignment = async () => {
-    const selectedRates = masterRates.filter((item) => selectedRateIds.length ? selectedRateIds.includes(item.id) : item.id === selectedRateId).map((rate) => customPayoutAmount.trim()
+    const selectedRates = agentAssignableRates.filter((item) => selectedRateIds.length ? selectedRateIds.includes(item.id) : item.id === selectedRateId).map((rate) => customPayoutAmount.trim()
       ? { ...rate, agentRate: Number(customPayoutAmount), isFlatFee: customPayoutType === 'flat', netOrGross: customPayoutBasis }
       : rate);
     if (!selectedRates.length) return setNotice('Select at least one rate first.');
@@ -480,7 +481,7 @@ export const UserManagementView: React.FC = () => {
 
   const handleClearAgentOverrides = async () => {
     if (rateScope !== 'agents') return setNotice('Choose Selected Agents before clearing individual overrides.');
-    const selectedRates = masterRates.filter((item) => selectedRateIds.length ? selectedRateIds.includes(item.id) : item.id === selectedRateId);
+    const selectedRates = agentAssignableRates.filter((item) => selectedRateIds.length ? selectedRateIds.includes(item.id) : item.id === selectedRateId);
     if (!selectedRates.length || !selectedAgentIds.length) return setNotice('Select at least one Agent and one rate.');
     try {
       setUpdatingUid('rate-assignment');
@@ -693,11 +694,11 @@ export const UserManagementView: React.FC = () => {
         <h2 className="text-base font-extrabold">Agent rate assignments</h2>
         <p className="mt-1 text-xs text-slate-500">Assign selected rates to one or more organizations, selected Agents, or every approved Agent.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <label className="space-y-1 text-xs font-semibold"><span>Rate</span><select aria-label="Rate to assign" value={selectedRateId} onChange={(event) => { setSelectedRateId(event.target.value); setSelectedRateIds(event.target.value ? [event.target.value] : []); }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-[#222F43] dark:bg-[#18181B]"><option value="">Select a school rate</option>{masterRates.map((rate) => <option key={rate.id} value={rate.id}>{rate.universityName} · {rate.intake} · {rate.studyLevel}</option>)}</select></label>
+          <label className="space-y-1 text-xs font-semibold"><span>Rate</span><select aria-label="Rate to assign" value={selectedRateId} onChange={(event) => { setSelectedRateId(event.target.value); setSelectedRateIds(event.target.value ? [event.target.value] : []); }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-[#222F43] dark:bg-[#18181B]"><option value="">Select a school rate</option>{agentAssignableRates.map((rate) => <option key={rate.id} value={rate.id}>{rate.universityName} · {rate.intake} · {rate.studyLevel}</option>)}</select></label>
           <label className="space-y-1 text-xs font-semibold"><span>Apply to</span><select value={rateScope} onChange={(event) => setRateScope(event.target.value as typeof rateScope)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-[#222F43] dark:bg-[#18181B]"><option value="organization">Selected organizations</option><option value="agents">Selected Agents</option><option value="all">All approved Agents</option></select></label>
         </div>
         <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-[#222F43]"><p className="text-xs font-bold">Optional custom payout</p><p className="mt-1 text-[11px] text-slate-500">Leave blank to use each selected school rate’s current payout. An entered amount applies to every selected rate.</p><div className="mt-2 grid gap-2 sm:grid-cols-3"><label className="text-xs font-semibold">Amount<input aria-label="Custom payout amount" inputMode="decimal" type="number" min="0" step="0.01" value={customPayoutAmount} onChange={(event) => setCustomPayoutAmount(event.target.value)} placeholder="Use selected rate" className="mt-1 w-full rounded-lg border bg-white px-3 py-2 dark:bg-[#18181B]" /></label><label className="text-xs font-semibold">Fee type<select aria-label="Custom payout fee type" value={customPayoutType} onChange={(event) => setCustomPayoutType(event.target.value as typeof customPayoutType)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 dark:bg-[#18181B]"><option value="percentage">Percentage</option><option value="flat">Flat fee</option></select></label><label className="text-xs font-semibold">Basis<select aria-label="Custom payout basis" value={customPayoutBasis} onChange={(event) => setCustomPayoutBasis(event.target.value as typeof customPayoutBasis)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 dark:bg-[#18181B]"><option value="GROSS">Gross</option><option value="NET">Net</option></select></label></div></div>
-        <details className="mt-3 rounded-xl border border-slate-200 p-3 text-xs dark:border-[#222F43]"><summary className="cursor-pointer font-bold">Select multiple school rates ({selectedRateIds.length})</summary><div className="mt-3 max-h-48 space-y-1 overflow-y-auto">{masterRates.map((rate) => <label key={rate.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800"><input type="checkbox" checked={selectedRateIds.includes(rate.id)} onChange={(event) => setSelectedRateIds((current) => event.target.checked ? [...current, rate.id] : current.filter((id) => id !== rate.id))} />{rate.universityName} · {rate.intake} · {rate.studyLevel}</label>)}</div></details>
+        <details className="mt-3 rounded-xl border border-slate-200 p-3 text-xs dark:border-[#222F43]"><summary className="cursor-pointer font-bold">Select multiple school rates ({selectedRateIds.length})</summary><div className="mt-3 max-h-48 space-y-1 overflow-y-auto">{agentAssignableRates.map((rate) => <label key={rate.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800"><input type="checkbox" checked={selectedRateIds.includes(rate.id)} onChange={(event) => setSelectedRateIds((current) => event.target.checked ? [...current, rate.id] : current.filter((id) => id !== rate.id))} />{rate.universityName} · {rate.intake} · {rate.studyLevel}</label>)}</div></details>
         {rateScope === 'organization' && <div className="mt-3 flex flex-wrap gap-2">{organizations.map((org) => <label key={org.id} className="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs dark:bg-slate-900"><input type="checkbox" checked={selectedOrganizationIds.includes(org.id)} onChange={(event) => setSelectedOrganizationIds((current) => event.target.checked ? [...current, org.id] : current.filter((id) => id !== org.id))} />{org.name}</label>)}</div>}
         {rateScope === 'agents' && <div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto">{accessRequests.filter((item) => item.status === 'approved').map((agent) => <label key={agent.uid} className="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs dark:bg-slate-900"><input type="checkbox" checked={selectedAgentIds.includes(agent.uid)} onChange={(event) => setSelectedAgentIds((current) => event.target.checked ? [...current, agent.uid] : current.filter((id) => id !== agent.uid))} />{agent.displayName} · {agent.email}</label>)}</div>}
         {rateScope !== 'agents' && <label className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs dark:bg-amber-950/20"><input type="checkbox" checked={replaceSpecificOverrides} onChange={(event) => setReplaceSpecificOverrides(event.target.checked)} /><span><strong>Replace matching Agent-specific overrides.</strong> Leave unchecked to preserve those individual rates. Cleared Agents will inherit the new organization rate.</span></label>}

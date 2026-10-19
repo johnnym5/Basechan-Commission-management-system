@@ -8,6 +8,8 @@ import { buildDashboardRates } from '../services/dashboardData';
 import { MasterTable } from './MasterTable';
 import { DashboardShell } from './DashboardShell';
 import { PersonalWorkspaceWidget } from './PersonalWorkspaceWidget';
+import { RateChangeBasket } from './RateChangeBasket';
+import type { PendingRateOperation } from '../types/rateWriteQueue';
 import {
   Building2,
   Layers,
@@ -35,6 +37,11 @@ interface DashboardViewProps {
   onFiltersChange?: (filters: DashboardFilters) => void;
   favoriteCount?: number;
   onOpenChat?: () => void;
+  pendingOperations?: PendingRateOperation[];
+  syncState?: 'idle' | 'syncing' | 'offline' | 'quota-paused';
+  onRetryPending?: (id: string) => void;
+  onDiscardPending?: (id: string) => void;
+  onResolvePendingConflict?: (id: string, resolution: 'keep-cloud' | 'apply-local') => void;
 }
 
 interface AggregatorStat {
@@ -54,6 +61,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onFiltersChange,
   favoriteCount,
   onOpenChat,
+  pendingOperations = [],
+  syncState = 'idle',
+  onRetryPending = () => {},
+  onDiscardPending = () => {},
+  onResolvePendingConflict = () => {},
 }) => {
   // Active Filter states passed down to MasterTable
   const [activeSearchQuery, setActiveSearchQuery] = useState<string>('');
@@ -177,6 +189,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <DashboardShell role="ADMIN">
     <div className="space-y-6 sm:space-y-8">
+      <RateChangeBasket operations={pendingOperations} syncState={syncState} onRetry={onRetryPending} onDiscard={onDiscardPending} onResolveConflict={onResolvePendingConflict} />
       {/* "Jump Back In" Personal Workspace Widget with Smart Search Bar */}
       <PersonalWorkspaceWidget
         rates={rates}

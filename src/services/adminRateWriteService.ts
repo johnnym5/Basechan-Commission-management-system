@@ -1,15 +1,24 @@
+import { getAuth } from 'firebase/auth';
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, writeBatch, type Unsubscribe } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { CommissionRate } from '../types';
 import { logRateChange } from '../utils/auditLogger';
-import { removeRateReadModels, resolveAgentTargets, syncRateReadModels } from './rateReadModels';
+import { buildAgentProjection, buildStaffProjection, isEligibleAgentPayout, loadVisibilitySettings, opaqueRateId, removeRateReadModels, resolveAgentTargets, syncRateReadModels } from './rateReadModels';
 import { publishRelevantUpdates } from './userUpdates';
 import { enterQuotaOfflineMode, isQuotaError } from './firestoreOfflineMode';
 import { assertFirestoreWritesAllowed } from './firestoreWriteGuard';
-import { appendRateDelta } from './rateChangeFeed';
+import { appendRateDeltas } from './rateChangeFeed';
+import { stageRateOperation } from './rateWriteQueue';
+import type { PendingRateMutation } from '../types/rateWriteQueue';
 
 export type RateWriteMutation = { previous?: CommissionRate; next?: CommissionRate };
 export type RateWriteCategory = 'rates' | 'guidance' | 'intake' | 'routing';
+
+export function buildRateFieldPatch(previous: CommissionRate, next: CommissionRate): Partial<CommissionRate> {
+  return Object.fromEntries(Object.keys(next)
+    .filter((key) => previous[key as keyof CommissionRate] !== next[key as keyof CommissionRate])
+    .map((key) => [key, next[key as keyof CommissionRate]])) as Partial<CommissionRate>;
+}
 
 function safeOperationId(value?: string): string {
   const id = value || crypto.randomUUID();
@@ -79,6 +88,7 @@ export interface RateWriteOperationInput {
   category?: RateWriteCategory;
   notify?: boolean;
   allowUpsert?: boolean;
+  canonicalAlreadyCommitted?: boolean;
   onProgress?: (completed: number, total: number) => void;
 }
 
@@ -90,7 +100,7 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
   if (previousOperation.exists() && previousOperation.get('stage') === 'complete') {
     return { operationId, completed: input.mutations.length };
   }
-  const mutations = await Promise.all(input.mutations.map(async (mutation) => {
+  const mutations = input.canonicalAlreadyCommitted ? input.mutations : await Promise.all(input.mutations.map(async (mutation) => {
     if (!mutation.next) return mutation;
     if (mutation.previous && mutation.previous.id !== mutation.next.id) {
       const collision = await getDoc(doc(db, 'rates', mutation.next.id));
@@ -124,22 +134,29 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
   await recordOperation(operationId, 'started');
 
   const canonicalBatchSize = 150;
-  for (let offset = 0; offset < mutations.length; offset += canonicalBatchSize) {
+  for (let offset = 0; !input.canonicalAlreadyCommitted && offset < mutations.length; offset += canonicalBatchSize) {
     const batch = writeBatch(db);
     for (const mutation of mutations.slice(offset, offset + canonicalBatchSize)) {
       const { previous, next } = mutation;
       if (previous && (!next || previous.id !== next.id)) batch.delete(doc(db, 'rates', previous.id));
       if (next) {
-        batch.set(doc(db, 'rates', next.id), sanitizeFirestoreData(next), { merge: true });
-        batch.set(doc(db, 'universities', next.universityId), sanitizeFirestoreData({
-          id: next.universityId,
-          name: next.universityName,
-          lastUpdated: next.updatedAt || new Date().toISOString(),
-          status: 'ACTIVE',
-          ...(next.country && next.country !== '-' ? { country: next.country } : {}),
-        }), { merge: true });
-      }
-    }
+        const rateRef = doc(db, 'rates', next.id);
+        if (previous && previous.id === next.id) {
+          const patch = buildRateFieldPatch(previous, next);
+          if (Object.keys(patch).length) batch.update(rateRef, sanitizeFirestoreData(patch));
+        } else {
+          batch.set(rateRef, sanitizeFirestoreData(next));
+        }
+        if (!previous || previous.universityId !== next.universityId || previous.universityName !== next.universityName || previous.country !== next.country) {
+          batch.set(doc(db, 'universities', next.universityId), sanitizeFirestoreData({
+            id: next.universityId,
+            name: next.universityName,
+            lastUpdated: next.updatedAt || new Date().toISOString(),
+            status: 'ACTIVE',
+            ...(next.country && next.country !== '-' ? { country: next.country } : {}),
+          }), { merge: true });
+        }
+      }    }
     if (mutations.length) await batch.commit();
     const completed = Math.min(offset + canonicalBatchSize, mutations.length);
     await recordOperation(operationId, 'canonical', { canonicalCompleted: completed });
@@ -148,24 +165,56 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
 
   const needsOverrideCleanup = mutations.some(({ previous, next }) => previous && (!next || previous.id !== next.id));
   const agentTargets = needsOverrideCleanup ? await resolveAgentTargets() : undefined;
+  const visibility = await loadVisibilitySettings();
   for (let index = 0; index < mutations.length; index++) {
     const mutation = mutations[index];
-    if (mutation.next) await syncRateReadModels(mutation.next, { previousRate: mutation.previous, updateType: updateCategory([mutation]), publishUpdate: false, agentTargets, operationId: `${operationId}-${index}-projection` });
-    else if (mutation.previous) await removeRateReadModels(mutation.previous, agentTargets, `${operationId}-${index}-projection`);
+    if (mutation.next) await syncRateReadModels(mutation.next, { previousRate: mutation.previous, updateType: updateCategory([mutation]), publishUpdate: false, publishFeed: false, agentTargets, operationId: `${operationId}-${index}-projection` });
+    else if (mutation.previous) await removeRateReadModels(mutation.previous, agentTargets, `${operationId}-${index}-projection`, false);
   }
   await recordOperation(operationId, 'projections');
 
+  const groupedFeeds = new Map<string, Array<{ operationId: string; kind: 'upsert' | 'delete'; id: string; target: 'rates' | 'organizationOverrides' | 'personalOverrides'; record?: CommissionRate }>>();
+  const addFeed = (scope: string, delta: { operationId: string; kind: 'upsert' | 'delete'; id: string; target: 'rates' | 'organizationOverrides' | 'personalOverrides'; record?: CommissionRate }) => {
+    const group = groupedFeeds.get(scope) || [];
+    group.push(delta);
+    groupedFeeds.set(scope, group);
+  };
+  const addRoleFeed = (scope: 'staff' | 'agent', rate: CommissionRate, opId: string, oldRate?: CommissionRate) => {
+    const previousKey = oldRate ? opaqueRateId(oldRate) : undefined;
+    const nextKey = opaqueRateId(rate);
+    if (previousKey && previousKey !== nextKey) addFeed(scope, { operationId: `${opId}-${scope}-old`, kind: 'delete', id: previousKey, target: 'rates' });
+    const sheet = String(rate.sourceSheet || rate.intake || '').trim();
+    const visible = visibility[sheet]?.[scope === 'staff' ? 'STAFF' : 'AGENT'] !== false;
+    const eligible = scope === 'staff' || isEligibleAgentPayout(rate.aggregator);
+    const projection = scope === 'staff' ? buildStaffProjection(rate) : (eligible ? buildAgentProjection(rate) : undefined);
+    addFeed(scope, visible && eligible && projection
+      ? { operationId: `${opId}-${scope}`, kind: 'upsert', id: nextKey, target: 'rates', record: projection as CommissionRate }
+      : { operationId: `${opId}-${scope}`, kind: 'delete', id: nextKey, target: 'rates' });
+  };
   for (let index = 0; index < mutations.length; index++) {
     const { previous, next } = mutations[index];
     const suffix = `${operationId}-${index}-canonical`;
     if (previous && (!next || previous.id !== next.id)) {
-      await appendRateDelta('admin', { operationId: `${suffix}-delete`, kind: 'delete', id: previous.id, target: 'rates' });
+      addFeed('admin', { operationId: `${suffix}-delete`, kind: 'delete', id: previous.id, target: 'rates' });
+      addFeed('staff', { operationId: `${operationId}-${index}-projection-staff`, kind: 'delete', id: opaqueRateId(previous), target: 'rates' });
+      addFeed('agent', { operationId: `${operationId}-${index}-projection-agent`, kind: 'delete', id: opaqueRateId(previous), target: 'rates' });
     }
     if (next) {
-      await appendRateDelta('admin', { operationId: `${suffix}-upsert`, kind: 'upsert', id: next.id, target: 'rates', record: next });
+      addFeed('admin', { operationId: `${suffix}-upsert`, kind: 'upsert', id: next.id, target: 'rates', record: next });
+      addRoleFeed('staff', next, `${operationId}-${index}-projection`, previous);
+      addRoleFeed('agent', next, `${operationId}-${index}-projection`, previous);
+    }
+    if (previous && (!next || previous.id !== next.id)) {
+      for (const target of agentTargets || []) {
+        const previousKey = opaqueRateId(previous);
+        addFeed(`org_${target.organizationId}`, { operationId: `${operationId}-${index}-projection-org-old-${target.uid}`, kind: 'delete', id: previousKey, target: 'organizationOverrides' });
+        addFeed(`user_${target.uid}`, { operationId: `${operationId}-${index}-projection-user-old-${target.uid}`, kind: 'delete', id: previousKey, target: 'personalOverrides' });
+      }
     }
   }
-
+  for (const [scope, deltas] of groupedFeeds) {
+    for (let offset = 0; offset < deltas.length; offset += 150) await appendRateDeltas(scope, deltas.slice(offset, offset + 150));
+  }
   for (let index = 0; index < mutations.length; index++) {
     const { previous, next } = mutations[index];
     const auditId = `${operationId}-${index}`;
@@ -315,11 +364,46 @@ export async function deleteRateOperationLog(operationId: string): Promise<void>
   await deleteDoc(operationRef);
 }
 
-export const createRate = (rate: CommissionRate, adminEmail: string) => writeRateOperation({ mutations: [{ next: rate }], adminEmail, category: 'intake' });
-export const updateRate = (previous: CommissionRate, next: CommissionRate, adminEmail: string) => writeRateOperation({ mutations: [{ previous, next }], adminEmail });
+function changedFields(previous: CommissionRate, next: CommissionRate): Partial<CommissionRate> {
+  const patch: Partial<CommissionRate> = {};
+  (Object.keys(next) as Array<keyof CommissionRate>).forEach((key) => {
+    if (previous[key] !== next[key]) (patch as Record<string, unknown>)[key] = next[key];
+  });
+  return patch;
+}
+
+function queueMutation(mutation: RateWriteMutation): PendingRateMutation {
+  if (!mutation.previous && mutation.next) return { kind: 'create', next: mutation.next };
+  if (mutation.previous && mutation.next) {
+    return { kind: 'update', id: mutation.previous.id, nextId: mutation.next.id,
+      patch: changedFields(mutation.previous, mutation.next), baseFields: changedFields(mutation.next, mutation.previous), baseSnapshot: mutation.previous };
+  }
+  if (mutation.previous) {
+    const { id, ...base } = mutation.previous;
+    return { kind: 'delete', id, baseFingerprint: JSON.stringify(base), baseRate: mutation.previous };
+  }
+  throw new Error('A rate change needs a create, update, or delete value.');
+}
+
+async function queueAdminRateOperation(input: RateWriteOperationInput) {
+  const uid = getAuth().currentUser?.uid;
+  if (!uid) throw new Error('Sign in as an Admin before changing rates.');
+  return stageRateOperation(uid, {
+    operationId: input.operationId,
+    adminEmail: input.adminEmail,
+    category: input.category || updateCategory(input.mutations),
+    notify: input.notify,
+    mutations: input.mutations.map(queueMutation),
+  });
+}
+
+export const createRate = (rate: CommissionRate, adminEmail: string) => queueAdminRateOperation({ mutations: [{ next: rate }], adminEmail, category: 'intake' });
+export const createRates = (rates: CommissionRate[], adminEmail: string) => queueAdminRateOperation({ mutations: rates.map((next) => ({ next })), adminEmail, category: 'intake' });
+
+export const updateRate = (previous: CommissionRate, next: CommissionRate, adminEmail: string) => queueAdminRateOperation({ mutations: [{ previous, next }], adminEmail });
 export const updateRates = (previousRates: CommissionRate[], transform: (rate: CommissionRate) => CommissionRate, adminEmail: string, category?: RateWriteCategory) =>
-  writeRateOperation({ mutations: previousRates.map((previous) => ({ previous, next: transform(previous) })), adminEmail, category });
-export const deleteRates = (rates: CommissionRate[], adminEmail: string) => writeRateOperation({ mutations: rates.map((previous) => ({ previous })), adminEmail, notify: false });
+  queueAdminRateOperation({ mutations: previousRates.map((previous) => ({ previous, next: transform(previous) })), adminEmail, category });
+export const deleteRates = (rates: CommissionRate[], adminEmail: string) => queueAdminRateOperation({ mutations: rates.map((previous) => ({ previous })), adminEmail, notify: false });
 
 export async function importRateChunk(rates: CommissionRate[]): Promise<void> {
   await writeRateOperation({ mutations: rates.map((next) => ({ next })), adminEmail: 'Import', notify: false, allowUpsert: true });

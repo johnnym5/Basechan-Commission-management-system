@@ -2,7 +2,8 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommissionRate } from '../types';
 import { useCommissionRates } from './useCommissionRates';
-import { syncRateSheetsCacheFirst } from '../services/rateSyncService';
+import { scopeForUser, syncLocalRateData, syncRateSheetsCacheFirst } from '../services/rateSyncService';
+import { getAllLocalSheetBuckets, getLocalAgentOverrides, getLocalRateMetadata, getLocalRates } from '../services/localRateDatabase';
 import { useAuth } from '../context/AuthContext';
 
 vi.mock('../context/AuthContext', () => ({
@@ -11,6 +12,7 @@ vi.mock('../context/AuthContext', () => ({
 
 vi.mock('../services/rateSyncService', () => ({
   syncRateSheetsCacheFirst: vi.fn(),
+  syncLocalRateData: vi.fn(),
   scopeForUser: vi.fn((uid, role, organizationId) => ({ uid, role, organizationId })),
   selectRatesForScope: vi.fn((rates) => rates),
 }));
@@ -44,6 +46,7 @@ vi.mock('../services/localRateDatabase', () => ({
   getLocalRateMetadata: vi.fn().mockResolvedValue(null),
   getLocalRates: vi.fn().mockResolvedValue([]),
   getLocalAgentOverrides: vi.fn().mockResolvedValue({ organization: [], personal: [] }),
+  subscribeToLocalRateChanges: vi.fn().mockReturnValue(vi.fn()),
 }));
 
 const mockUser = { uid: 'user_123', email: 'test@example.com' };
@@ -69,6 +72,11 @@ const sampleRate: CommissionRate = {
 describe('useCommissionRates', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(syncLocalRateData).mockReset();
+    vi.mocked(getAllLocalSheetBuckets).mockResolvedValue([]);
+    vi.mocked(getLocalRates).mockResolvedValue([]);
+    vi.mocked(getLocalAgentOverrides).mockResolvedValue({ organization: [], personal: [] });
+    vi.mocked(getLocalRateMetadata).mockResolvedValue(null);
   });
 
   it('returns empty rates and loading false when user is not authenticated', async () => {
@@ -113,6 +121,46 @@ describe('useCommissionRates', () => {
     expect(result.current.stats.totalRates).toBe(1);
     expect(result.current.stats.totalUniversities).toBe(1);
     expect(result.current.stats.focusCount).toBe(1);
+    expect(syncLocalRateData).not.toHaveBeenCalled();
+  });
+
+  it.each(['STAFF', 'AGENT'] as const)('%s uses only its UID-scoped rate snapshot', async (role) => {
+    vi.mocked(useAuth).mockReturnValue({
+      user: mockUser,
+      role,
+      access: mockAccess,
+    } as any);
+    vi.mocked(getAllLocalSheetBuckets).mockImplementation(async (uid) => uid === 'global' ? [{
+      sheetKey: 'legacy', sheetName: 'Legacy', rateCount: 1, updatedAt: '', updatedBy: '', rates: [sampleRate],
+    }] : []);
+    vi.mocked(getLocalRates).mockImplementation(async (uid) => uid === mockUser.uid ? [] : [sampleRate]);
+    vi.mocked(syncLocalRateData).mockResolvedValue({
+      rates: [], organizationOverrides: [], personalOverrides: [], lastSyncedAt: new Date().toISOString(), changed: false,
+    });
+
+    const { result } = renderHook(() => useCommissionRates());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(scopeForUser).toHaveBeenCalledWith(mockUser.uid, role, 'org_1');
+    expect(syncLocalRateData).toHaveBeenCalledWith({ uid: mockUser.uid, role, organizationId: 'org_1' });
+    expect(syncRateSheetsCacheFirst).not.toHaveBeenCalled();
+    expect(getAllLocalSheetBuckets).not.toHaveBeenCalled();
+    expect(getLocalRates).toHaveBeenCalledWith(mockUser.uid);
+    expect(result.current.rates).toEqual([]);
+  });
+
+  it('does not hydrate a Staff view from a UID cache marked as Admin', async () => {
+    vi.mocked(useAuth).mockReturnValue({ user: mockUser, role: 'STAFF', access: { accessState: 'staff' } } as any);
+    vi.mocked(getLocalRateMetadata).mockResolvedValue({
+      id: 'scope', uid: mockUser.uid, role: 'ADMIN', complete: true, cursors: {},
+      lastSyncedAt: new Date().toISOString(), lastVerifiedAt: new Date().toISOString(),
+    });
+    vi.mocked(getLocalRates).mockResolvedValue([sampleRate]);
+    vi.mocked(syncLocalRateData).mockReturnValue(new Promise(() => {}));
+
+    const { result } = renderHook(() => useCommissionRates());
+    await waitFor(() => expect(syncLocalRateData).toHaveBeenCalled());
+    expect(result.current.rates).toEqual([]);
   });
 
   it('handles sync errors gracefully', async () => {

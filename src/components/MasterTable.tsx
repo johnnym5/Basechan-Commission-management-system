@@ -28,11 +28,11 @@ import { useSystemConfig } from '../hooks/useSystemConfig';
 import { BatchEditModal } from './BatchEditModal';
 import { ShareRateCardModal } from './ShareRateCardModal';
 import { UniversityDetailModal, type UniversityDetailData } from './UniversityDetailModal';
-import { doc, writeBatch } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { writeRateOperation } from '../services/adminRateWriteService';
+import { deleteRates, updateRate, updateRates } from '../services/adminRateWriteService';
+import { isEligibleAgentPayout } from '../services/rateReadModels';
 import { exportMultiSheetRoleWorkbook } from '../utils/exportUtils';
+import { generateCompositeId } from '../utils/idGenerator';
 import {
   ArrowUpDown,
   Search,
@@ -111,11 +111,7 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
         guidance: newGuidance,
         updatedAt: new Date().toISOString(),
       };
-      await writeRateOperation({
-        adminEmail: user?.email || 'admin@basechan.com',
-        category: 'guidance',
-        mutations: [{ previous: rate, next: nextRate }],
-      });
+      await updateRate(rate, nextRate, user?.email || 'admin@basechan.com');
     } catch (err) {
       console.error('Failed to update guidance status:', err);
     } finally {
@@ -236,11 +232,13 @@ const AggregatorRouteCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
 const GroupRoutesModal: React.FC<{
   group: GroupedUniversity | null;
   currency: CurrencyCode;
+  defaultIntake: string;
+  onSetDefaultIntake: (intakeName: string) => Promise<void> | void;
   onClose: () => void;
   onEdit: (rate: CommissionRate) => void;
   onShare: (rate: CommissionRate) => void;
   onOpenDetail?: (universityName: string) => void;
-}> = ({ group, currency, onClose, onEdit, onShare, onOpenDetail }) => {
+}> = ({ group, currency, defaultIntake, onSetDefaultIntake, onClose, onEdit, onShare, onOpenDetail }) => {
   const [showPreviousIntakes, setShowPreviousIntakes] = useState(false);
 
   useEffect(() => {
@@ -271,41 +269,8 @@ const GroupRoutesModal: React.FC<{
     const singleRoutePerLevel: CommissionRate[] = [];
     levelMap.forEach((ratesForLevel) => {
       if (isAgent) {
-        // AGENT ROLE: Strictly use BASECHAN / Direct Sub-Agent Payout Rate!
-        // Never borrow or fallback to third-party aggregator routes (e.g. SI-UK, EDVOY).
-        const basechanRate = ratesForLevel.find(
-          (r) =>
-            !r.aggregator ||
-            (r.aggregator || '').toUpperCase() === 'BASECHAN' ||
-            (r.aggregator || '').toUpperCase() === 'DIRECT'
-        );
-
-        if (basechanRate && (basechanRate.agentRate > 0 || basechanRate.isFlatFee)) {
-          singleRoutePerLevel.push(basechanRate);
-        } else {
-          // Check if there is an explicit sub-agent rate for this university with the same study level
-          const fallbackForLevel = group.rates.find(
-            (r) =>
-              r.studyLevel === ratesForLevel[0]?.studyLevel &&
-              (!r.aggregator ||
-                (r.aggregator || '').toUpperCase() === 'BASECHAN' ||
-                (r.aggregator || '').toUpperCase() === 'DIRECT') &&
-              (r.agentRate > 0 || r.isFlatFee)
-          );
-
-          if (fallbackForLevel) {
-            singleRoutePerLevel.push({
-              ...ratesForLevel[0],
-              id: fallbackForLevel.id,
-              aggregator: 'BASECHAN',
-              agentRate: fallbackForLevel.agentRate,
-              masterRate: fallbackForLevel.masterRate,
-              diffMargin: fallbackForLevel.diffMargin,
-              isFlatFee: fallbackForLevel.isFlatFee,
-            });
-          }
-          // If no Basechan sub-agent rate exists for this level, DO NOT push third-party aggregator rates!
-        }
+        const payout = ratesForLevel.find((rate) => isEligibleAgentPayout(rate.aggregator));
+        if (payout) singleRoutePerLevel.push(payout);
       } else {
         // STAFF ROLE: Admin Default Route if set (guidance === 'FOCUS'); otherwise System Recommended Route (Top Yield)
         const adminDefault = ratesForLevel.find((r) => r.guidance === 'FOCUS');
@@ -340,34 +305,25 @@ const GroupRoutesModal: React.FC<{
     return { activeRoutes: active, previousRoutes: previous };
   }, [group, displayableRates]);
 
-  const handleSetAsDefaultRoute = async (targetRate: CommissionRate) => {
-    if (!group) return;
+  const handleSetAsDefaultIntake = async (targetRate: CommissionRate) => {
     try {
-      const batch = writeBatch(db);
-      group.rates.forEach((r) => {
-        const isTarget = r.id === targetRate.id;
-        batch.update(doc(db, 'rates', r.id), {
-          guidance: isTarget ? 'FOCUS' : 'ALLOWED',
-          updatedAt: new Date().toISOString(),
-        });
-      });
-      await batch.commit();
+      await onSetDefaultIntake(targetRate.intake);
     } catch (err) {
-      console.error('Failed to set default route:', err);
+      console.error('Failed to set default intake:', err);
     }
   };
 
   if (!group) return null;
 
   const renderRouteCard = (rate: CommissionRate) => {
-    const isDefaultRoute = rate.guidance === 'FOCUS';
+    const isDefaultIntake = rate.intake === defaultIntake;
     const isBest = !isAgent && group.bestRoute?.id === rate.id;
 
     return (
       <div
         key={rate.id}
         className={`p-3.5 rounded-2xl border transition-all flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 ${
-          isDefaultRoute
+          isDefaultIntake
             ? 'bg-amber-500/10 dark:bg-amber-950/30 border-amber-400/50 dark:border-amber-500/50 shadow-xs ring-1 ring-amber-400/20'
             : isBest
             ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 shadow-xs'
@@ -385,22 +341,22 @@ const GroupRoutesModal: React.FC<{
               <AggregatorRouteCell rate={rate} />
             )}
 
-            {/* Default Route Status Badge or Set Default Button */}
-            {isDefaultRoute ? (
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-400/40 flex items-center gap-1 shrink-0" title="Active Default Route for Staff & Agents">
+            {/* Default Intake Status Badge or Set Default Button */}
+            {isDefaultIntake ? (
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-400/40 flex items-center gap-1 shrink-0" title="System Default Intake">
                 <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                Default Route
+                Default Intake
               </span>
             ) : (
               isAdmin && (
                 <button
                   type="button"
-                  onClick={() => handleSetAsDefaultRoute(rate)}
+                  onClick={() => handleSetAsDefaultIntake(rate)}
                   className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800 hover:bg-amber-500/20 text-slate-700 dark:text-slate-300 hover:text-amber-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer flex items-center gap-1 shrink-0"
-                  title="Set this route as default for this university"
+                  title="Set this intake as the system default"
                 >
                   <Star className="w-3 h-3 text-amber-400" />
-                  Set as Default
+                  Set as Default Intake
                 </button>
               )
             )}
@@ -1176,174 +1132,100 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const selectedSchoolNames = useMemo(() => new Set(selectedRates.map((r) => r.universityName)), [selectedRates]);
 
   // Batch action handlers
-  const handleSaveUniversityRecord = async (
-    updatedData: UniversityDetailData,
-    makeDefaultIntake?: boolean
-  ) => {
-    const uniRates = data.filter((r) => r.universityName === updatedData.university);
-    if (uniRates.length === 0) return;
-
-    if (makeDefaultIntake && updatedData.baselineIntake) {
-      await updateDefaultIntake(updatedData.baselineIntake, user?.email || 'admin@basechan.com');
-    }
-
-    const parseRateNumber = (strVal: string): number => {
-      const clean = (strVal || '').replace(/[^0-9.]/g, '');
-      const num = parseFloat(clean);
-      return isNaN(num) ? 0 : num;
+  const handleSaveUniversityRecord = async (updatedData: UniversityDetailData, makeDefaultIntake?: boolean) => {
+    const uniRates = data.filter((rate) => rate.universityName === updatedData.university);
+    if (!uniRates.length) return;
+    const parseRateNumber = (value: string) => {
+      const parsed = parseFloat((value || '').replace(/[^0-9.]/g, ''));
+      return Number.isNaN(parsed) ? 0 : parsed;
     };
-
     const isFlat = updatedData.commissionType === 'Fixed Fee';
     const targetDefaultRoute = (updatedData.defaultRoute || 'BASECHAN').toUpperCase();
-
     try {
       setBatchActionLoading(true);
-      const batch = writeBatch(db);
-      uniRates.forEach((rate) => {
-        let newAgentRate = rate.agentRate;
-        let newMasterRate = rate.masterRate;
-
+      await updateRates(uniRates, (rate) => {
+        let agentRate = rate.agentRate;
+        let masterRate = rate.masterRate;
         if (rate.aggregator === 'BASECHAN' || rate.aggregator === 'Direct') {
-          if (rate.studyLevel === 'FD') newAgentRate = parseRateNumber(updatedData.agentRateFD);
-          else if (rate.studyLevel === 'UG') {
-            newAgentRate = parseRateNumber(updatedData.agentRateUG);
-            newMasterRate = parseRateNumber(updatedData.masterRateUG);
-          } else if (rate.studyLevel === 'PG') {
-            newAgentRate = parseRateNumber(updatedData.agentRatePG);
-            newMasterRate = parseRateNumber(updatedData.masterRatePG);
-          }
+          if (rate.studyLevel === 'FD') agentRate = parseRateNumber(updatedData.agentRateFD);
+          else if (rate.studyLevel === 'UG') { agentRate = parseRateNumber(updatedData.agentRateUG); masterRate = parseRateNumber(updatedData.masterRateUG); }
+          else if (rate.studyLevel === 'PG') { agentRate = parseRateNumber(updatedData.agentRatePG); masterRate = parseRateNumber(updatedData.masterRatePG); }
         } else {
-          const aggUpper = rate.aggregator.toUpperCase();
-          if (aggUpper.includes('EDVOY')) {
-            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.edvoyUG : updatedData.edvoyPG);
-          } else if (aggUpper.includes('SI-UK')) {
-            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.siUkUG : updatedData.siUkPG);
-          } else if (aggUpper.includes('UAP')) {
-            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.uapUG : updatedData.uapPG);
-          } else if (aggUpper.includes('CRIZAC')) {
-            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.crizacUG : updatedData.crizacPG);
-          } else if (aggUpper.includes('KC OVERSEAS')) {
-            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.kcOverseasUG : updatedData.kcOverseasPG);
-          } else if (aggUpper.includes('AIMS EDUCATION')) {
-            newAgentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.aimsEducationUG : updatedData.aimsEducationPG);
-          }
+          const aggregator = rate.aggregator.toUpperCase();
+          if (aggregator.includes('EDVOY')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.edvoyUG : updatedData.edvoyPG);
+          else if (aggregator.includes('SI-UK')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.siUkUG : updatedData.siUkPG);
+          else if (aggregator.includes('UAP')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.uapUG : updatedData.uapPG);
+          else if (aggregator.includes('CRIZAC')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.crizacUG : updatedData.crizacPG);
+          else if (aggregator.includes('KC OVERSEAS')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.kcOverseasUG : updatedData.kcOverseasPG);
+          else if (aggregator.includes('AIMS EDUCATION')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.aimsEducationUG : updatedData.aimsEducationPG);
         }
-
-        const diffMargin = parseFloat((newMasterRate - newAgentRate).toFixed(2));
-        const isSelectedDefaultRoute = rate.aggregator.toUpperCase().includes(targetDefaultRoute) ||
-          (targetDefaultRoute === 'BASECHAN' && rate.aggregator === 'Direct');
-
-        batch.set(
-          doc(db, 'rates', rate.id),
-          {
-            ...rate,
-            intake: updatedData.baselineIntake || rate.intake,
-            agentRate: newAgentRate,
-            masterRate: newMasterRate,
-            diffMargin,
-            isFlatFee: isFlat,
-            guidance: isSelectedDefaultRoute ? 'FOCUS' : 'ALLOWED',
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-      });
-
-      await batch.commit();
-      if (onBatchActionComplete) {
-        onBatchActionComplete(`Successfully updated rates, default intake, and default route for ${updatedData.university}.`);
+        const useFocus = rate.aggregator.toUpperCase().includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && rate.aggregator === 'Direct');
+        const intake = updatedData.baselineIntake || rate.intake;
+        const id = intake === rate.intake ? rate.id : generateCompositeId(rate.universityName, intake, rate.aggregator, rate.studyLevel);
+        return { ...rate, id, intake, agentRate, masterRate,
+          diffMargin: Number((masterRate - agentRate).toFixed(2)), isFlatFee: isFlat,
+          guidance: useFocus ? 'FOCUS' : 'ALLOWED', updatedAt: new Date().toISOString() };
+      }, user?.email || 'admin@basechan.com');
+      if (makeDefaultIntake && updatedData.baselineIntake) {
+        try { await updateDefaultIntake(updatedData.baselineIntake, user?.email || 'admin@basechan.com'); }
+        catch { onBatchActionComplete?.('Rate changes are saved locally; the default intake preference could not be updated yet.'); }
       }
-    } catch (err) {
-      console.error('Error saving university record:', err);
-    } finally {
-      setBatchActionLoading(false);
-    }
+      onBatchActionComplete?.(`Saved rate changes locally for ${updatedData.university}; waiting to sync.`);
+    } catch (err) { console.error('Error saving university record:', err); }
+    finally { setBatchActionLoading(false); }
   };
 
   const handleDeleteUniversityRecord = async (uniName: string) => {
-    const uniRates = data.filter((r) => r.universityName === uniName);
-    if (uniRates.length === 0) return;
-
+    const uniRates = data.filter((rate) => rate.universityName === uniName);
+    if (!uniRates.length) return;
     try {
       setBatchActionLoading(true);
-      const batch = writeBatch(db);
-      uniRates.forEach((r) => batch.delete(doc(db, 'rates', r.id)));
-      await batch.commit();
-
-      if (onBatchActionComplete) {
-        onBatchActionComplete(`Successfully deleted ${uniRates.length} rate records for ${uniName}.`);
-      }
-    } catch (err) {
-      console.error('Error deleting university records:', err);
-    } finally {
-      setBatchActionLoading(false);
-    }
+      await deleteRates(uniRates, user?.email || 'admin@basechan.com');
+      onBatchActionComplete?.(`Saved deletion of ${uniRates.length} rates for ${uniName} locally; waiting to sync.`);
+    } catch (err) { console.error('Error deleting university rates:', err); }
+    finally { setBatchActionLoading(false); }
   };
 
   const handleDeleteSelected = async () => {
-    if (selectedRates.length === 0) return;
+    if (!selectedRates.length) return;
     try {
       setBatchActionLoading(true);
-      const batch = writeBatch(db);
-      selectedRates.forEach((rate) => batch.delete(doc(db, 'rates', rate.id)));
-      await batch.commit();
+      await deleteRates(selectedRates, user?.email || 'admin@basechan.com');
       setRowSelection({});
-      if (onBatchActionComplete) onBatchActionComplete(`Successfully deleted ${selectedRates.length} selected rates.`);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setBatchActionLoading(false);
-    }
+      onBatchActionComplete?.(`Saved deletion of ${selectedRates.length} selected rates locally; waiting to sync.`);
+    } catch (err) { console.error(err); }
+    finally { setBatchActionLoading(false); }
   };
 
   const handleBatchSetGuidance = async (guidance: SchoolGuidance) => {
-    if (selectedRates.length === 0) return;
+    if (!selectedRates.length) return;
     try {
       setBatchActionLoading(true);
-      const batch = writeBatch(db);
-      selectedRates.forEach((rate) => {
-        batch.update(doc(db, 'rates', rate.id), { guidance, updatedAt: new Date().toISOString() });
-      });
-      await batch.commit();
+      await updateRates(selectedRates, (rate) => ({ ...rate, guidance, updatedAt: new Date().toISOString() }), user?.email || 'admin@basechan.com', 'guidance');
       setRowSelection({});
-      if (onBatchActionComplete) onBatchActionComplete(`Updated guidance status for ${selectedRates.length} selected items.`);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setBatchActionLoading(false);
-    }
+      onBatchActionComplete?.(`Saved guidance changes for ${selectedRates.length} rates locally; waiting to sync.`);
+    } catch (err) { console.error(err); }
+    finally { setBatchActionLoading(false); }
   };
 
   const handleSingleDelete = async (rate: CommissionRate) => {
     if (!window.confirm(`Are you sure you want to delete rate record for ${rate.universityName}?`)) return;
     try {
-      const batch = writeBatch(db);
-      batch.delete(doc(db, 'rates', rate.id));
-      await batch.commit();
-      if (onBatchActionComplete) onBatchActionComplete(`Deleted rate record for ${rate.universityName}.`);
-    } catch (err) {
-      console.error(err);
-    }
+      await deleteRates([rate], user?.email || 'admin@basechan.com');
+      onBatchActionComplete?.(`Saved deletion for ${rate.universityName} locally; waiting to sync.`);
+    } catch (err) { console.error(err); }
   };
 
   const handleBatchSetAggregator = async (targetAggregator: string) => {
-    if (selectedRates.length === 0 || !targetAggregator) return;
+    if (!selectedRates.length || !targetAggregator) return;
     try {
       setBatchActionLoading(true);
-      const batch = writeBatch(db);
-      selectedRates.forEach((rate) => {
-        batch.update(doc(db, 'rates', rate.id), { aggregator: targetAggregator, updatedAt: new Date().toISOString() });
-      });
-      await batch.commit();
+      await updateRates(selectedRates, (rate) => ({ ...rate, aggregator: targetAggregator, updatedAt: new Date().toISOString() }), user?.email || 'admin@basechan.com', 'routing');
       setRowSelection({});
-      if (onBatchActionComplete) onBatchActionComplete(`Updated route to "${targetAggregator}" for ${selectedRates.length} selected items.`);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setBatchActionLoading(false);
-    }
+      onBatchActionComplete?.(`Saved route change to "${targetAggregator}" locally; waiting to sync.`);
+    } catch (err) { console.error(err); }
+    finally { setBatchActionLoading(false); }
   };
-
   // Render Mobile/Responsive Card Component with Multi-Select Checkbox TOP-RIGHT & Star BOTTOM-RIGHT
   const renderRateCard = (rate: CommissionRate) => {
     const isAdmin = role === 'ADMIN';
@@ -2095,6 +1977,8 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       <GroupRoutesModal
         group={activeGroupRate}
         currency={activeCurrency}
+        defaultIntake={defaultIntake}
+        onSetDefaultIntake={(intakeName) => updateDefaultIntake(intakeName, user?.email || 'admin@basechan.com')}
         onClose={() => setActiveGroupRate(null)}
         onEdit={onEditRate}
         onShare={setSharingRate}

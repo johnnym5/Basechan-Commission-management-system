@@ -20,16 +20,26 @@ import {
 } from 'firebase/firestore';
 import { auth, googleProvider, db } from '../lib/firebase';
 import type { AgentAccessRequest, UserAccess, UserRole } from '../types';
-import { resolveUserAccess } from '../services/accessPolicy';
+import { hasValidCachedAdminMembership, isAdminMembershipValid, isApprovedAdminEmail, resolveUserAccess } from '../services/accessPolicy';
 import { buildUserProfileRecord } from '../services/authProfile';
 import { clearQuotaState, enterQuotaOfflineMode, isConnectivityError, isQuotaError, isQuotaOffline, subscribeToFirestoreMode } from '../services/firestoreOfflineMode';
-import { deleteLocalRateDatabase, getLocalRateMetadata } from '../services/localRateDatabase';
+import { deleteLocalRateDatabase, getLocalRateMetadata, saveLocalRateMetadata } from '../services/localRateDatabase';
 import { assertFirestoreWritesAllowed } from '../services/firestoreWriteGuard';
 
 async function resolveCachedAccess(currentUser: User): Promise<SyncResult> {
   const email = currentUser.email || '';
-  const baseAccess = resolveUserAccess({ email });
   const metadata = await getLocalRateMetadata(currentUser.uid).catch(() => null);
+  const cachedAdminMembership = hasValidCachedAdminMembership({
+    uid: currentUser.uid,
+    email,
+    emailVerified: currentUser.emailVerified,
+    metadata,
+  });
+  const baseAccess = resolveUserAccess({
+    email,
+    emailVerified: currentUser.emailVerified,
+    adminMembershipVerified: cachedAdminMembership,
+  });
   if (baseAccess.role === 'AGENT' && metadata?.complete && metadata.role === 'AGENT' && metadata.organizationId) {
     const request: AgentAccessRequest = {
       uid: currentUser.uid,
@@ -41,7 +51,7 @@ async function resolveCachedAccess(currentUser: User): Promise<SyncResult> {
       updatedAt: metadata.lastVerifiedAt,
     };
     return {
-      access: resolveUserAccess({ email, accessRequest: { status: 'approved', organizationId: metadata.organizationId } }),
+      access: resolveUserAccess({ email, emailVerified: currentUser.emailVerified, accessRequest: { status: 'approved', organizationId: metadata.organizationId } }),
       accessRequest: request,
       isDisabled: false,
     };
@@ -55,6 +65,25 @@ interface SyncResult {
   access: UserAccess;
   accessRequest: AgentAccessRequest | null;
   isDisabled: boolean;
+}
+
+async function cacheAdminMembership(uid: string, email: string, verified: boolean): Promise<void> {
+  const previous = await getLocalRateMetadata(uid).catch(() => null);
+  const now = new Date().toISOString();
+  const normalizedEmail = email.trim().toLowerCase();
+  const role = verified ? 'ADMIN' : previous?.role === 'ADMIN' ? 'AGENT' : previous?.role || 'AGENT';
+  await saveLocalRateMetadata(uid, {
+    ...(previous || {}),
+    id: 'scope',
+    uid,
+    role,
+    complete: previous?.complete === true && previous.role === role,
+    cursors: previous?.cursors || {},
+    lastSyncedAt: previous?.lastSyncedAt || now,
+    lastVerifiedAt: now,
+    adminMembershipVerified: verified,
+    ...(verified ? { adminEmail: normalizedEmail } : { adminEmail: undefined }),
+  });
 }
 
 interface AuthContextType {
@@ -101,14 +130,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const syncUserData = async (currentUser: User): Promise<SyncResult> => {
     const email = currentUser.email || '';
-    const baseAccess = resolveUserAccess({ email });
+    const normalizedEmail = email.trim().toLowerCase();
+    const fallbackAccess = resolveUserAccess({ email, emailVerified: currentUser.emailVerified });
     if (!navigator.onLine || isQuotaOffline(currentUser.uid)) return resolveCachedAccess(currentUser);
     try {
+      let adminMembershipVerified = false;
+      if (isApprovedAdminEmail(email)) {
+        const membershipSnap = await getDocFromServer(doc(db, 'admins', currentUser.uid));
+        adminMembershipVerified = membershipSnap.exists() && isAdminMembershipValid({
+          email,
+          emailVerified: currentUser.emailVerified,
+          membershipEmail: String(membershipSnap.data().email || ''),
+        });
+        await cacheAdminMembership(currentUser.uid, email, adminMembershipVerified);
+      }
+      const resolvedAccess = resolveUserAccess({
+        email,
+        emailVerified: currentUser.emailVerified,
+        adminMembershipVerified,
+      });
       const userDocRef = doc(db, 'users', currentUser.uid);
       const snap = await getDocFromServer(userDocRef);
       const snapData = snap.exists() ? snap.data() : null;
       const isDisabled = snapData?.isDisabled === true;
-      if (isDisabled) return { access: baseAccess, accessRequest: null, isDisabled: true };
+      if (isDisabled) return { access: resolvedAccess, accessRequest: null, isDisabled: true };
 
       if (!snap.metadata.fromCache) assertFirestoreWritesAllowed('Account profile');
       if (!snap.metadata.fromCache) await setDoc(
@@ -126,7 +171,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
 
       let request: AgentAccessRequest | null = null;
-      if (baseAccess.role === 'AGENT') {
+      if (resolvedAccess.role === 'AGENT') {
         const requestSnap = await getDocFromServer(doc(db, 'agent_access_requests', currentUser.uid));
         request = requestSnap.exists() ? requestSnap.data() as AgentAccessRequest : null;
       }
@@ -134,6 +179,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return {
         access: resolveUserAccess({
           email,
+          emailVerified: currentUser.emailVerified,
+          adminMembershipVerified,
           accessRequest: request
             ? { status: request.status, organizationId: request.organizationId || '' }
             : undefined,
@@ -145,7 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isQuotaError(err)) await enterQuotaOfflineMode(currentUser.uid);
       if (isQuotaError(err) || isConnectivityError(err) || !navigator.onLine) return resolveCachedAccess(currentUser);
       console.error('Error syncing user record to Firestore:', err);
-      return { access: baseAccess, accessRequest: null, isDisabled: false };
+      return { access: fallbackAccess, accessRequest: null, isDisabled: false };
     }
   };
 
@@ -208,6 +255,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user, quotaMode]);
 
   useEffect(() => {
+    if (!user || access.role !== 'ADMIN' || quotaMode) return;
+    const revokeCachedAdminAccess = () => {
+      void cacheAdminMembership(user.uid, user.email || '', false).catch((err) => {
+        console.error('Could not quarantine cached Admin access:', err);
+      });
+      setAccess(resolveUserAccess({
+        email: user.email,
+        emailVerified: user.emailVerified,
+        adminMembershipVerified: false,
+        accessRequest: accessRequest
+          ? { status: accessRequest.status, organizationId: accessRequest.organizationId || '' }
+          : undefined,
+      }));
+      setAccessRequest(null);
+    };
+    return onSnapshot(
+      doc(db, 'admins', user.uid),
+      (snapshot) => {
+        if (snapshot.metadata.fromCache) return;
+        const stillAdmin = snapshot.exists() && isAdminMembershipValid({
+          email: user.email,
+          emailVerified: user.emailVerified,
+          membershipEmail: String(snapshot.data().email || ''),
+        });
+        if (!stillAdmin) revokeCachedAdminAccess();
+      },
+      (err) => {
+        if (err.code === 'permission-denied' || err.code === 'firestore/permission-denied') {
+          revokeCachedAdminAccess();
+        } else {
+          console.error('Error listening to Admin membership:', err);
+        }
+      }
+    );
+  }, [user?.uid, access.role, quotaMode]);
+
+  useEffect(() => {
     if (!user || quotaMode || access.role !== 'AGENT') return;
     return onSnapshot(
       doc(db, 'agent_access_requests', user.uid),
@@ -216,6 +300,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAccessRequest(request);
         setAccess(resolveUserAccess({
           email: user.email,
+          emailVerified: user.emailVerified,
           accessRequest: request
             ? { status: request.status, organizationId: request.organizationId || '' }
             : undefined,

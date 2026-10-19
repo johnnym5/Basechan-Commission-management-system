@@ -15,6 +15,7 @@ import type { CurrencyCode } from '../utils/currencyUtils';
 import { formatCurrencyValue } from '../utils/currencyUtils';
 import { exportToExcel, printSchedule } from '../utils/exportUtils';
 import { ShareRateCardModal } from './ShareRateCardModal';
+import { selectAgentPayoutRates } from '../services/dashboardData';
 import {
   Building2,
   Search,
@@ -242,47 +243,7 @@ export const AgentPortalView: React.FC<AgentPortalViewProps> = ({ rates, chatMod
 
   // Filter for AGENTS: Group visibleRates by universityId + studyLevel + intake, keep ONLY BASECHAN / Direct Sub-Agent Payout Rates (Cols C, D, E)
   const agentAuthorizedRates = useMemo(() => {
-    const map = new Map<string, CommissionRate[]>();
-    visibleRates.forEach((r) => {
-      const key = `${r.universityId || r.universityName}__${r.studyLevel}__${r.intake}`;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(r);
-    });
-
-    const authorized: CommissionRate[] = [];
-    map.forEach((ratesForKey) => {
-      const basechanRate = ratesForKey.find(
-        (r) =>
-          !r.aggregator ||
-          (r.aggregator || '').toUpperCase() === 'BASECHAN' ||
-          (r.aggregator || '').toUpperCase() === 'DIRECT'
-      );
-
-      if (basechanRate) {
-        authorized.push(basechanRate);
-      } else {
-        const uniName = ratesForKey[0]?.universityName;
-        const fallbackBasechan = visibleRates.find(
-          (r) =>
-            r.universityName === uniName &&
-            (!r.aggregator || (r.aggregator || '').toUpperCase() === 'BASECHAN' || (r.aggregator || '').toUpperCase() === 'DIRECT')
-        );
-
-        if (fallbackBasechan && ratesForKey.length > 0) {
-          authorized.push({
-            ...ratesForKey[0],
-            aggregator: 'BASECHAN',
-            agentRate: fallbackBasechan.agentRate,
-            masterRate: fallbackBasechan.masterRate,
-            diffMargin: fallbackBasechan.diffMargin,
-          });
-        } else if (ratesForKey.length > 0) {
-          authorized.push(ratesForKey[0]);
-        }
-      }
-    });
-
-    return authorized;
+    return selectAgentPayoutRates(visibleRates);
   }, [visibleRates]);
 
   const filteredRates = useMemo(() => {

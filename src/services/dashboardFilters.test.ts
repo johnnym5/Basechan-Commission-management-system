@@ -9,6 +9,7 @@ const base: CommissionRate = {
   studyLevel: 'UG', masterRate: 20, agentRate: 10, diffMargin: 10, isFlatFee: false, netOrGross: 'GROSS', guidance: 'FOCUS',
 };
 const rates = [base, { ...base, id: '2', universityId: 'u2', universityName: 'Beta College', country: 'Ghana', aggregator: 'UAP', agentRate: 500, isFlatFee: true, guidance: 'ALLOWED' as const }];
+const agentSourceRates = [{ ...base, aggregator: 'BASECHAN' }, { ...base, id: '2', universityId: 'u2', universityName: 'Beta College', country: 'Ghana', aggregator: 'BASECHAN', agentRate: 500, isFlatFee: true, guidance: 'ALLOWED' as const }];
 
 describe('applyDashboardFilters', () => {
   it('applyDashboardFilters combines common filters', () => {
@@ -21,10 +22,10 @@ describe('applyDashboardFilters', () => {
   });
   it('Agent filters include payout but exclude aggregator', () => {
     const filters = { ...createEmptyDashboardFilters(), aggregators: ['UAP'], agentPayoutKind: 'PERCENTAGE' as const, payoutMinimum: 5, payoutMaximum: 20 };
-    expect(applyDashboardFilters('AGENT', buildDashboardRates('AGENT', rates), filters)).toHaveLength(1);
+    expect(applyDashboardFilters('AGENT', buildDashboardRates('AGENT', agentSourceRates), filters)).toHaveLength(1);
   });
   it('Agent payout range stays within selected fee type', () => {
-    const agentRates = buildDashboardRates('AGENT', rates) as DashboardRate[];
+    const agentRates = buildDashboardRates('AGENT', agentSourceRates) as DashboardRate[];
     const percent = applyDashboardFilters('AGENT', agentRates, { ...createEmptyDashboardFilters(), agentPayoutKind: 'PERCENTAGE', payoutMinimum: 5, payoutMaximum: 20 });
     const missingType = applyDashboardFilters('AGENT', agentRates, { ...createEmptyDashboardFilters(), payoutMinimum: 5 });
     expect(percent.map(rate => rate.id)).toEqual(['1']);
@@ -48,14 +49,14 @@ describe('filtersFromChatIntent', () => {
 
 describe('role boundary edge cases', () => {
   it('rejects records projected for a different role', () => {
-    const agentRates = buildDashboardRates('AGENT', rates);
+    const agentRates = buildDashboardRates('AGENT', agentSourceRates);
     expect(applyDashboardFilters('STAFF', agentRates, createEmptyDashboardFilters())).toEqual([]);
   });
   it('does not infer a payout fee type from a numeric chat bound', () => {
     const intent: ChatSearchIntent = { schoolIds: [], aggregatorTerms: [], rateMinimum: 10, compare: false, compareSchoolIds: [] };
     const next = filtersFromChatIntent('AGENT', intent, createEmptyDashboardFilters());
     expect(next.agentPayoutKind).toBeUndefined();
-    expect(applyDashboardFilters('AGENT', buildDashboardRates('AGENT', rates), next)).toEqual([]);
+    expect(applyDashboardFilters('AGENT', buildDashboardRates('AGENT', agentSourceRates), next)).toEqual([]);
   });
 });
 it('matches UK country aliases when Chat normalizes the location', () => {

@@ -65,7 +65,9 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
 
     try {
       const updatedFields = {
-        id: generateCompositeId(rate.universityName, intake, aggregator, studyLevel),
+        id: intake === rate.intake && aggregator === rate.aggregator && studyLevel === rate.studyLevel
+          ? rate.id
+          : generateCompositeId(rate.universityName, intake, aggregator, studyLevel),
         masterRate,
         agentRate,
         diffMargin,
@@ -283,7 +285,7 @@ export const EditRateModal: React.FC<EditRateModalProps> = ({
                 ) : (
                   <>
                     <Save className="w-4 h-4" />
-                    <span>Save Changes</span>
+                    <span>Save Changes Locally</span>
                   </>
                 )}
               </button>

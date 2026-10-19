@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CommissionRate } from '../types';
-import { buildRateWriteNotice } from './adminRateWriteService';
+import { buildRateFieldPatch, buildRateWriteNotice } from './adminRateWriteService';
 
 const rate = (id: string, universityId: string, universityName: string): CommissionRate => ({
   id,
@@ -34,5 +34,13 @@ describe('grouped Admin rate change notices', () => {
     const notice = buildRateWriteNotice([{ next: { ...rate('one-pg', 'one', 'One University'), agentRate: 99, aggregator: 'Private Route' } }], 'rates');
     expect(notice.summary).not.toContain('99');
     expect(notice.summary).not.toContain('Private Route');
+  });
+});
+
+describe('compact canonical rate patches', () => {
+  it('contains only fields changed by a same-ID edit', () => {
+    const before = rate('same-id', 'uni', 'University');
+    const after = { ...before, guidance: 'ALLOWED' as const, updatedAt: 'now' };
+    expect(buildRateFieldPatch(before, after)).toEqual({ guidance: 'ALLOWED', updatedAt: 'now' });
   });
 });

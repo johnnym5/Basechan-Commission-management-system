@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Building2, CheckCircle2, Globe2, Route, X, BarChart3, ChevronDown } from 'lucide-react';
 import type { CommissionRate, SchoolGuidance, StudyLevel } from '../types';
+import type { DirectoryUniversity } from '../hooks/useAgentUniversityDirectory';
 import type { DashboardFilters, DashboardRate } from '../types/dashboard';
 import type { SearchToken } from '../types/search';
 import { applyDashboardFilters, createEmptyDashboardFilters } from '../services/dashboardFilters';
@@ -17,6 +18,7 @@ interface RoleDashboardViewProps {
   onFiltersChange: (filters: DashboardFilters) => void;
   favoriteCount?: number;
   onOpenChat?: () => void;
+  agentDirectory?: DirectoryUniversity[];
 }
 
 const KPI_ICONS = [Route, Building2, Globe2, CheckCircle2];
@@ -29,6 +31,7 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
   onFiltersChange,
   favoriteCount,
   onOpenChat,
+  agentDirectory = [],
 }) => {
   const [isOverviewOpen, setIsOverviewOpen] = useState<boolean>(false);
   const [isAdvanceFilterOpen, setIsAdvanceFilterOpen] = useState<boolean>(false);
@@ -40,6 +43,15 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
   const visibleRates = useMemo(() => applyDashboardFilters(role, rates, filters), [role, rates, filters]);
   const kpis = useMemo(() => getDashboardKpis(visibleRates), [visibleRates]);
   const isAgent = role === 'AGENT';
+  const visibleDirectory = useMemo(() => {
+    if (!isAgent) return [];
+    const query = filters.query.trim().toLocaleLowerCase();
+    return agentDirectory.filter((school) => {
+      if (filters.schoolIds.length && !filters.schoolIds.includes(school.id)) return false;
+      if (filters.countries.length && !filters.countries.includes(school.country || '')) return false;
+      return !query || `${school.name} ${school.country || ''}`.toLocaleLowerCase().includes(query);
+    });
+  }, [agentDirectory, filters.countries, filters.query, filters.schoolIds, isAgent]);
 
   const metricData = [
     [isAgent ? 'Approved routes' : 'Visible routes', kpis.routes],
@@ -51,7 +63,7 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
   // Convert DashboardRate[] to CommissionRate[] for MasterTable
   const commissionRates: CommissionRate[] = useMemo(() => {
     return visibleRates.map((r) => {
-      const aggregator = 'aggregator' in r ? r.aggregator : '';
+      const aggregator = role === 'AGENT' ? 'BASECHAN' : ('aggregator' in r ? r.aggregator : '');
       const agentRate = 'agentRate' in r ? r.agentRate : 0;
       const masterRate = 'masterRate' in r ? r.masterRate : 0;
       const diffMargin = 'diffMargin' in r ? r.diffMargin : ('agentRate' in r ? r.agentRate : 0);
@@ -251,6 +263,32 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
             Clear all filters
           </button>
         </div>
+      )}
+
+      {isAgent && agentDirectory.length > 0 && (
+        <section aria-label="Agent school directory" className="rounded-2xl border border-[#26334b] bg-[#0e1526] p-4 sm:p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-extrabold text-slate-100">School directory</h2>
+            <span className="text-xs text-slate-400">{visibleDirectory.length} schools</span>
+          </div>
+          <div className="max-h-80 space-y-2 overflow-y-auto">
+            {visibleDirectory.map((school) => {
+              const payoutCount = visibleRates.filter((rate) => rate.universityId === school.id).length;
+              return (
+                <article key={school.id} className="flex items-center justify-between gap-3 rounded-xl border border-[#26334b] bg-[#111b2e] px-3 py-2.5">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-xs font-bold text-slate-100">{school.name}</h3>
+                    {school.country && <p className="text-[10px] text-slate-400">{school.country}</p>}
+                  </div>
+                  <p className="shrink-0 text-right text-[10px] font-semibold text-slate-300">
+                    {payoutCount ? `${payoutCount} payout ${payoutCount === 1 ? 'route' : 'routes'}` : 'No rate for this school'}
+                  </p>
+                </article>
+              );
+            })}
+            {visibleDirectory.length === 0 && <p className="py-4 text-center text-xs text-slate-400">No schools match this search.</p>}
+          </div>
+        </section>
       )}
 
       {/* Main Table / Grid View with Identical Advanced Search, Grouping, Currency & Filters */}

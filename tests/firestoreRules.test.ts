@@ -26,7 +26,10 @@ beforeEach(async () => {
   await testEnv.clearFirestore();
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const firestore = context.firestore();
+    await setDoc(doc(firestore, 'admins/admin'), { uid: 'admin', email: 'egbase@basechaninternational.com' });
     await setDoc(doc(firestore, 'rates/rate-1'), { universityName: 'Example University', agentRate: 12 });
+    await setDoc(doc(firestore, 'rate_sheets/visible-sheet'), { sheetName: 'Visible Sheet', rates: [{ universityName: 'Example University', masterRate: 20, agentRate: 12 }] });
+    await setDoc(doc(firestore, 'universities/u-1'), { id: 'u-1', name: 'Example University', country: 'UK', status: 'ACTIVE' });
     await setDoc(doc(firestore, 'admin_rate_operations/operation-1'), { operationId: 'operation-1', stage: 'started' });
     await setDoc(doc(firestore, 'admin_rate_operations/operation-1/mutations/00000000'), { next: { id: 'rate-1' } });
     const safeRoute = { id: 'rate-1', universityId: 'u-1', universityName: 'Example University', intake: 'Sept 2027', studyLevel: 'PG', aggregator: 'Route A', sourceSheet: 'Visible Sheet' };
@@ -74,9 +77,20 @@ afterAll(async () => {
 });
 
 describe('Firestore role and organization boundaries', () => {
+  it('denies Admin access to unlisted domain users and approved emails without UID membership', async () => {
+    const domainUser = testEnv.authenticatedContext('domain-only', {
+      email: 'someone@basechaninternational.com', email_verified: true,
+    }).firestore();
+    const approvedWithoutMembership = testEnv.authenticatedContext('egbase-no-membership', {
+      email: 'egbase@basechaninternational.com', email_verified: true,
+    }).firestore();
+    await assertFails(getDoc(doc(domainUser, 'rates/rate-1')));
+    await assertFails(getDoc(doc(approvedWithoutMembership, 'rates/rate-1')));
+  });
+
   it('allows the Admin domain to read canonical rates', async () => {
     const firestore = testEnv.authenticatedContext('admin', {
-      email: 'admin@basechaninternational.com',
+      email: 'egbase@basechaninternational.com',
       email_verified: true,
     }).firestore();
 
@@ -88,6 +102,22 @@ describe('Firestore role and organization boundaries', () => {
     await assertSucceeds(setDoc(doc(firestore, 'users/admin/favorite_schools/school-1'), { universityId: 'school-1' }));
     await assertSucceeds(getDoc(doc(firestore, 'users/admin/chat_private/profile')));
     await assertSucceeds(getDoc(doc(firestore, 'users/admin/updates/update-1')));
+    await assertSucceeds(getDoc(doc(firestore, 'admins/admin')));
+    const otherAdminRecord = testEnv.authenticatedContext('other-admin', {
+      email: 'ithub@basechaninternational.com', email_verified: true,
+    }).firestore();
+    await assertFails(getDoc(doc(otherAdminRecord, 'admins/admin')));
+    await assertFails(setDoc(doc(firestore, 'admins/forged'), {
+      uid: 'forged', email: 'forged@basechaninternational.com',
+    }));
+  });
+
+  it('allows the second approved email only through its own verified UID membership', async () => {
+    const firestore = testEnv.authenticatedContext('admin-ithub', {
+      email: 'ithub@basechaninternational.com', email_verified: true,
+    }).firestore();
+    await assertSucceeds(getDoc(doc(firestore, 'rates/rate-1')));
+    await assertSucceeds(getDoc(doc(firestore, 'admins/admin-ithub')));
   });
 
   it('does not allow Agents to inspect pending Admin write operations', async () => {
@@ -122,6 +152,27 @@ describe('Firestore role and organization boundaries', () => {
       photoURL: '', lastLoginAt: new Date().toISOString(), isOnline: true,
     }, { merge: true }));
     await assertSucceeds(getDocs(collection(firestore, 'sheet_settings')));
+  });
+
+  it('allows only Admin to read canonical rate sheet buckets', async () => {
+    const admin = testEnv.authenticatedContext('admin', { email: 'egbase@basechaninternational.com', email_verified: true }).firestore();
+    const staff = testEnv.authenticatedContext('staff', { email: 'sarah.basechaninternational@gmail.com' }).firestore();
+    const agent = testEnv.authenticatedContext('agent-a', { email: 'agent@example.com' }).firestore();
+    await assertSucceeds(getDoc(doc(admin, 'rate_sheets/visible-sheet')));
+    await assertFails(getDoc(doc(staff, 'rate_sheets/visible-sheet')));
+    await assertFails(getDoc(doc(agent, 'rate_sheets/visible-sheet')));
+  });
+
+  it('rejects Staff identities that do not match the application suffix', async () => {
+    const broadMatch = testEnv.authenticatedContext('broad-match', { email: 'staff.basechan@gmail.com' }).firestore();
+    await assertFails(getDoc(doc(broadMatch, 'staff_rates/rate-1')));
+  });
+
+  it('keeps readable university directory records free of financial fields', async () => {
+    const admin = testEnv.authenticatedContext('admin', { email: 'egbase@basechaninternational.com', email_verified: true }).firestore();
+    await assertFails(setDoc(doc(admin, 'universities/u-2'), {
+      id: 'u-2', name: 'Financial University', agentRate: 20, masterRate: 30,
+    }));
   });
 
   it('allows safe self-created profiles while rejecting self-assigned access fields', async () => {
@@ -182,7 +233,7 @@ describe('Firestore role and organization boundaries', () => {
       });
     });
     const agent = testEnv.authenticatedContext('agent-a', { email: 'agent@example.com' }).firestore();
-    const admin = testEnv.authenticatedContext('admin', { email: 'admin@basechaninternational.com' }).firestore();
+    const admin = testEnv.authenticatedContext('admin', { email: 'egbase@basechaninternational.com', email_verified: true }).firestore();
     await assertFails(getDoc(doc(agent, 'rate_change_feeds/agent/changes/legacy-snapshot')));
     await assertSucceeds(getDoc(doc(admin, 'rate_change_feeds/agent/changes/legacy-snapshot')));
   });
