@@ -232,13 +232,12 @@ const AggregatorRouteCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
 const GroupRoutesModal: React.FC<{
   group: GroupedUniversity | null;
   currency: CurrencyCode;
-  defaultIntake: string;
-  onSetDefaultIntake: (intakeName: string) => Promise<void> | void;
+  onSetDefaultRoute?: (targetRate: CommissionRate) => Promise<void> | void;
   onClose: () => void;
   onEdit: (rate: CommissionRate) => void;
   onShare: (rate: CommissionRate) => void;
   onOpenDetail?: (universityName: string) => void;
-}> = ({ group, currency, defaultIntake, onSetDefaultIntake, onClose, onEdit, onShare, onOpenDetail }) => {
+}> = ({ group, currency, onSetDefaultRoute, onClose, onEdit, onShare, onOpenDetail }) => {
   const [showPreviousIntakes, setShowPreviousIntakes] = useState(false);
 
   useEffect(() => {
@@ -272,8 +271,8 @@ const GroupRoutesModal: React.FC<{
         const payout = ratesForLevel.find((rate) => isEligibleAgentPayout(rate.aggregator));
         if (payout) singleRoutePerLevel.push(payout);
       } else {
-        // STAFF ROLE: Admin Default Route if set (guidance === 'FOCUS'); otherwise System Recommended Route (Top Yield)
-        const adminDefault = ratesForLevel.find((r) => r.guidance === 'FOCUS');
+        // STAFF ROLE: Explicit Admin Default Route if set (isDefaultRoute === true); otherwise System Recommended Route (Top Yield)
+        const adminDefault = ratesForLevel.find((r) => r.isDefaultRoute === true) || ratesForLevel.find((r) => r.guidance === 'FOCUS');
         if (adminDefault) {
           singleRoutePerLevel.push(adminDefault);
         } else {
@@ -305,25 +304,17 @@ const GroupRoutesModal: React.FC<{
     return { activeRoutes: active, previousRoutes: previous };
   }, [group, displayableRates]);
 
-  const handleSetAsDefaultIntake = async (targetRate: CommissionRate) => {
-    try {
-      await onSetDefaultIntake(targetRate.intake);
-    } catch (err) {
-      console.error('Failed to set default intake:', err);
-    }
-  };
-
   if (!group) return null;
 
   const renderRouteCard = (rate: CommissionRate) => {
-    const isDefaultIntake = rate.intake === defaultIntake;
+    const isDefaultRoute = rate.isDefaultRoute === true;
     const isBest = !isAgent && group.bestRoute?.id === rate.id;
 
     return (
       <div
         key={rate.id}
         className={`p-3.5 rounded-2xl border transition-all flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 ${
-          isDefaultIntake
+          isDefaultRoute
             ? 'bg-amber-500/10 dark:bg-amber-950/30 border-amber-400/50 dark:border-amber-500/50 shadow-xs ring-1 ring-amber-400/20'
             : isBest
             ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 shadow-xs'
@@ -341,22 +332,22 @@ const GroupRoutesModal: React.FC<{
               <AggregatorRouteCell rate={rate} />
             )}
 
-            {/* Default Intake Status Badge or Set Default Button */}
-            {isDefaultIntake ? (
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-400/40 flex items-center gap-1 shrink-0" title="System Default Intake">
+            {/* Default Route Status Badge or Set Default Button */}
+            {isDefaultRoute ? (
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-400/40 flex items-center gap-1 shrink-0" title="Admin Default Route for Staff">
                 <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                Default Intake
+                DEFAULT ROUTE
               </span>
             ) : (
-              isAdmin && (
+              isAdmin && onSetDefaultRoute && (
                 <button
                   type="button"
-                  onClick={() => handleSetAsDefaultIntake(rate)}
+                  onClick={() => void onSetDefaultRoute(rate)}
                   className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800 hover:bg-amber-500/20 text-slate-700 dark:text-slate-300 hover:text-amber-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer flex items-center gap-1 shrink-0"
-                  title="Set this intake as the system default"
+                  title="Set this route as the default aggregator for this school"
                 >
                   <Star className="w-3 h-3 text-amber-400" />
-                  Set as Default Intake
+                  Set Default Route
                 </button>
               )
             )}
@@ -819,19 +810,19 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const sortedFilteredData = useMemo(() => {
     const list = [...filteredData];
     if (selectedSortBy === 'ALPHABETICAL' || selectedSortBy === 'UNIVERSITY') {
-      return list.sort((a, b) => a.universityName.localeCompare(b.universityName));
+      return list.sort((a, b) => String(a?.universityName || '').localeCompare(String(b?.universityName || '')));
     }
     if (selectedSortBy === 'COUNTRY') {
       return list.sort((a, b) => {
-        const c1 = a.country || 'UK';
-        const c2 = b.country || 'UK';
+        const c1 = String(a?.country || 'UK');
+        const c2 = String(b?.country || 'UK');
         const comp = c1.localeCompare(c2);
         if (comp !== 0) return comp;
-        return a.universityName.localeCompare(b.universityName);
+        return String(a?.universityName || '').localeCompare(String(b?.universityName || ''));
       });
     }
     if (selectedSortBy === 'HIGHEST_MARGIN') {
-      return list.sort((a, b) => b.diffMargin - a.diffMargin);
+      return list.sort((a, b) => (b?.diffMargin || 0) - (a?.diffMargin || 0));
     }
     return list;
   }, [filteredData, selectedSortBy]);
@@ -1133,7 +1124,14 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
   // Batch action handlers
   const handleSaveUniversityRecord = async (updatedData: UniversityDetailData, makeDefaultIntake?: boolean) => {
-    const uniRates = data.filter((rate) => rate.universityName === updatedData.university);
+    // CRITICAL: filter by BOTH university name AND intake to avoid overwriting
+    // rates from other intakes of the same university (e.g. "Sept 2026" vs "2026 SI-UK")
+    const targetIntake = updatedData.baselineIntake;
+    const uniRates = data.filter(
+      (rate) =>
+        rate.universityName === updatedData.university &&
+        (!targetIntake || rate.intake === targetIntake)
+    );
     if (!uniRates.length) return;
     const parseRateNumber = (value: string) => {
       const parsed = parseFloat((value || '').replace(/[^0-9.]/g, ''));
@@ -1159,12 +1157,22 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           else if (aggregator.includes('KC OVERSEAS')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.kcOverseasUG : updatedData.kcOverseasPG);
           else if (aggregator.includes('AIMS EDUCATION')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.aimsEducationUG : updatedData.aimsEducationPG);
         }
-        const useFocus = rate.aggregator.toUpperCase().includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && rate.aggregator === 'Direct');
+        const isDefault = rate.aggregator.toUpperCase().includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && rate.aggregator === 'Direct');
         const intake = updatedData.baselineIntake || rate.intake;
         const id = intake === rate.intake ? rate.id : generateCompositeId(rate.universityName, intake, rate.aggregator, rate.studyLevel);
-        return { ...rate, id, intake, agentRate, masterRate,
-          diffMargin: Number((masterRate - agentRate).toFixed(2)), isFlatFee: isFlat,
-          guidance: useFocus ? 'FOCUS' : 'ALLOWED', updatedAt: new Date().toISOString() };
+        const resolvedGuidance = (updatedData.guidance as SchoolGuidance) || rate.guidance || 'ALLOWED';
+        return {
+          ...rate,
+          id,
+          intake,
+          agentRate,
+          masterRate,
+          diffMargin: Number((masterRate - agentRate).toFixed(2)),
+          isFlatFee: isFlat,
+          isDefaultRoute: isDefault,
+          guidance: resolvedGuidance,
+          updatedAt: new Date().toISOString()
+        };
       }, user?.email || 'admin@basechan.com');
       if (makeDefaultIntake && updatedData.baselineIntake) {
         try { await updateDefaultIntake(updatedData.baselineIntake, user?.email || 'admin@basechan.com'); }
@@ -1175,8 +1183,12 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     finally { setBatchActionLoading(false); }
   };
 
-  const handleDeleteUniversityRecord = async (uniName: string) => {
-    const uniRates = data.filter((rate) => rate.universityName === uniName);
+  const handleDeleteUniversityRecord = async (uniName: string, intake?: string) => {
+    const uniRates = data.filter(
+      (rate) =>
+        rate.universityName === uniName &&
+        (!intake || rate.intake === intake)
+    );
     if (!uniRates.length) return;
     try {
       setBatchActionLoading(true);
@@ -1206,6 +1218,30 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       onBatchActionComplete?.(`Saved guidance changes for ${selectedRates.length} rates locally; waiting to sync.`);
     } catch (err) { console.error(err); }
     finally { setBatchActionLoading(false); }
+  };
+
+  const handleSetDefaultRoute = async (targetRate: CommissionRate) => {
+    try {
+      setBatchActionLoading(true);
+      const relatedRates = data.filter(
+        (r) => r.universityName === targetRate.universityName && r.studyLevel === targetRate.studyLevel
+      );
+      for (const rate of relatedRates) {
+        const isDefault = rate.id === targetRate.id;
+        if (rate.isDefaultRoute !== isDefault) {
+          await updateRate(
+            rate,
+            { ...rate, isDefaultRoute: isDefault, updatedAt: new Date().toISOString() },
+            user?.email || 'admin@basechan.com'
+          );
+        }
+      }
+      onBatchActionComplete?.(`Set ${targetRate.aggregator} as default route for ${targetRate.universityName}.`);
+    } catch (err) {
+      console.error('Failed to set default route:', err);
+    } finally {
+      setBatchActionLoading(false);
+    }
   };
 
   const handleSingleDelete = async (rate: CommissionRate) => {
@@ -1977,8 +2013,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       <GroupRoutesModal
         group={activeGroupRate}
         currency={activeCurrency}
-        defaultIntake={defaultIntake}
-        onSetDefaultIntake={(intakeName) => updateDefaultIntake(intakeName, user?.email || 'admin@basechan.com')}
+        onSetDefaultRoute={handleSetDefaultRoute}
         onClose={() => setActiveGroupRate(null)}
         onEdit={onEditRate}
         onShare={setSharingRate}

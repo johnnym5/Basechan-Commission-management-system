@@ -53,7 +53,7 @@ interface UniversityDetailModalProps {
   defaultIntake?: string;
   onSetDefaultIntake?: (intakeName: string) => Promise<void> | void;
   onSaveUniversity?: (updatedData: UniversityDetailData, makeDefaultIntake?: boolean) => Promise<void> | void;
-  onDeleteUniversity?: (universityName: string) => Promise<void> | void;
+  onDeleteUniversity?: (universityName: string, intake?: string) => Promise<void> | void;
 }
 
 export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
@@ -82,8 +82,9 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
     const country = ratesForUniversity[0]?.country || 'United Kingdom';
     const intake = ratesForUniversity[0]?.intake || 'Sept 2026';
 
+    const defaultMatch = ratesForUniversity.find((r) => r.isDefaultRoute === true);
     const focusMatch = ratesForUniversity.find((r) => r.guidance === 'FOCUS');
-    const defaultRoute = focusMatch ? focusMatch.aggregator : ratesForUniversity[0]?.aggregator || 'BASECHAN';
+    const defaultRoute = defaultMatch ? defaultMatch.aggregator : (focusMatch ? focusMatch.aggregator : ratesForUniversity[0]?.aggregator || 'BASECHAN');
 
     const getRate = (agg: string, level: string, isMaster = false): string => {
       const match = ratesForUniversity.find(
@@ -165,12 +166,13 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
 
   const handleDelete = async () => {
     if (!onDeleteUniversity) return;
+    const intakeLabel = resolvedData.baselineIntake ? ` (${resolvedData.baselineIntake})` : '';
     if (
       window.confirm(
-        `Are you sure you want to delete all rate records for "${resolvedData.university}"? This action cannot be undone.`
+        `Are you sure you want to delete all rate records for "${resolvedData.university}"${intakeLabel}? This action cannot be undone.`
       )
     ) {
-      await onDeleteUniversity(resolvedData.university);
+      await onDeleteUniversity(resolvedData.university, resolvedData.baselineIntake);
       onClose();
     }
   };
@@ -241,6 +243,17 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
               <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex items-center gap-1">
                 <Award className="w-3 h-3 text-amber-500" />
                 Default Route: {editForm.defaultRoute || 'BASECHAN'}
+              </span>
+
+              {/* Guidance Status Badge */}
+              <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase border flex items-center gap-1 ${
+                editForm.guidance === 'FOCUS'
+                  ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                  : editForm.guidance === 'DO_NOT_USE'
+                  ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-700'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+              }`}>
+                Guidance: {editForm.guidance || 'ALLOWED'}
               </span>
             </div>
 
@@ -446,7 +459,7 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
               <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-between gap-3 text-xs">
                 <span className="font-bold text-blue-800 dark:text-blue-300 flex items-center gap-1.5">
                   <Award className="w-4 h-4 text-amber-400" />
-                  Select Default Application Route for this University:
+                  Default Route for Staff:
                 </span>
                 <select
                   value={editForm.defaultRoute || 'BASECHAN'}
@@ -460,6 +473,22 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
                   <option value="CRIZAC">CRIZAC</option>
                   <option value="KC OVERSEAS">KC OVERSEAS</option>
                   <option value="AIMS EDUCATION">AIMS EDUCATION</option>
+                </select>
+              </div>
+
+              {/* Guidance / Status Selector */}
+              <div className="p-3 bg-slate-500/10 border border-slate-500/20 rounded-xl flex items-center justify-between gap-3 text-xs">
+                <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <span>School Guidance (Status):</span>
+                </span>
+                <select
+                  value={editForm.guidance || 'ALLOWED'}
+                  onChange={(e) => handleInputChange('guidance', e.target.value)}
+                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#18181B] border border-slate-400 dark:border-slate-600 font-bold text-xs"
+                >
+                  <option value="ALLOWED">🔵 Allowed (Standard)</option>
+                  <option value="FOCUS">🟢 Focus / Preferred</option>
+                  <option value="DO_NOT_USE">🔴 Do Not Use</option>
                 </select>
               </div>
 
