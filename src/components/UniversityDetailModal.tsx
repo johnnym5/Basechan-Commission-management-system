@@ -218,6 +218,19 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
 
     const uni = resolvedData.university;
     const intake = resolvedData.baselineIntake || defaultIntake || 'Sept 2026';
+
+    // Duplicate route check for the active intake
+    const alreadyExists = ratesForUniversity.some(
+      (r) =>
+        r.aggregator.trim().toLowerCase() === agg.toLowerCase() &&
+        r.studyLevel === newRouteLevel &&
+        (!r.intake || r.intake === intake)
+    );
+    if (alreadyExists) {
+      setAddRouteError(`A route for "${agg}" (${newRouteLevel}) already exists in this intake. Edit the existing rate directly.`);
+      return;
+    }
+
     const id = generateCompositeId(uni, intake, agg, newRouteLevel);
 
     const newRate: CommissionRate = {

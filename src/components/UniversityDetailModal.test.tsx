@@ -75,4 +75,34 @@ describe('UniversityDetailModal - Add Route', () => {
     expect(added.diffMargin).toBe(6);
     expect(added.intake).toBe('Sept 2026');
   });
+
+  it('prevents adding a duplicate aggregator and level route for the same intake', async () => {
+    const onAddRoute = vi.fn();
+
+    render(
+      <UniversityDetailModal
+        isOpen={true}
+        onClose={vi.fn()}
+        ratesForUniversity={mockRates}
+        universityName="Aberdeen University"
+        onAddRoute={onAddRoute}
+      />
+    );
+
+    // Switch to edit mode
+    fireEvent.click(screen.getByRole('button', { name: /Edit Record/i }));
+
+    // Try adding BASECHAN (UG) which already exists in mockRates
+    const aggInput = screen.getByPlaceholderText(/e.g. INTO, Kaplan, QS/i);
+    fireEvent.change(aggInput, { target: { value: 'BASECHAN' } });
+
+    const agentRateInput = screen.getByPlaceholderText(/Agent Rate/i);
+    fireEvent.change(agentRateInput, { target: { value: '15' } });
+
+    const addRouteBtn = screen.getByRole('button', { name: /Add Route Now/i });
+    fireEvent.click(addRouteBtn);
+
+    expect(screen.getByText(/already exists in this intake/i)).toBeInTheDocument();
+    expect(onAddRoute).not.toHaveBeenCalled();
+  });
 });
