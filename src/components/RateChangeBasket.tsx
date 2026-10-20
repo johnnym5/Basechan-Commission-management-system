@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CheckCircle2, LoaderCircle, XCircle, RefreshCw, AlertTriangle, Clock, X } from 'lucide-react';
+import { CheckCircle2, LoaderCircle, XCircle, RefreshCw, AlertTriangle, Clock, X, Trash2, ArrowUpRight } from 'lucide-react';
 import type { PendingRateOperation } from '../types/rateWriteQueue';
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'quota-paused';
@@ -19,6 +19,8 @@ export const RateChangeBasket: React.FC<Props> = ({
   operations = [],
   syncState,
   onRetry,
+  onDiscard,
+  onResolveConflict,
   lastSyncedAt,
   errorMessage,
   lastSyncUploadName,
@@ -89,6 +91,22 @@ export const RateChangeBasket: React.FC<Props> = ({
       onRetry(operations[0].operationId);
     } else {
       onRetry();
+    }
+  };
+
+  const handleDiscardClick = () => {
+    if (!onDiscard) return;
+    const targetOp = failedOps[0] || operations[0];
+    if (targetOp) {
+      onDiscard(targetOp.operationId);
+    }
+  };
+
+  const handleForcePushClick = () => {
+    if (!onResolveConflict) return;
+    const targetOp = failedOps.find((op) => op.status === 'conflict') || failedOps[0] || operations[0];
+    if (targetOp) {
+      onResolveConflict(targetOp.operationId, 'apply-local');
     }
   };
 
@@ -204,8 +222,32 @@ export const RateChangeBasket: React.FC<Props> = ({
             )}
           </div>
 
-          {/* Action / Retry Button */}
-          <div className="pt-2 border-t border-[#222F43] flex items-center justify-end gap-2">
+          {/* Action / Retry & Discard Buttons */}
+          <div className="pt-2 border-t border-[#222F43] flex flex-wrap items-center justify-end gap-2">
+            {hasFailed && onDiscard && (
+              <button
+                type="button"
+                onClick={handleDiscardClick}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-extrabold text-[11px] transition shadow-xs active:scale-95 cursor-pointer"
+                title="Discard this local pending change"
+              >
+                <Trash2 className="w-3 h-3 text-rose-400" />
+                <span>Discard Change</span>
+              </button>
+            )}
+
+            {hasFailed && onResolveConflict && failedOps.some((op) => op.status === 'conflict') && (
+              <button
+                type="button"
+                onClick={handleForcePushClick}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-extrabold text-[11px] transition shadow-xs active:scale-95 cursor-pointer"
+                title="Overwrite Firestore with this local version"
+              >
+                <ArrowUpRight className="w-3 h-3 text-amber-400" />
+                <span>Force Push</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleRetryClick}

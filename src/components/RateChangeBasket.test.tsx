@@ -32,4 +32,40 @@ describe('RateChangeBasket', () => {
     fireEvent.click(retryNowBtn);
     expect(onRetry).toHaveBeenCalledWith('basket-op');
   });
+
+  it('renders Discard Change button and invokes onDiscard when clicked', () => {
+    const onDiscard = vi.fn();
+    render(
+      <RateChangeBasket
+        operations={[item]}
+        syncState="idle"
+        onRetry={vi.fn()}
+        onDiscard={onDiscard}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /sync failed or pending - click to retry/i }));
+    
+    const discardBtn = screen.getByRole('button', { name: /Discard Change/i });
+    expect(discardBtn).toBeInTheDocument();
+    fireEvent.click(discardBtn);
+    expect(onDiscard).toHaveBeenCalledWith('basket-op');
+  });
+
+  it('renders Force Push button for conflict and invokes onResolveConflict with apply-local', () => {
+    const onResolveConflict = vi.fn();
+    render(
+      <RateChangeBasket
+        operations={[item]}
+        syncState="idle"
+        onRetry={vi.fn()}
+        onResolveConflict={onResolveConflict}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /sync failed or pending - click to retry/i }));
+
+    const forceBtn = screen.getByRole('button', { name: /Force Push/i });
+    expect(forceBtn).toBeInTheDocument();
+    fireEvent.click(forceBtn);
+    expect(onResolveConflict).toHaveBeenCalledWith('basket-op', 'apply-local');
+  });
 });
