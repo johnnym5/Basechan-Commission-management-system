@@ -14,9 +14,12 @@ import {
   RotateCcw,
   Loader2,
   Star,
+  Plus,
+  AlertCircle,
 } from 'lucide-react';
-import type { CommissionRate } from '../types';
+import type { CommissionRate, StudyLevel } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { generateCompositeId, normalizeUniversitySlug } from '../utils/idGenerator';
 
 export interface UniversityDetailData {
   country: string; // Col A
@@ -54,6 +57,7 @@ interface UniversityDetailModalProps {
   onSetDefaultIntake?: (intakeName: string) => Promise<void> | void;
   onSaveUniversity?: (updatedData: UniversityDetailData, makeDefaultIntake?: boolean) => Promise<void> | void;
   onDeleteUniversity?: (universityName: string, intake?: string) => Promise<void> | void;
+  onAddRoute?: (rate: CommissionRate) => Promise<void> | void;
 }
 
 export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
@@ -66,6 +70,7 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
   onSetDefaultIntake,
   onSaveUniversity,
   onDeleteUniversity,
+  onAddRoute,
 }) => {
   const { role } = useAuth();
   const isAdmin = role === 'ADMIN';
@@ -73,6 +78,15 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [makeDefaultIntake, setMakeDefaultIntake] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
+
+  // Add Route state
+  const [newRouteAggregator, setNewRouteAggregator] = useState('');
+  const [newRouteLevel, setNewRouteLevel] = useState<StudyLevel>('UG');
+  const [newRouteAgentRate, setNewRouteAgentRate] = useState('');
+  const [newRouteMasterRate, setNewRouteMasterRate] = useState('');
+  const [addingRoute, setAddingRoute] = useState(false);
+  const [addRouteError, setAddRouteError] = useState<string | null>(null);
+  const [addRouteSuccess, setAddRouteSuccess] = useState<string | null>(null);
 
   // Build resolved data record from rawData or ratesForUniversity
   const resolvedData: UniversityDetailData = useMemo(() => {
@@ -174,6 +188,67 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
     ) {
       await onDeleteUniversity(resolvedData.university, resolvedData.baselineIntake);
       onClose();
+    }
+  };
+
+  const handleAddNewRoute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddRouteError(null);
+    setAddRouteSuccess(null);
+    if (!onAddRoute) return;
+
+    const agg = newRouteAggregator.trim();
+    if (!agg) {
+      setAddRouteError('Aggregator name is required.');
+      return;
+    }
+
+    const parseNum = (v: string) => {
+      const clean = v.replace(/[^0-9.]/g, '');
+      const n = parseFloat(clean);
+      return Number.isNaN(n) ? 0 : n;
+    };
+
+    const agentNum = parseNum(newRouteAgentRate);
+    const masterNum = parseNum(newRouteMasterRate);
+    if (agentNum === 0 && masterNum === 0) {
+      setAddRouteError('Please enter an Agent Rate or Master Rate.');
+      return;
+    }
+
+    const uni = resolvedData.university;
+    const intake = resolvedData.baselineIntake || defaultIntake || 'Sept 2026';
+    const id = generateCompositeId(uni, intake, agg, newRouteLevel);
+
+    const newRate: CommissionRate = {
+      id,
+      universityId: normalizeUniversitySlug(uni),
+      universityName: uni,
+      country: resolvedData.country || 'United Kingdom',
+      intake,
+      aggregator: agg,
+      studyLevel: newRouteLevel,
+      agentRate: agentNum,
+      masterRate: masterNum,
+      diffMargin: Number((masterNum - agentNum).toFixed(2)),
+      isFlatFee: resolvedData.commissionType === 'Fixed Fee',
+      netOrGross: 'GROSS',
+      guidance: (resolvedData.guidance as any) || 'ALLOWED',
+      isDefaultRoute: false,
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      setAddingRoute(true);
+      await onAddRoute(newRate);
+      setAddRouteSuccess(`Route for ${agg} (${newRouteLevel}) added successfully!`);
+      setNewRouteAggregator('');
+      setNewRouteAgentRate('');
+      setNewRouteMasterRate('');
+    } catch (err: unknown) {
+      setAddRouteError(err instanceof Error ? err.message : 'Failed to add route');
+    } finally {
+      setAddingRoute(false);
     }
   };
 
@@ -722,6 +797,104 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Add Custom Aggregator Route Form */}
+              {onAddRoute && (
+                <div className="mt-5 p-4 rounded-2xl bg-indigo-50/50 dark:bg-[#131B2E] border border-indigo-200 dark:border-indigo-900/60 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-indigo-600 text-white">
+                        <Plus className="w-4 h-4" />
+                      </div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                        Add Custom Aggregator Route
+                      </h4>
+                    </div>
+                  </div>
+
+                  {addRouteError && (
+                    <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{addRouteError}</span>
+                    </div>
+                  )}
+
+                  {addRouteSuccess && (
+                    <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 shrink-0" />
+                      <span>{addRouteSuccess}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-xs">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
+                        Aggregator Name
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. INTO, Kaplan, QS"
+                        value={newRouteAggregator}
+                        onChange={(e) => setNewRouteAggregator(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
+                        Study Level
+                      </label>
+                      <select
+                        value={newRouteLevel}
+                        onChange={(e) => setNewRouteLevel(e.target.value as StudyLevel)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="UG">Undergraduate (UG)</option>
+                        <option value="PG">Postgraduate (PG)</option>
+                        <option value="FD">Foundation (FD)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
+                        Agent Rate
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Agent Rate"
+                        value={newRouteAgentRate}
+                        onChange={(e) => setNewRouteAgentRate(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
+                        Master Rate
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Master Rate"
+                        value={newRouteMasterRate}
+                        onChange={(e) => setNewRouteMasterRate(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      disabled={addingRoute}
+                      onClick={handleAddNewRoute}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
+                    >
+                      {addingRoute ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                      <span>{addingRoute ? 'Adding...' : 'Add Route Now'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

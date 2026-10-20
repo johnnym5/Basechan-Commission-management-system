@@ -2078,6 +2078,18 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         )}
         onSaveUniversity={handleSaveUniversityRecord}
         onDeleteUniversity={handleDeleteUniversityRecord}
+        onAddRoute={async (newRate) => {
+          try {
+            setBatchActionLoading(true);
+            await createRates([newRate], user?.email || 'admin@basechan.com');
+            onBatchActionComplete?.(`Added route ${newRate.aggregator} (${newRate.studyLevel}) for ${newRate.universityName}; waiting to sync.`);
+          } catch (err) {
+            console.error('Error adding route:', err);
+            throw err;
+          } finally {
+            setBatchActionLoading(false);
+          }
+        }}
       />
 
       {/* Add University Modal */}
