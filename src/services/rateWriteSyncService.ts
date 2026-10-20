@@ -149,16 +149,31 @@ export async function resolveRateOperationConflict(
   }
   const mutations: PendingRateMutation[] = [];
   for (const mutation of operation.mutations) {
-    if (mutation.kind === 'create') throw new Error('A new rate now exists in Firestore. Review it before creating another rate.');
+    if (mutation.kind === 'create') {
+      mutations.push(mutation);
+      continue;
+    }
     const current = await readCurrent(mutation.id);
-    if (!current) throw new Error('This rate was deleted in Firestore. Choose keep-cloud or create a new rate.');
+    if (!current) {
+      if (mutation.kind === 'update') {
+        const fullRate: CommissionRate = {
+          ...(mutation.baseSnapshot || ({} as CommissionRate)),
+          ...mutation.patch,
+          id: mutation.nextId || mutation.id,
+        };
+        mutations.push({ kind: 'create', next: fullRate });
+      }
+      continue;
+    }
     if (mutation.kind === 'update') {
       const baseFields: Partial<CommissionRate> = {};
       Object.keys(mutation.baseFields || mutation.patch).forEach((key) => {
         (baseFields as Record<string, unknown>)[key] = current[key as keyof CommissionRate];
       });
       mutations.push({ ...mutation, baseFields, baseSnapshot: current });
-    } else mutations.push({ ...mutation, baseFingerprint: fingerprint(current), baseRate: current });
+    } else {
+      mutations.push({ ...mutation, baseFingerprint: fingerprint(current), baseRate: current });
+    }
   }
   await updateLocalRateOperation(uid, operationId, {
     mutations,
