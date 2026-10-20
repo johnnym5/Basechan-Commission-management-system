@@ -220,7 +220,7 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
     const auditId = `${operationId}-${index}`;
     if (next && !previous) await logRateChange(input.adminEmail, 'CREATE', next.id, next.universityName, undefined, auditId);
     else if (next && previous) await logRateChange(input.adminEmail, 'EDIT', next.id, next.universityName, Object.fromEntries(
-      (Object.keys(next) as Array<keyof CommissionRate>).filter((key) => previous[key] !== next[key]).map((key) => [key, { oldVal: previous[key], newVal: next[key] }]),
+      (Object.keys(next) as Array<keyof CommissionRate>).filter((key) => previous[key] !== next[key]).map((key) => [key, { oldVal: previous[key] ?? null, newVal: next[key] ?? null }]),
     ), auditId);
     else if (previous) await logRateChange(input.adminEmail, 'DELETE', previous.id, previous.universityName, undefined, auditId);
   }

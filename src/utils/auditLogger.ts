@@ -20,13 +20,23 @@ export const logRateChange = async (
   entryId?: string,
 ): Promise<void> => {
   try {
+    const sanitizedChanges: Record<string, { oldVal: any; newVal: any }> = {};
+    if (changes) {
+      Object.entries(changes).forEach(([key, val]) => {
+        sanitizedChanges[key] = {
+          oldVal: val.oldVal === undefined ? null : val.oldVal,
+          newVal: val.newVal === undefined ? null : val.newVal,
+        };
+      });
+    }
+
     const entry: AuditLogEntry = {
       rateId,
       universityName,
       actionType,
       updatedBy: updatedByEmail || 'System Admin',
       timestamp: new Date().toISOString(),
-      changes: changes || {},
+      changes: sanitizedChanges,
     };
 
     if (entryId) await setDoc(doc(db, 'rate_audit_logs', entryId), entry);

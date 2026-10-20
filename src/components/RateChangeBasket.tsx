@@ -112,6 +112,7 @@ export const RateChangeBasket: React.FC<Props> = ({
 
   // Detailed reason for failure
   const failureReason =
+    failedOps[0]?.lastError ||
     errorMessage ||
     failedOps[0]?.conflicts?.[0]?.reason ||
     (syncState === 'offline' ? 'Offline - No network connection' : null) ||
