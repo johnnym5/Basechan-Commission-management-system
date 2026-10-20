@@ -89,8 +89,10 @@ async function commitCanonicalPackage(operation: PendingRateOperation, packageIn
       if (!next) continue;
       if (previous && previous.id === next.id) {
         const patch = Object.fromEntries(Object.keys(next).filter((key) => previous[key as keyof CommissionRate] !== next[key as keyof CommissionRate]).map((key) => [key, next[key as keyof CommissionRate]]));
-        if (Object.keys(patch).length) transaction.update(doc(db, 'rates', next.id), sanitizeFirestoreData(patch));
-      } else transaction.set(doc(db, 'rates', next.id), sanitizeFirestoreData(next));
+        if (Object.keys(patch).length) transaction.set(doc(db, 'rates', next.id), sanitizeFirestoreData(next), { merge: true });
+      } else {
+        transaction.set(doc(db, 'rates', next.id), sanitizeFirestoreData(next), { merge: true });
+      }
       if (!previous || previous.universityId !== next.universityId || previous.universityName !== next.universityName || previous.country !== next.country) universities.set(next.universityId, next);
     }
     universities.forEach((rate) => transaction.set(doc(db, 'universities', rate.universityId), sanitizeFirestoreData({
@@ -149,11 +151,7 @@ export async function resolveRateOperationConflict(
   }
   const mutations: PendingRateMutation[] = [];
   for (const mutation of operation.mutations) {
-    if (mutation.kind === 'create') {
-      mutations.push(mutation);
-      continue;
-    }
-    const current = await readCurrent(mutation.id);
+    const current = await readCurrent(mutation.kind === 'create' ? mutation.next.id : mutation.id);
     if (!current) {
       if (mutation.kind === 'update') {
         const fullRate: CommissionRate = {
@@ -162,18 +160,40 @@ export async function resolveRateOperationConflict(
           id: mutation.nextId || mutation.id,
         };
         mutations.push({ kind: 'create', next: fullRate });
+      } else {
+        mutations.push(mutation);
       }
       continue;
     }
-    if (mutation.kind === 'update') {
-      const baseFields: Partial<CommissionRate> = {};
-      Object.keys(mutation.baseFields || mutation.patch).forEach((key) => {
-        (baseFields as Record<string, unknown>)[key] = current[key as keyof CommissionRate];
-      });
-      mutations.push({ ...mutation, baseFields, baseSnapshot: current });
-    } else {
+    if (mutation.kind === 'delete') {
       mutations.push({ ...mutation, baseFingerprint: fingerprint(current), baseRate: current });
+      continue;
     }
+    // Document exists in cloud: force push means update cloud with our desired state
+    const targetNext: CommissionRate = mutation.kind === 'create'
+      ? mutation.next
+      : {
+          ...current,
+          ...mutation.patch,
+          id: mutation.nextId || mutation.id,
+        };
+    const patch = Object.fromEntries(
+      Object.keys(targetNext)
+        .filter((k) => current[k as keyof CommissionRate] !== targetNext[k as keyof CommissionRate])
+        .map((k) => [k, targetNext[k as keyof CommissionRate]])
+    );
+    const baseFields: Partial<CommissionRate> = {};
+    Object.keys(patch).forEach((k) => {
+      (baseFields as Record<string, unknown>)[k] = current[k as keyof CommissionRate];
+    });
+    mutations.push({
+      kind: 'update',
+      id: current.id,
+      nextId: targetNext.id,
+      patch,
+      baseFields,
+      baseSnapshot: current,
+    });
   }
   await updateLocalRateOperation(uid, operationId, {
     mutations,
