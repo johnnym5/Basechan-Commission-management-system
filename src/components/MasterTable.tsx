@@ -28,8 +28,9 @@ import { useSystemConfig } from '../hooks/useSystemConfig';
 import { BatchEditModal } from './BatchEditModal';
 import { ShareRateCardModal } from './ShareRateCardModal';
 import { UniversityDetailModal, type UniversityDetailData } from './UniversityDetailModal';
+import { AddUniversityModal } from './AddUniversityModal';
 import { useAuth } from '../context/AuthContext';
-import { deleteRates, updateRate, updateRates } from '../services/adminRateWriteService';
+import { deleteRates, updateRate, updateRates, createRates } from '../services/adminRateWriteService';
 import { isEligibleAgentPayout } from '../services/rateReadModels';
 import { exportMultiSheetRoleWorkbook } from '../utils/exportUtils';
 import { generateCompositeId } from '../utils/idGenerator';
@@ -53,6 +54,7 @@ import {
   GraduationCap,
   Building2,
   FileSpreadsheet,
+  Plus,
 } from 'lucide-react';
 
 interface MasterTableProps {
@@ -574,6 +576,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const [activeGroupRate, setActiveGroupRate] = useState<GroupedUniversity | null>(null);
   const [sharingRate, setSharingRate] = useState<CommissionRate | null>(null);
   const [selectedUniversityDetailName, setSelectedUniversityDetailName] = useState<string | null>(null);
+  const [isAddUniversityOpen, setIsAddUniversityOpen] = useState(false);
 
   const [internalGroupByMode] = useState<GroupByMode>('UNIVERSITY');
   const groupByMode = externalGroupByMode || internalGroupByMode;
@@ -1198,6 +1201,19 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     finally { setBatchActionLoading(false); }
   };
 
+  const handleUniversityAdded = async (newRates: CommissionRate[]) => {
+    if (!newRates.length) return;
+    try {
+      setBatchActionLoading(true);
+      await createRates(newRates, user?.email || 'admin@basechan.com');
+      onBatchActionComplete?.(`Added university "${newRates[0]?.universityName}" with ${newRates.length} routes; waiting to sync.`);
+    } catch (err) {
+      console.error('Error adding university:', err);
+    } finally {
+      setBatchActionLoading(false);
+    }
+  };
+
   const handleDeleteSelected = async () => {
     if (!selectedRates.length) return;
     try {
@@ -1609,6 +1625,17 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
+                  {role === 'ADMIN' && (
+                    <button
+                      type="button"
+                      onClick={() => setIsAddUniversityOpen(true)}
+                      className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs active:scale-95"
+                      title="Add a new university and routes"
+                    >
+                      <Plus className="w-4 h-4 text-indigo-100" />
+                      <span>Add University</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -2051,6 +2078,15 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         )}
         onSaveUniversity={handleSaveUniversityRecord}
         onDeleteUniversity={handleDeleteUniversityRecord}
+      />
+
+      {/* Add University Modal */}
+      <AddUniversityModal
+        isOpen={isAddUniversityOpen}
+        onClose={() => setIsAddUniversityOpen(false)}
+        existingRates={data}
+        defaultIntake={defaultIntake}
+        onUniversityAdded={handleUniversityAdded}
       />
     </div>
   );
