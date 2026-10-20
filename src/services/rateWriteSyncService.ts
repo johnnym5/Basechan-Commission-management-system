@@ -7,11 +7,16 @@ import { writeRateOperation, sanitizeFirestoreData, type RateWriteMutation } fro
 import { updatePendingRateOperation } from './rateWriteQueue';
 import { isQuotaError, isQuotaOffline } from './firestoreOfflineMode';
 
+const VOLATILE_FIELDS = new Set(['updatedAt', 'lastUpdated']);
+
 function matchesBase(current: CommissionRate, base: Partial<CommissionRate>): boolean {
-  return Object.entries(base).every(([key, value]) => current[key as keyof CommissionRate] === value);
+  return Object.entries(base).every(([key, value]) => {
+    if (VOLATILE_FIELDS.has(key)) return true;
+    return current[key as keyof CommissionRate] === value;
+  });
 }
 function fingerprint(rate: CommissionRate): string {
-  const { id: _id, ...fields } = rate;
+  const { id: _id, updatedAt: _u, ...fields } = rate;
   return JSON.stringify(fields);
 }
 async function readCurrent(id: string): Promise<CommissionRate | null> {
@@ -149,7 +154,9 @@ export async function resolveRateOperationConflict(
     if (!current) throw new Error('This rate was deleted in Firestore. Choose keep-cloud or create a new rate.');
     if (mutation.kind === 'update') {
       const baseFields: Partial<CommissionRate> = {};
-      Object.keys(mutation.patch).forEach((key) => { (baseFields as Record<string, unknown>)[key] = current[key as keyof CommissionRate]; });
+      Object.keys(mutation.baseFields || mutation.patch).forEach((key) => {
+        (baseFields as Record<string, unknown>)[key] = current[key as keyof CommissionRate];
+      });
       mutations.push({ ...mutation, baseFields, baseSnapshot: current });
     } else mutations.push({ ...mutation, baseFingerprint: fingerprint(current), baseRate: current });
   }
