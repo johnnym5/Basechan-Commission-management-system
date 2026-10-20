@@ -3,10 +3,6 @@ import { createPortal } from 'react-dom';
 import {
   X,
   Building2,
-  Globe,
-  Calendar,
-  Layers,
-  Banknote,
   Check,
   AlertTriangle,
   Loader2,
