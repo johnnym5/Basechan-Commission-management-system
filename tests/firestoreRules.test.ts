@@ -20,13 +20,14 @@ beforeAll(async () => {
       rules: readFileSync(resolve(process.cwd(), 'firestore.rules'), 'utf8'),
     },
   });
-});
+}, 30000);
 
 beforeEach(async () => {
   await testEnv.clearFirestore();
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const firestore = context.firestore();
     await setDoc(doc(firestore, 'admins/admin'), { uid: 'admin', email: 'egbase@basechaninternational.com' });
+    await setDoc(doc(firestore, 'admins/admin-ithub'), { uid: 'admin-ithub', email: 'ithub@basechaninternational.com' });
     await setDoc(doc(firestore, 'rates/rate-1'), { universityName: 'Example University', agentRate: 12 });
     await setDoc(doc(firestore, 'rate_sheets/visible-sheet'), { sheetName: 'Visible Sheet', rates: [{ universityName: 'Example University', masterRate: 20, agentRate: 12 }] });
     await setDoc(doc(firestore, 'universities/u-1'), { id: 'u-1', name: 'Example University', country: 'UK', status: 'ACTIVE' });

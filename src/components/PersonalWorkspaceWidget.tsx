@@ -44,6 +44,7 @@ export interface PersonalWorkspaceWidgetProps {
   activeCurrency?: string;
   onCurrencyChange?: (code: string) => void;
   onResetFilters?: () => void;
+  syncIndicator?: React.ReactNode;
 }
 
 export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = ({
@@ -82,6 +83,7 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
   activeCurrency,
   onCurrencyChange,
   onResetFilters,
+  syncIndicator,
 }) => {
   const { user, role, access, accessRequest } = useAuth();
   const [loadedFavoriteCount, setLoadedFavoriteCount] = useState<number>(0);
@@ -176,6 +178,7 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
         </div>
 
         <div className="flex items-center gap-2.5 sm:gap-3 text-xs flex-wrap shrink-0">
+          {syncIndicator}
           {effectiveFavoriteCount > 0 && (
             <div
               data-testid="favorite-count-badge"

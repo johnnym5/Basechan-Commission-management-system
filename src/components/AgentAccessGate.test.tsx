@@ -1,6 +1,19 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { OrganizationRequestForm } from './AgentAccessGate';
+import { AgentAccessGate, OrganizationRequestForm } from './AgentAccessGate';
+import { useAuth } from '../context/AuthContext';
+
+vi.mock('../context/AuthContext', () => ({
+  useAuth: vi.fn(),
+}));
+
+vi.mock('../services/accessRequestService', () => ({
+  requestOrganizationAccess: vi.fn(),
+  subscribeToOrganizations: vi.fn((cb) => {
+    cb([]);
+    return () => {};
+  }),
+}));
 
 describe('OrganizationRequestForm', () => {
   const organizations = [
@@ -28,3 +41,24 @@ describe('OrganizationRequestForm', () => {
     expect(onSubmit).toHaveBeenCalledWith({ requestedOrganizationName: 'New Agency Network' });
   });
 });
+
+describe('AgentAccessGate', () => {
+  it('renders a Back to login button and calls signOut when clicked', () => {
+    const mockSignOut = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useAuth).mockReturnValue({
+      user: { uid: 'agent-1', email: 'agent@example.com' } as any,
+      access: { role: 'AGENT', accessState: 'pending' },
+      accessRequest: { status: 'pending', organizationId: 'org-1' } as any,
+      signOut: mockSignOut,
+    } as any);
+
+    render(<AgentAccessGate />);
+
+    const backButton = screen.getByRole('button', { name: /back to login/i });
+    expect(backButton).toBeInTheDocument();
+
+    fireEvent.click(backButton);
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
+  });
+});
+

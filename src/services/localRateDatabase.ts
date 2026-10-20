@@ -283,7 +283,7 @@ export async function discardLocalRateOperation(uid: string, operationId: string
     const request = operations.get(operationId);
     request.onsuccess = () => {
       const operation = request.result as PendingRateOperation | undefined;
-      if (!operation || operation.status === 'syncing') return;
+      if (!operation) return;
       discarded = true;
       operation.mutations.forEach((mutation) => {
         if (mutation.kind === 'create') rates.delete(mutation.next.id);

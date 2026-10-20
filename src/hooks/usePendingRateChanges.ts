@@ -16,6 +16,21 @@ export function usePendingRateChanges(uid: string | undefined, enabled: boolean)
   const refresh = useCallback(async () => {
     if (!uid || !enabled) { setOperations([]); return []; }
     const next = await getPendingRateOperations(uid).catch(() => []);
+    // Auto-heal zombie operations stuck in 'syncing' from previously crashed/interrupted sessions
+    const now = Date.now();
+    for (const op of next) {
+      if (op.status === 'syncing') {
+        const age = op.updatedAt ? now - new Date(op.updatedAt).getTime() : 10000;
+        if (age > 5000) {
+          await updatePendingRateOperation(uid, op.operationId, {
+            status: 'failed',
+            lastError: op.lastError || 'Synchronization was interrupted. Click Retry Sync Now or Discard.',
+          });
+          op.status = 'failed';
+          op.lastError = op.lastError || 'Synchronization was interrupted. Click Retry Sync Now or Discard.';
+        }
+      }
+    }
     setOperations(next);
     return next;
   }, [uid, enabled]);
@@ -69,13 +84,31 @@ export function usePendingRateChanges(uid: string | undefined, enabled: boolean)
     };
   }, [uid, enabled, refresh, flush]);
 
-  const retry = useCallback(async (operationId: string) => {
-    await updatePendingRateOperation(uid!, operationId, { status: 'pending', lastError: undefined });
-    await flush(operationId);
-  }, [uid, flush]);
-  const discard = useCallback(async (operationId: string) => {
-    await discardPendingRateOperation(uid!, operationId);
+  const retry = useCallback(async (operationId?: string) => {
+    if (!uid) return;
+    if (operationId) {
+      await updatePendingRateOperation(uid, operationId, { status: 'pending', lastError: undefined });
+      await flush(operationId);
+    } else {
+      const ops = await refresh();
+      for (const op of ops) {
+        await updatePendingRateOperation(uid, op.operationId, { status: 'pending', lastError: undefined });
+      }
+      await flush();
+    }
+  }, [uid, refresh, flush]);
+  const discard = useCallback(async (operationId?: string) => {
+    if (!uid) return;
+    if (operationId) {
+      await discardPendingRateOperation(uid, operationId);
+    } else {
+      const ops = await getPendingRateOperations(uid).catch(() => []);
+      for (const op of ops) {
+        await discardPendingRateOperation(uid, op.operationId);
+      }
+    }
     await refresh();
+    setSyncState('idle');
   }, [uid, refresh]);
   const resolveConflict = useCallback(async (operationId: string, resolution: 'keep-cloud' | 'apply-local') => {
     await resolveRateOperationConflict(uid!, operationId, resolution);

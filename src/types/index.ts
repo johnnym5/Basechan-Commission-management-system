@@ -49,6 +49,7 @@ export interface StaffRateReadModel {
   studyLevel: StudyLevel;
   aggregator: string;
   guidance?: SchoolGuidance;
+  isDefaultRoute?: boolean;
   notes?: string;
   updatedAt?: string;
   sourceSheet?: string;
@@ -93,6 +94,7 @@ export interface CommissionRate {
   currency?: string; // Currency code for flat fee (e.g. "CAD", "USD", "GBP", "EUR", "CHF")
   netOrGross: NetOrGross;
   guidance?: SchoolGuidance; // FOCUS (In the Green), ALLOWED, DO_NOT_USE (Avoid)
+  isDefaultRoute?: boolean; // True if designated as Admin default route for Staff
   notes?: string;
   updatedAt?: string;
   // Extended color and multi-table metadata from openpyxl parity

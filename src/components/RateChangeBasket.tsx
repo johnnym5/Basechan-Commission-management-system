@@ -8,7 +8,7 @@ type Props = {
   operations?: PendingRateOperation[];
   syncState: SyncState;
   onRetry: (id?: string) => void;
-  onDiscard?: (id: string) => void;
+  onDiscard?: (id?: string) => void;
   onResolveConflict?: (id: string, resolution: 'keep-cloud' | 'apply-local') => void;
   lastSyncedAt?: string | null;
   errorMessage?: string | null;
@@ -96,9 +96,15 @@ export const RateChangeBasket: React.FC<Props> = ({
 
   const handleDiscardClick = () => {
     if (!onDiscard) return;
-    const targetOp = failedOps[0] || operations[0];
-    if (targetOp) {
-      onDiscard(targetOp.operationId);
+    if (operations.length > 1) {
+      onDiscard();
+    } else {
+      const targetOp = failedOps[0] || operations[0];
+      if (targetOp) {
+        onDiscard(targetOp.operationId);
+      } else {
+        onDiscard();
+      }
     }
   };
 
@@ -119,7 +125,7 @@ export const RateChangeBasket: React.FC<Props> = ({
     'Rate synchronization could not connect to Firestore (Permission or Quota limitation)';
 
   return (
-    <div className="relative inline-block" ref={popoverRef}>
+    <div className="relative inline-block z-20" ref={popoverRef}>
       {/* Sync Status Button Trigger */}
       {hasFailed ? (
         <button
@@ -225,15 +231,15 @@ export const RateChangeBasket: React.FC<Props> = ({
 
           {/* Action / Retry & Discard Buttons */}
           <div className="pt-2 border-t border-[#222F43] flex flex-wrap items-center justify-end gap-2">
-            {hasFailed && onDiscard && (
+            {operations.length > 0 && onDiscard && (
               <button
                 type="button"
                 onClick={handleDiscardClick}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-extrabold text-[11px] transition shadow-xs active:scale-95 cursor-pointer"
-                title="Discard this local pending change"
+                title="Discard pending changes and restore saved version"
               >
                 <Trash2 className="w-3 h-3 text-rose-400" />
-                <span>Discard Change</span>
+                <span>{operations.length > 1 ? `Discard All (${operations.length})` : 'Discard Change'}</span>
               </button>
             )}
 

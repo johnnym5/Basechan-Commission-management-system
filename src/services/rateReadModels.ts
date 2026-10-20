@@ -140,6 +140,7 @@ export function buildStaffProjection(rate: CommissionRate): StaffRateReadModel {
     sourceSheet: rate.sourceSheet || rate.intake,
     aggregator: rate.aggregator,
     guidance: rate.guidance || 'ALLOWED',
+    ...(rate.isDefaultRoute !== undefined ? { isDefaultRoute: rate.isDefaultRoute } : {}),
     ...(rate.notes ? { notes: rate.notes } : {}),
     ...(rate.updatedAt ? { updatedAt: rate.updatedAt } : {}),
   };

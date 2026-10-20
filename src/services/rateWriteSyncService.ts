@@ -1,92 +1,133 @@
-import { doc, getDocFromServer } from 'firebase/firestore';
+import { doc, getDocFromServer, runTransaction } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { CommissionRate } from '../types';
 import type { PendingRateConflict, PendingRateMutation, PendingRateOperation } from '../types/rateWriteQueue';
 import { finishLocalRateOperation, getLocalRateOperations, updateLocalRateOperation } from './localRateDatabase';
-import { writeRateOperation, type RateWriteMutation } from './adminRateWriteService';
+import { writeRateOperation, sanitizeFirestoreData, type RateWriteMutation } from './adminRateWriteService';
 import { updatePendingRateOperation } from './rateWriteQueue';
 import { isQuotaError, isQuotaOffline } from './firestoreOfflineMode';
 
 function matchesBase(current: CommissionRate, base: Partial<CommissionRate>): boolean {
   return Object.entries(base).every(([key, value]) => current[key as keyof CommissionRate] === value);
 }
-
 function fingerprint(rate: CommissionRate): string {
   const { id: _id, ...fields } = rate;
   return JSON.stringify(fields);
 }
-
 async function readCurrent(id: string): Promise<CommissionRate | null> {
   const snapshot = await getDocFromServer(doc(db, 'rates', id));
   return snapshot.exists() ? { ...snapshot.data(), id: snapshot.id || id } as CommissionRate : null;
+}
+function stagedMutationToWrite(mutation: PendingRateMutation): RateWriteMutation {
+  if (mutation.kind === 'create') return { next: mutation.next };
+  if (mutation.kind === 'update') {
+    if (!mutation.baseSnapshot) throw new Error('This saved edit is missing its original rate snapshot.');
+    return { previous: mutation.baseSnapshot, next: { ...mutation.baseSnapshot, ...mutation.patch, id: mutation.nextId } };
+  }
+  if (!mutation.baseRate) throw new Error('This saved deletion is missing its original rate snapshot.');
+  return { previous: mutation.baseRate };
+}
+
+async function commitCanonicalPackage(operation: PendingRateOperation, packageIndex: number, staged: PendingRateMutation[]): Promise<{ mutations: RateWriteMutation[]; canonical: CommissionRate[]; conflicts: PendingRateConflict[] }> {
+  const packageRef = doc(db, 'admin_rate_operations', operation.operationId, 'canonical_packages', String(packageIndex).padStart(6, '0'));
+  return runTransaction(db, async (transaction) => {
+    const marker = await transaction.get(packageRef);
+    if (marker.exists()) {
+      const mutations = staged.map(stagedMutationToWrite);
+      return { mutations, canonical: mutations.flatMap((item) => item.next ? [item.next] : []), conflicts: [] };
+    }
+    const ids = new Set<string>();
+    staged.forEach((mutation) => {
+      if (mutation.kind === 'create') ids.add(mutation.next.id);
+      else {
+        ids.add(mutation.id);
+        if (mutation.kind === 'update' && mutation.nextId !== mutation.id) ids.add(mutation.nextId);
+      }
+    });
+    const snapshots = new Map<string, any>();
+    for (const id of ids) snapshots.set(id, await transaction.get(doc(db, 'rates', id)));
+    const currentRate = (id: string) => {
+      const snapshot = snapshots.get(id);
+      return snapshot?.exists() ? { ...snapshot.data(), id: snapshot.id || id } as CommissionRate : null;
+    };
+    const mutations: RateWriteMutation[] = [];
+    const canonical: CommissionRate[] = [];
+    const conflicts: PendingRateConflict[] = [];
+    for (let offset = 0; offset < staged.length; offset++) {
+      const mutation = staged[offset];
+      const mutationIndex = packageIndex * 100 + offset;
+      if (mutation.kind === 'create') {
+        const existing = currentRate(mutation.next.id);
+        if (existing) conflicts.push({ mutationIndex, id: existing.id, reason: 'A rate with this ID already exists in Firestore.', cloudRate: existing });
+        else { mutations.push({ next: mutation.next }); canonical.push(mutation.next); }
+      } else if (mutation.kind === 'update') {
+        const current = currentRate(mutation.id);
+        if (!current) { conflicts.push({ mutationIndex, id: mutation.id, reason: 'This rate was deleted in Firestore.' }); continue; }
+        if (!matchesBase(current, mutation.baseFields)) { conflicts.push({ mutationIndex, id: mutation.id, reason: 'One or more edited fields changed in Firestore.', cloudRate: current }); continue; }
+        const collision = mutation.nextId === mutation.id ? null : currentRate(mutation.nextId);
+        if (collision) { conflicts.push({ mutationIndex, id: mutation.nextId, reason: 'The new rate ID already exists in Firestore.', cloudRate: collision }); continue; }
+        const next = { ...current, ...mutation.patch, id: mutation.nextId };
+        mutations.push({ previous: current, next }); canonical.push(next);
+      } else {
+        const current = currentRate(mutation.id);
+        if (!current) continue;
+        if (fingerprint(current) !== mutation.baseFingerprint) { conflicts.push({ mutationIndex, id: mutation.id, reason: 'This rate changed in Firestore before it could be deleted.', cloudRate: current }); continue; }
+        mutations.push({ previous: current });
+      }
+    }
+    if (conflicts.length) return { mutations: [], canonical: [], conflicts };
+
+    const universities = new Map<string, CommissionRate>();
+    for (const mutation of mutations) {
+      const { previous, next } = mutation;
+      if (previous && (!next || previous.id !== next.id)) transaction.delete(doc(db, 'rates', previous.id));
+      if (!next) continue;
+      if (previous && previous.id === next.id) {
+        const patch = Object.fromEntries(Object.keys(next).filter((key) => previous[key as keyof CommissionRate] !== next[key as keyof CommissionRate]).map((key) => [key, next[key as keyof CommissionRate]]));
+        if (Object.keys(patch).length) transaction.update(doc(db, 'rates', next.id), sanitizeFirestoreData(patch));
+      } else transaction.set(doc(db, 'rates', next.id), sanitizeFirestoreData(next));
+      if (!previous || previous.universityId !== next.universityId || previous.universityName !== next.universityName || previous.country !== next.country) universities.set(next.universityId, next);
+    }
+    universities.forEach((rate) => transaction.set(doc(db, 'universities', rate.universityId), sanitizeFirestoreData({
+      id: rate.universityId, name: rate.universityName, lastUpdated: rate.updatedAt || new Date().toISOString(), status: 'ACTIVE',
+      ...(rate.country && rate.country !== '-' ? { country: rate.country } : {}),
+    }), { merge: true }));
+    transaction.set(packageRef, sanitizeFirestoreData({ operationId: operation.operationId, packageIndex, mutationCount: staged.length, committedAt: new Date().toISOString() }));
+    return { mutations, canonical, conflicts: [] };
+  });
 }
 
 export async function syncRateOperation(operation: PendingRateOperation): Promise<'synced' | 'conflict'> {
   await updatePendingRateOperation(operation.uid, operation.operationId, { status: 'syncing', lastError: undefined });
   try {
-    const mutations: RateWriteMutation[] = [];
+    const allMutations: RateWriteMutation[] = [];
     const canonical: CommissionRate[] = [];
     const conflicts: PendingRateConflict[] = [];
-    for (let index = 0; index < operation.mutations.length; index++) {
-      const mutation: PendingRateMutation = operation.mutations[index];
-      if (mutation.kind === 'create') {
-        const current = await readCurrent(mutation.next.id);
-        if (current) conflicts.push({ mutationIndex: index, id: current.id, reason: 'A rate with this ID already exists in Firestore.', cloudRate: current });
-        else { mutations.push({ next: mutation.next }); canonical.push(mutation.next); }
-        continue;
-      }
-      const current = await readCurrent(mutation.id);
-      if (mutation.kind === 'update') {
-        if (!current) {
-          conflicts.push({ mutationIndex: index, id: mutation.id, reason: 'This rate was deleted in Firestore.' });
-          continue;
-        }
-        if (!matchesBase(current, mutation.baseFields)) {
-          conflicts.push({ mutationIndex: index, id: mutation.id, reason: 'One or more edited fields changed in Firestore.', cloudRate: current });
-          continue;
-        }
-        if (mutation.nextId !== mutation.id) {
-          const collision = await readCurrent(mutation.nextId);
-          if (collision) {
-            conflicts.push({ mutationIndex: index, id: mutation.nextId, reason: 'The new rate ID already exists in Firestore.', cloudRate: collision });
-            continue;
-          }
-        }
-        const next = { ...current, ...mutation.patch, id: mutation.nextId };
-        mutations.push({ previous: current, next }); canonical.push(next);
-      } else {
-        if (!current) continue;
-        if (fingerprint(current) !== mutation.baseFingerprint) {
-          conflicts.push({ mutationIndex: index, id: mutation.id, reason: 'This rate changed in Firestore before it could be deleted.', cloudRate: current });
-          continue;
-        }
-        mutations.push({ previous: current });
-      }
+    for (let offset = 0; offset < operation.mutations.length; offset += 100) {
+      const result = await commitCanonicalPackage(operation, offset / 100, operation.mutations.slice(offset, offset + 100));
+      if (result.conflicts.length) { conflicts.push(...result.conflicts); break; }
+      allMutations.push(...result.mutations);
+      canonical.push(...result.canonical);
     }
     if (conflicts.length) {
       await updatePendingRateOperation(operation.uid, operation.operationId, { status: 'conflict', conflicts, lastError: 'Review cloud changes before applying this package.' });
       return 'conflict';
     }
     await writeRateOperation({
-      operationId: operation.operationId,
-      adminEmail: operation.adminEmail,
-      category: operation.category,
-      notify: operation.notify,
-      mutations,
+      operationId: operation.operationId, adminEmail: operation.adminEmail, category: operation.category,
+      notify: operation.notify, mutations: allMutations, canonicalAlreadyCommitted: true,
     });
     await finishLocalRateOperation(operation.uid, operation.operationId, canonical);
     return 'synced';
   } catch (error) {
     const quota = isQuotaError(error) || isQuotaOffline(operation.uid);
     await updatePendingRateOperation(operation.uid, operation.operationId, {
-      status: quota ? 'quota-paused' : 'failed',
-      attemptCount: operation.attemptCount + 1,
+      status: quota ? 'quota-paused' : 'failed', attemptCount: operation.attemptCount + 1,
       lastError: error instanceof Error ? error.message : 'The change could not be synced.',
     });
     throw error;
   }
 }
-
 
 export async function resolveRateOperationConflict(
   uid: string,
@@ -119,4 +160,3 @@ export async function resolveRateOperationConflict(
     lastError: undefined,
   });
 }
-

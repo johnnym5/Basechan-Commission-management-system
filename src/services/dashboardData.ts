@@ -32,9 +32,9 @@ export function buildDashboardRates(role: UserRole, rates: CommissionRate[]): Da
       singleRoutes.push(ratesForKey[0]);
       return;
     }
-    const focusRate = ratesForKey.find((r) => r.guidance === 'FOCUS');
-    if (focusRate) {
-      singleRoutes.push(focusRate);
+    const adminDefault = ratesForKey.find((r) => r.isDefaultRoute === true) || ratesForKey.find((r) => r.guidance === 'FOCUS');
+    if (adminDefault) {
+      singleRoutes.push(adminDefault);
     } else {
       const topYield = ratesForKey.reduce((best, curr) => (curr.diffMargin > best.diffMargin ? curr : best), ratesForKey[0]);
       singleRoutes.push(topYield);

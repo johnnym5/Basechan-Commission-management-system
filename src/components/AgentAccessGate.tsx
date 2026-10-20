@@ -5,7 +5,7 @@ import {
   requestOrganizationAccess,
   subscribeToOrganizations,
 } from '../services/accessRequestService';
-import { AlertTriangle, Building2, Clock3, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Building2, Clock3, ShieldCheck } from 'lucide-react';
 
 interface OrganizationChoice {
   organizationId?: string;
@@ -145,7 +145,7 @@ const StatusMessage: React.FC<{ access: UserAccess; request: AgentAccessRequest 
 };
 
 export const AgentAccessGate: React.FC = () => {
-  const { user, access, accessRequest } = useAuth();
+  const { user, access, accessRequest, signOut } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loadingOrganizations, setLoadingOrganizations] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -190,6 +190,18 @@ export const AgentAccessGate: React.FC = () => {
   return (
     <main className="min-h-screen bg-[#FDFBF7] px-4 py-8 text-slate-900">
       <div className="mx-auto w-full max-w-xl">
+        <div className="mb-6 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            aria-label="Back to login"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs transition hover:bg-slate-100 hover:text-slate-900 cursor-pointer active:scale-95"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back to login</span>
+          </button>
+        </div>
+
         <header className="mb-6 flex items-center gap-3">
           <div className="rounded-xl bg-amber-100 p-3 text-amber-800"><Building2 className="h-6 w-6" /></div>
           <div>

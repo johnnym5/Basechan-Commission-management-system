@@ -130,7 +130,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const syncUserData = async (currentUser: User): Promise<SyncResult> => {
     const email = currentUser.email || '';
-    const normalizedEmail = email.trim().toLowerCase();
     const fallbackAccess = resolveUserAccess({ email, emailVerified: currentUser.emailVerified });
     if (!navigator.onLine || isQuotaOffline(currentUser.uid)) return resolveCachedAccess(currentUser);
     try {
@@ -282,7 +281,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!stillAdmin) revokeCachedAdminAccess();
       },
       (err) => {
-        if (err.code === 'permission-denied' || err.code === 'firestore/permission-denied') {
+        if (err.code === 'permission-denied') {
           revokeCachedAdminAccess();
         } else {
           console.error('Error listening to Admin membership:', err);

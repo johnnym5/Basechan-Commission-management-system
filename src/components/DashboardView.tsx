@@ -40,7 +40,7 @@ interface DashboardViewProps {
   pendingOperations?: PendingRateOperation[];
   syncState?: 'idle' | 'syncing' | 'offline' | 'quota-paused';
   onRetryPending?: (id?: string) => void;
-  onDiscardPending?: (id: string) => void;
+  onDiscardPending?: (id?: string) => void;
   onResolvePendingConflict?: (id: string, resolution: 'keep-cloud' | 'apply-local') => void;
   lastSyncedAt?: string | null;
   errorMessage?: string | null;

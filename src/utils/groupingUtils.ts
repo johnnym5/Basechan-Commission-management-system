@@ -60,7 +60,8 @@ export const normalizeUniversityName = (name: string): string => {
 export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversity[] => {
   const map = new Map<string, CommissionRate[]>();
 
-  rates.forEach((rate) => {
+  (rates || []).forEach((rate) => {
+    if (!rate || typeof rate !== 'object') return;
     const groupKey = buildUniversityGroupKey(rate, rates);
     if (!map.has(groupKey)) {
       map.set(groupKey, []);
@@ -71,26 +72,32 @@ export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversi
   const groupedList: GroupedUniversity[] = [];
 
   map.forEach((items, groupKey) => {
-    // Pick cleanest display name (prefer longer official title)
-    const displayName = items.reduce((prev, curr) =>
-      curr.universityName.length > prev.universityName.length ? curr : prev
-    , items[0]).universityName;
+    if (!items || items.length === 0) return;
+    const validItems = items.filter((item) => item && typeof item.universityName === 'string');
+    if (validItems.length === 0) return;
 
-    const country = items.find((i) => i.country)?.country || resolveUniversityCountry(displayName, undefined, items);
+    // Pick cleanest display name (prefer longer official title)
+    const displayName = validItems.reduce((prev, curr) => {
+      const prevLen = prev?.universityName?.length || 0;
+      const currLen = curr?.universityName?.length || 0;
+      return currLen > prevLen ? curr : prev;
+    }, validItems[0])?.universityName || 'Unknown Institution';
+
+    const country = validItems.find((i) => i.country)?.country || resolveUniversityCountry(displayName, undefined, validItems);
 
     // Find best yielding route strictly among comparable rates
-    const { bestRate } = findBestComparableRate(items);
+    const { bestRate } = findBestComparableRate(validItems);
     const maxMargin = bestRate && typeof bestRate.diffMargin === 'number' && isFinite(bestRate.diffMargin) ? bestRate.diffMargin : 0;
 
     // Collect unique study levels & aggregators
-    const studyLevels = Array.from(new Set(items.map((i) => i.studyLevel))).sort() as StudyLevel[];
-    const aggregators = Array.from(new Set(items.map((i) => i.aggregator))).sort();
+    const studyLevels = Array.from(new Set(validItems.map((i) => i.studyLevel).filter(Boolean))).sort() as StudyLevel[];
+    const aggregators = Array.from(new Set(validItems.map((i) => i.aggregator).filter(Boolean))).sort();
 
     // Determine aggregate guidance status (FOCUS > ALLOWED > DO_NOT_USE)
     let guidance: SchoolGuidance = 'ALLOWED';
-    if (items.some((i) => i.guidance === 'FOCUS')) {
+    if (validItems.some((i) => i.guidance === 'FOCUS')) {
       guidance = 'FOCUS';
-    } else if (items.every((i) => i.guidance === 'DO_NOT_USE')) {
+    } else if (validItems.every((i) => i.guidance === 'DO_NOT_USE')) {
       guidance = 'DO_NOT_USE';
     }
 
@@ -98,8 +105,8 @@ export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversi
       groupKey,
       displayName,
       country,
-      rates: items,
-      totalRoutes: items.length,
+      rates: validItems,
+      totalRoutes: validItems.length,
       bestRoute: bestRate,
       maxMargin,
       studyLevels,
@@ -167,20 +174,21 @@ export const sortGroupedUniversities = (
   sortMode: GroupSortMode
 ): GroupedUniversity[] => {
   return [...groups].sort((a, b) => {
+    if (!a || !b) return 0;
     if (sortMode === 'MOST_ROUTES') {
-      if (b.totalRoutes !== a.totalRoutes) {
-        return b.totalRoutes - a.totalRoutes;
+      if ((b.totalRoutes || 0) !== (a.totalRoutes || 0)) {
+        return (b.totalRoutes || 0) - (a.totalRoutes || 0);
       }
-      return b.maxMargin - a.maxMargin;
+      return (b.maxMargin || 0) - (a.maxMargin || 0);
     }
     if (sortMode === 'HIGHEST_MARGIN') {
-      if (b.maxMargin !== a.maxMargin) {
-        return b.maxMargin - a.maxMargin;
+      if ((b.maxMargin || 0) !== (a.maxMargin || 0)) {
+        return (b.maxMargin || 0) - (a.maxMargin || 0);
       }
-      return b.totalRoutes - a.totalRoutes;
+      return (b.totalRoutes || 0) - (a.totalRoutes || 0);
     }
     // ALPHABETICAL
-    return a.displayName.localeCompare(b.displayName);
+    return String(a.displayName || '').localeCompare(String(b.displayName || ''));
   });
 };
 
