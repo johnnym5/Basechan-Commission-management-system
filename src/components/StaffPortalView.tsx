@@ -249,12 +249,20 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ rates, chatMod
 
     const authorized: CommissionRate[] = [];
     map.forEach((ratesForKey) => {
-      const focusRate = ratesForKey.find((r) => r.guidance === 'FOCUS');
-      if (focusRate) {
-        authorized.push(focusRate);
+      // 1. Admin explicit default route takes top priority
+      const defaultRoute = ratesForKey.find((r) => r.isDefaultRoute === true);
+      if (defaultRoute) {
+        authorized.push(defaultRoute);
       } else {
-        const topYield = ratesForKey.reduce((best, curr) => (curr.diffMargin > best.diffMargin ? curr : best), ratesForKey[0]);
-        authorized.push(topYield);
+        // 2. Fall back to FOCUS guidance
+        const focusRate = ratesForKey.find((r) => r.guidance === 'FOCUS');
+        if (focusRate) {
+          authorized.push(focusRate);
+        } else {
+          // 3. Fall back to highest margin yield
+          const topYield = ratesForKey.reduce((best, curr) => (curr.diffMargin > best.diffMargin ? curr : best), ratesForKey[0]);
+          authorized.push(topYield);
+        }
       }
     });
 
