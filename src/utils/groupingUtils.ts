@@ -33,13 +33,27 @@ export const resolveUniversityCountry = (
 };
 
 // Collision-resistant normalization for grouping key (keeps country / stable ID if available)
-export const buildUniversityGroupKey = (rate: CommissionRate, allRates: CommissionRate[]): string => {
+export const buildUniversityGroupKey = (rate: CommissionRate, allRates: CommissionRate[] = []): string => {
+  const normName = normalizeUniversityName(rate.universityName || '');
+  const country = resolveUniversityCountry(rate.universityName || '', rate.country, allRates).toLowerCase();
+
+  if (allRates && allRates.length > 0) {
+    const match = allRates.find((r) =>
+      Boolean(r.universityName) &&
+      normalizeUniversityName(r.universityName) === normName &&
+      resolveUniversityCountry(r.universityName, r.country, allRates).toLowerCase() === country &&
+      Boolean(r.universityId && r.universityId.trim())
+    );
+    if (match && match.universityId) {
+      return match.universityId.trim().toLowerCase();
+    }
+  }
+
   if (rate.universityId && rate.universityId.trim()) {
     return rate.universityId.trim().toLowerCase();
   }
-  const normName = normalizeUniversityName(rate.universityName);
-  const country = resolveUniversityCountry(rate.universityName, rate.country, allRates);
-  return `${normName}__${country.toLowerCase()}`;
+
+  return `${normName}__${country}`;
 };
 
 // Normalize school names so "University of Leicester" & "Leicester University" group together without collapsing different schools

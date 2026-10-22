@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveUniversityCountry, groupRatesByCountry, isHistoricalIntake } from './groupingUtils';
+import { resolveUniversityCountry, groupRatesByCountry, groupRatesByUniversity, isHistoricalIntake } from './groupingUtils';
 import type { CommissionRate } from '../types';
 
 const mockRates: CommissionRate[] = [
@@ -24,6 +24,19 @@ describe('groupingUtils - Country Resolution', () => {
     expect(countryNames).toContain('Canada');
     expect(countryNames).toContain('UK');
     expect(countryNames).toContain('Australia');
+  });
+
+  it('groups rates for the same school into a single card even if universityIds differ', () => {
+    const ratesWithMismatchedIds: CommissionRate[] = [
+      { id: '1', universityId: 'alexander_college', universityName: 'Alexander College', country: 'Canada', intake: 'Sept 2026', studyLevel: 'UG', aggregator: 'SI-UK', masterRate: 20, agentRate: 10, diffMargin: 10, isFlatFee: false, netOrGross: 'GROSS' },
+      { id: '2', universityId: 'alexander_college', universityName: 'Alexander College', country: 'Canada', intake: 'Sept 2026', studyLevel: 'PG', aggregator: 'SI-UK', masterRate: 20, agentRate: 10, diffMargin: 10, isFlatFee: false, netOrGross: 'GROSS' },
+      { id: '3', universityId: 'alexander_college', universityName: 'Alexander College', country: 'Canada', intake: 'Jan 2026', studyLevel: 'UG', aggregator: 'Edvoy', masterRate: 20, agentRate: 10, diffMargin: 10, isFlatFee: false, netOrGross: 'GROSS' },
+      { id: '4', universityId: 'alexander', universityName: 'Alexander College', country: 'Canada', intake: 'Jan 2026', studyLevel: 'PG', aggregator: 'Edvoy', masterRate: 20, agentRate: 10, diffMargin: 10, isFlatFee: false, netOrGross: 'GROSS' },
+    ];
+    const grouped = groupRatesByUniversity(ratesWithMismatchedIds);
+    expect(grouped.length).toBe(1);
+    expect(grouped[0].displayName).toBe('Alexander College');
+    expect(grouped[0].totalRoutes).toBe(4);
   });
 
   describe('isHistoricalIntake', () => {

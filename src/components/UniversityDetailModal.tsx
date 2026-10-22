@@ -233,9 +233,11 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
 
     const id = generateCompositeId(uni, intake, agg, newRouteLevel);
 
+    const existingUniId = ratesForUniversity.find((r) => Boolean(r.universityId && r.universityId.trim()))?.universityId || normalizeUniversitySlug(uni);
+
     const newRate: CommissionRate = {
       id,
-      universityId: normalizeUniversitySlug(uni),
+      universityId: existingUniId,
       universityName: uni,
       country: resolvedData.country || 'United Kingdom',
       intake,
