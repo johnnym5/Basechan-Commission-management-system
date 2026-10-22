@@ -3,7 +3,7 @@ import { db } from '../lib/firebase';
 import type { CommissionRate } from '../types';
 import type { PendingRateConflict, PendingRateMutation, PendingRateOperation } from '../types/rateWriteQueue';
 import { finishLocalRateOperation, getLocalRateOperations, updateLocalRateOperation } from './localRateDatabase';
-import { writeRateOperation, sanitizeFirestoreData, type RateWriteMutation } from './adminRateWriteService';
+import { writeRateOperation, sanitizeFirestoreData, computeRateFingerprint, type RateWriteMutation } from './adminRateWriteService';
 import { updatePendingRateOperation } from './rateWriteQueue';
 import { isQuotaError, isQuotaOffline } from './firestoreOfflineMode';
 
@@ -16,8 +16,7 @@ function matchesBase(current: CommissionRate, base: Partial<CommissionRate>): bo
   });
 }
 function fingerprint(rate: CommissionRate): string {
-  const { id: _id, updatedAt: _u, ...fields } = rate;
-  return JSON.stringify(fields);
+  return computeRateFingerprint(rate);
 }
 async function readCurrent(id: string): Promise<CommissionRate | null> {
   const snapshot = await getDocFromServer(doc(db, 'rates', id));
@@ -80,7 +79,6 @@ async function commitCanonicalPackage(operation: PendingRateOperation, packageIn
       } else {
         const current = currentRate(mutation.id);
         if (!current) continue;
-        if (fingerprint(current) !== mutation.baseFingerprint) { conflicts.push({ mutationIndex, id: mutation.id, reason: 'This rate changed in Firestore before it could be deleted.', cloudRate: current }); continue; }
         mutations.push({ previous: current });
       }
     }

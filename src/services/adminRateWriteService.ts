@@ -397,6 +397,18 @@ function changedFields(previous: CommissionRate, next: CommissionRate): Partial<
   return patch;
 }
 
+export function computeRateFingerprint(rate: CommissionRate): string {
+  if (!rate) return '';
+  const { id: _id, updatedAt: _u, lastUpdated: _l, sourceRow: _sr, ...fields } = rate;
+  const sortedKeys = Object.keys(fields).sort();
+  const sortedObj: Record<string, unknown> = {};
+  sortedKeys.forEach((key) => {
+    const val = (fields as Record<string, unknown>)[key];
+    if (val !== undefined) sortedObj[key] = val;
+  });
+  return JSON.stringify(sortedObj);
+}
+
 function queueMutation(mutation: RateWriteMutation): PendingRateMutation {
   if (!mutation.previous && mutation.next) return { kind: 'create', next: mutation.next };
   if (mutation.previous && mutation.next) {
@@ -404,8 +416,7 @@ function queueMutation(mutation: RateWriteMutation): PendingRateMutation {
       patch: changedFields(mutation.previous, mutation.next), baseFields: changedFields(mutation.next, mutation.previous), baseSnapshot: mutation.previous };
   }
   if (mutation.previous) {
-    const { id, ...base } = mutation.previous;
-    return { kind: 'delete', id, baseFingerprint: JSON.stringify(base), baseRate: mutation.previous };
+    return { kind: 'delete', id: mutation.previous.id, baseFingerprint: computeRateFingerprint(mutation.previous), baseRate: mutation.previous };
   }
   throw new Error('A rate change needs a create, update, or delete value.');
 }

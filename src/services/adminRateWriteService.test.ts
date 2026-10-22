@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CommissionRate } from '../types';
-import { buildRateFieldPatch, buildRateWriteNotice } from './adminRateWriteService';
+import { buildRateFieldPatch, buildRateWriteNotice, computeRateFingerprint } from './adminRateWriteService';
 
 const rate = (id: string, universityId: string, universityName: string): CommissionRate => ({
   id,
@@ -42,5 +42,11 @@ describe('compact canonical rate patches', () => {
     const before = rate('same-id', 'uni', 'University');
     const after = { ...before, guidance: 'ALLOWED' as const, updatedAt: 'now' };
     expect(buildRateFieldPatch(before, after)).toEqual({ guidance: 'ALLOWED', updatedAt: 'now' });
+  });
+
+  it('produces deterministic rate fingerprints ignoring volatile timestamps and key order', () => {
+    const rateA: CommissionRate = { ...rate('id1', 'u1', 'Uni'), updatedAt: '2026-03-31T10:00:00.000Z' };
+    const rateB: CommissionRate = { ...rate('id1', 'u1', 'Uni'), updatedAt: '2026-03-31T12:34:56.789Z' };
+    expect(computeRateFingerprint(rateA)).toBe(computeRateFingerprint(rateB));
   });
 });
