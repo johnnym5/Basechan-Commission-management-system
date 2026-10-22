@@ -134,6 +134,8 @@ export interface UserUpdate {
   type: 'rates' | 'guidance' | 'intake' | 'routing' | 'access';
   createdAt: string;
   isRead: boolean;
+  universityId?: string;
+  universityName?: string;
   changedSchoolCount?: number;
   affectedSchoolIds?: string[];
 }

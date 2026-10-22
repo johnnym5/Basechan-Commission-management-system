@@ -93,15 +93,30 @@ export function buildUserUpdateNotice(
   if (change.type !== 'access' && visibleRates.length === 0) return undefined;
   const content = buildUpdateNoticeContent({ ...change, rates: visibleRates });
   const operationId = change.operationId || stableId();
+
+  const uniqueSchoolNames = Array.from(new Set(visibleRates.map((r) => r.universityName).filter(Boolean)));
+  const uniqueSchoolIds = Array.from(new Set(visibleRates.map((r) => r.universityId).filter(Boolean)));
+
+  let formattedTitle = change.title;
+  if (uniqueSchoolNames.length === 1) {
+    const schoolName = uniqueSchoolNames[0];
+    if (change.type === 'rates') formattedTitle = `New rate update for ${schoolName}`;
+    else if (change.type === 'intake') formattedTitle = `New intake update for ${schoolName}`;
+    else if (change.type === 'routing') formattedTitle = `New route update for ${schoolName}`;
+    else if (change.type === 'guidance') formattedTitle = `New guidance update for ${schoolName}`;
+  }
+
   return {
     id: `${operationId}-${recipient.uid}`,
-    title: change.title,
+    title: formattedTitle,
     summary: content.summary,
     type: change.type,
     createdAt,
     isRead: false,
     changedSchoolCount: content.changedSchoolCount,
     affectedSchoolIds: content.affectedSchoolIds,
+    universityId: uniqueSchoolIds.length === 1 ? uniqueSchoolIds[0] : undefined,
+    universityName: uniqueSchoolNames.length === 1 ? uniqueSchoolNames[0] : undefined,
   };
 }
 

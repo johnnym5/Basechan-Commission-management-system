@@ -52,6 +52,18 @@ describe('role-safe update fanout', () => {
     expect(JSON.stringify(agent)).not.toMatch(/agentRate|masterRate|diffMargin|aggregator|Private Route/);
     expect(JSON.stringify(staff)).not.toMatch(/agentRate|masterRate|diffMargin|aggregator|Private Route/);
   });
+
+  it('formats per-school title and populates universityId and universityName for single school updates', () => {
+    const singleSchoolRates: CommissionRate[] = [
+      { id: 'rate-1', universityId: 'uni-aberdeen', universityName: 'University of Aberdeen', intake: 'Jan 2026', sourceSheet: 'Public', studyLevel: 'PG', aggregator: 'SI-UK', masterRate: 20, agentRate: 12, diffMargin: 8, isFlatFee: false, netOrGross: 'GROSS' },
+    ];
+    const change = { type: 'rates' as const, title: 'Commission rates updated', summary: 'Commission rate information was updated.', rates: singleSchoolRates, operationId: 'op-1' };
+    const notice = buildUserUpdateNotice(change, { uid: 'agent-1', email: 'agent@example.com', role: 'AGENT' }, {});
+    expect(notice).toBeDefined();
+    expect(notice?.title).toBe('New rate update for University of Aberdeen');
+    expect(notice?.universityId).toBe('uni-aberdeen');
+    expect(notice?.universityName).toBe('University of Aberdeen');
+  });
 });
 
 describe('getFavoriteSchoolUpdates', () => {
