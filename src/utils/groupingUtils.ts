@@ -87,7 +87,12 @@ export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversi
 
   map.forEach((items, groupKey) => {
     if (!items || items.length === 0) return;
-    const validItems = items.filter((item) => item && typeof item.universityName === 'string');
+    const validItems = items.filter((item) => {
+      if (!item || typeof item.universityName !== 'string') return false;
+      const master = typeof item.masterRate === 'number' ? item.masterRate : 0;
+      const agent = typeof item.agentRate === 'number' ? item.agentRate : 0;
+      return master > 0 || agent > 0;
+    });
     if (validItems.length === 0) return;
 
     // Pick cleanest display name (prefer longer official title)

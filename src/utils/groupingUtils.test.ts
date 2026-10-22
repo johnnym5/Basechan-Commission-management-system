@@ -39,6 +39,17 @@ describe('groupingUtils - Country Resolution', () => {
     expect(grouped[0].totalRoutes).toBe(4);
   });
 
+  it('excludes 0-value rates from active routes count', () => {
+    const ratesWithZeroValue: CommissionRate[] = [
+      { id: '1', universityId: 'u1', universityName: 'Active Uni', country: 'UK', intake: 'Sept 2026', studyLevel: 'UG', aggregator: 'SI-UK', masterRate: 15, agentRate: 10, diffMargin: 5, isFlatFee: false, netOrGross: 'GROSS' },
+      { id: '2', universityId: 'u1', universityName: 'Active Uni', country: 'UK', intake: 'Sept 2026', studyLevel: 'PG', aggregator: 'Edvoy', masterRate: 0, agentRate: 0, diffMargin: 0, isFlatFee: false, netOrGross: 'GROSS' },
+    ];
+    const grouped = groupRatesByUniversity(ratesWithZeroValue);
+    expect(grouped.length).toBe(1);
+    expect(grouped[0].totalRoutes).toBe(1);
+    expect(grouped[0].rates.map((r) => r.id)).toEqual(['1']);
+  });
+
   describe('isHistoricalIntake', () => {
     // Pass referenceMonth=8 (August) so these tests are deterministic regardless of
     // which real-world month they run in. Sept 2026 with referenceMonth=8 is future
