@@ -149,7 +149,7 @@ export const AddRateModal: React.FC<AddRateModalProps> = ({
     setIsSubmitting(true);
     setError('');
 
-    const existingUniId = rates.find((r) => r.universityName.trim().toLowerCase() === universityName.trim().toLowerCase() && Boolean(r.universityId && r.universityId.trim()))?.universityId || normalizeUniversitySlug(universityName);
+    const existingUniId = existingRates.find((r) => r.universityName.trim().toLowerCase() === universityName.trim().toLowerCase() && Boolean(r.universityId && r.universityId.trim()))?.universityId || normalizeUniversitySlug(universityName);
 
     const newRate: CommissionRate = {
       id: compositeId,

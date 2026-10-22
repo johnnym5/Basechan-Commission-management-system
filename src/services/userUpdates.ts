@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { AgentAccessRequest, CommissionRate, UserUpdate } from '../types';
 import { resolveUserAccess } from './accessPolicy';

@@ -399,7 +399,7 @@ function changedFields(previous: CommissionRate, next: CommissionRate): Partial<
 
 export function computeRateFingerprint(rate: CommissionRate): string {
   if (!rate) return '';
-  const { id: _id, updatedAt: _u, lastUpdated: _l, sourceRow: _sr, ...fields } = rate;
+  const { id: _id, updatedAt: _u, sourceRow: _sr, ...fields } = rate as CommissionRate & { lastUpdated?: string };
   const sortedKeys = Object.keys(fields).sort();
   const sortedObj: Record<string, unknown> = {};
   sortedKeys.forEach((key) => {
