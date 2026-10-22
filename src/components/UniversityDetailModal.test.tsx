@@ -105,4 +105,93 @@ describe('UniversityDetailModal - Add Route', () => {
     expect(screen.getByText(/already exists in this intake/i)).toBeInTheDocument();
     expect(onAddRoute).not.toHaveBeenCalled();
   });
+
+  it('correctly resolves and displays master rates when ratesForUniversity contains active master rate with 0 agent rate', () => {
+    const ratesWithActiveMaster: CommissionRate[] = [
+      {
+        id: 'alexander__2026__basechan__ug',
+        universityId: 'alexander',
+        universityName: 'Alexander College',
+        country: 'Canada',
+        intake: '2026 SI-UK',
+        aggregator: 'BASECHAN',
+        studyLevel: 'UG',
+        masterRate: 20,
+        agentRate: 10,
+        diffMargin: 10,
+        isFlatFee: false,
+        netOrGross: 'GROSS',
+      },
+      {
+        id: 'alexander__2026__basechan__pg',
+        universityId: 'alexander',
+        universityName: 'Alexander College',
+        country: 'Canada',
+        intake: '2026 SI-UK',
+        aggregator: 'BASECHAN',
+        studyLevel: 'PG',
+        masterRate: 15,
+        agentRate: 0,
+        diffMargin: 15,
+        isFlatFee: false,
+        netOrGross: 'GROSS',
+      },
+    ];
+
+    render(
+      <UniversityDetailModal
+        isOpen={true}
+        onClose={vi.fn()}
+        ratesForUniversity={ratesWithActiveMaster}
+        universityName="Alexander College"
+      />
+    );
+
+    expect(screen.getByText('20%')).toBeInTheDocument();
+    expect(screen.getByText('15%')).toBeInTheDocument();
+  });
+
+  it('picks active master rate even if a 0-value rate record comes first in ratesForUniversity array', () => {
+    const ratesWith0First: CommissionRate[] = [
+      {
+        id: 'alexander__old__basechan__pg',
+        universityId: 'alexander',
+        universityName: 'Alexander College',
+        country: 'Canada',
+        intake: '2026 SI-UK',
+        aggregator: 'BASECHAN',
+        studyLevel: 'PG',
+        masterRate: 0,
+        agentRate: 0,
+        diffMargin: 0,
+        isFlatFee: false,
+        netOrGross: 'GROSS',
+      },
+      {
+        id: 'alexander__new__basechan__pg',
+        universityId: 'alexander',
+        universityName: 'Alexander College',
+        country: 'Canada',
+        intake: '2026 SI-UK',
+        aggregator: 'BASECHAN',
+        studyLevel: 'PG',
+        masterRate: 15,
+        agentRate: 0,
+        diffMargin: 15,
+        isFlatFee: false,
+        netOrGross: 'GROSS',
+      },
+    ];
+
+    render(
+      <UniversityDetailModal
+        isOpen={true}
+        onClose={vi.fn()}
+        ratesForUniversity={ratesWith0First}
+        universityName="Alexander College"
+      />
+    );
+
+    expect(screen.getByText('15%')).toBeInTheDocument();
+  });
 });

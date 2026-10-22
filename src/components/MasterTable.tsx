@@ -1166,13 +1166,26 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
     const mutations: RateWriteMutation[] = [];
 
+    const findExistingRate = (agg: string, level: StudyLevel) => {
+      const normUni = uniName.trim().toLowerCase();
+      const normAgg = agg.trim().toLowerCase();
+      const id = generateCompositeId(uniName, targetIntake, agg, level);
+      return (
+        data.find((r) => r.id === id) ||
+        data.find((r) => r.universityName.trim().toLowerCase() === normUni && r.aggregator.trim().toLowerCase() === normAgg && r.studyLevel === level && r.intake === targetIntake) ||
+        data.find((r) => r.universityName.trim().toLowerCase() === normUni && r.aggregator.trim().toLowerCase() === normAgg && r.studyLevel === level)
+      );
+    };
+
+    const existingUniId = data.find((r) => r.universityName.trim().toLowerCase() === uniName.trim().toLowerCase() && Boolean(r.universityId && r.universityId.trim()))?.universityId || normalizeUniversitySlug(uniName);
+
     // FD Basechan route
     if (fdAgent > 0) {
-      const id = generateCompositeId(uniName, targetIntake, 'BASECHAN', 'FD');
-      const existing = data.find((r) => r.id === id || (r.universityName === uniName && r.intake === targetIntake && r.aggregator === 'BASECHAN' && r.studyLevel === 'FD'));
+      const existing = findExistingRate('BASECHAN', 'FD');
+      const id = existing?.id || generateCompositeId(uniName, targetIntake, 'BASECHAN', 'FD');
       const nextRate: CommissionRate = {
-        id: existing?.id || id,
-        universityId: normalizeUniversitySlug(uniName),
+        id,
+        universityId: existingUniId,
         universityName: uniName,
         country,
         intake: targetIntake,
@@ -1197,16 +1210,16 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       // UG Level
       const ugIncoming = isBasechan ? ugMasterDirect : parseRateNumber(ugRaw);
       if (ugIncoming > 0 || (isBasechan && ugAgent > 0)) {
-        const id = generateCompositeId(uniName, targetIntake, aggregator, 'UG');
-        const existing = data.find((r) => r.id === id || (r.universityName === uniName && r.intake === targetIntake && r.aggregator.toUpperCase() === aggregator && r.studyLevel === 'UG'));
+        const existing = findExistingRate(aggregator, 'UG');
+        const id = existing?.id || generateCompositeId(uniName, targetIntake, aggregator, 'UG');
         const isDefault = aggregator.includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && aggregator === 'Direct');
         const masterRate = isBasechan ? (ugMasterDirect > 0 ? ugMasterDirect : ugAgent) : ugIncoming;
         const agentRate = ugAgent;
         const diffMargin = Number((masterRate - agentRate).toFixed(2));
 
         const nextRate: CommissionRate = {
-          id: existing?.id || id,
-          universityId: normalizeUniversitySlug(uniName),
+          id,
+          universityId: existingUniId,
           universityName: uniName,
           country,
           intake: targetIntake,
@@ -1227,16 +1240,16 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       // PG Level
       const pgIncoming = isBasechan ? pgMasterDirect : parseRateNumber(pgRaw);
       if (pgIncoming > 0 || (isBasechan && pgAgent > 0)) {
-        const id = generateCompositeId(uniName, targetIntake, aggregator, 'PG');
-        const existing = data.find((r) => r.id === id || (r.universityName === uniName && r.intake === targetIntake && r.aggregator.toUpperCase() === aggregator && r.studyLevel === 'PG'));
+        const existing = findExistingRate(aggregator, 'PG');
+        const id = existing?.id || generateCompositeId(uniName, targetIntake, aggregator, 'PG');
         const isDefault = aggregator.includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && aggregator === 'Direct');
         const masterRate = isBasechan ? (pgMasterDirect > 0 ? pgMasterDirect : pgAgent) : pgIncoming;
         const agentRate = pgAgent;
         const diffMargin = Number((masterRate - agentRate).toFixed(2));
 
         const nextRate: CommissionRate = {
-          id: existing?.id || id,
-          universityId: normalizeUniversitySlug(uniName),
+          id,
+          universityId: existingUniId,
           universityName: uniName,
           country,
           intake: targetIntake,

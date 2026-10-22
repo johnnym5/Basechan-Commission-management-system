@@ -101,12 +101,18 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
     const defaultRoute = defaultMatch ? defaultMatch.aggregator : (focusMatch ? focusMatch.aggregator : ratesForUniversity[0]?.aggregator || 'BASECHAN');
 
     const getRate = (agg: string, level: string, isMaster = false): string => {
-      const match = ratesForUniversity.find(
+      const matches = ratesForUniversity.filter(
         (r) =>
           (r.aggregator || '').toUpperCase() === agg.toUpperCase() &&
           r.studyLevel === level
       );
-      if (!match) return '-';
+      if (!matches.length) return '-';
+
+      const match =
+        matches.find((r) => isMaster ? (r.masterRate || 0) > 0 : (r.agentRate || 0) > 0) ||
+        matches.find((r) => r.intake === intake) ||
+        matches[0];
+
       const val = isMaster ? match.masterRate : match.agentRate;
       if (!val) return '-';
       return match.isFlatFee ? `£${val}` : `${val}%`;
