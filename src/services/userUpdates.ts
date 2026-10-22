@@ -138,6 +138,22 @@ export function getFavoriteSchoolUpdates(updates: UserUpdate[], favoriteSchoolId
   });
 }
 
+export function splitChangeBySchool(change: UpdateChange): UpdateChange[] {
+  if (!change.rates || change.rates.length <= 1) return [change];
+  const ratesBySchool = new Map<string, CommissionRate[]>();
+  change.rates.forEach((rate) => {
+    const key = rate.universityId || 'general';
+    if (!ratesBySchool.has(key)) ratesBySchool.set(key, []);
+    ratesBySchool.get(key)!.push(rate);
+  });
+  if (ratesBySchool.size <= 1) return [change];
+  return Array.from(ratesBySchool.entries()).map(([schoolId, schoolRates]) => ({
+    ...change,
+    rates: schoolRates,
+    operationId: `${change.operationId || stableId()}-${schoolId}`,
+  }));
+}
+
 export async function publishRelevantUpdates(change: UpdateChange): Promise<PublishUpdateResult> {
   assertFirestoreWritesAllowed('Activity updates');
   let requestSnapshot, usersSnapshot, settingsSnapshot;
@@ -163,33 +179,26 @@ export async function publishRelevantUpdates(change: UpdateChange): Promise<Publ
   const recipients = selectUpdateRecipients(change, users, requests);
   const id = change.operationId || stableId();
   const createdAt = new Date().toISOString();
+  const schoolChanges = splitChangeBySchool({ ...change, operationId: id });
   let createdCount = 0;
   let alreadyPublishedCount = 0;
   let filteredCount = 0;
+
   for (let offset = 0; offset < recipients.length; offset += 350) {
     const chunk = recipients.slice(offset, offset + 350);
-    let newRecipients;
-    try {
-      newRecipients = await Promise.all(chunk.map(async (recipient) => {
-        const noticeRef = doc(db, 'users', recipient.uid, 'updates', `${id}-${recipient.uid}`);
-        return (await getDoc(noticeRef)).exists() ? { recipient, noticeRef, alreadyPublished: true } : { recipient, noticeRef, alreadyPublished: false };
-      }));
-    } catch (checkErr) {
-      console.error('[publishRelevantUpdates notice check getDoc error]:', checkErr);
-      throw checkErr;
-    }
     const batch = writeBatch(db);
-    for (const entry of newRecipients) {
-      if (entry.alreadyPublished) {
-        alreadyPublishedCount++;
-        continue;
+    for (const subChange of schoolChanges) {
+      const subId = subChange.operationId || id;
+      for (const recipient of chunk) {
+        const noticeRef = doc(db, 'users', recipient.uid, 'updates', `${subId}-${recipient.uid}`);
+        const notice = buildUserUpdateNotice({ ...subChange, operationId: subId }, recipient, hiddenByRole, createdAt);
+        if (notice) {
+          batch.set(noticeRef, notice);
+          createdCount++;
+        } else {
+          filteredCount++;
+        }
       }
-      const { recipient, noticeRef } = entry;
-      const notice = buildUserUpdateNotice({ ...change, operationId: id }, recipient, hiddenByRole, createdAt);
-      if (notice) {
-        batch.set(noticeRef, notice);
-        createdCount++;
-      } else filteredCount++;
     }
     try {
       await batch.commit();

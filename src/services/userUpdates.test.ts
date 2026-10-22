@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CommissionRate, UserUpdate } from '../types';
-import { buildUserUpdateNotice, filterUpdateRatesForRole, getFavoriteSchoolUpdates, selectUpdateRecipients } from './userUpdates';
+import { buildUserUpdateNotice, filterUpdateRatesForRole, getFavoriteSchoolUpdates, selectUpdateRecipients, splitChangeBySchool } from './userUpdates';
 
 const rates: CommissionRate[] = [
   { id: 'visible', universityId: 'school-1', universityName: 'Visible School', intake: 'Sept 2027', sourceSheet: 'Public', studyLevel: 'PG', aggregator: 'Route', masterRate: 20, agentRate: 12, diffMargin: 8, isFlatFee: false, netOrGross: 'GROSS' },
@@ -63,6 +63,18 @@ describe('role-safe update fanout', () => {
     expect(notice?.title).toBe('New rate update for University of Aberdeen');
     expect(notice?.universityId).toBe('uni-aberdeen');
     expect(notice?.universityName).toBe('University of Aberdeen');
+  });
+
+  it('splits multi-school update changes into per-school UpdateChange objects', () => {
+    const multiRates: CommissionRate[] = [
+      { id: 'r1', universityId: 'uni-a', universityName: 'Uni A', intake: 'Jan 2026', sourceSheet: 'Public', studyLevel: 'PG', aggregator: 'SI-UK', masterRate: 20, agentRate: 12, diffMargin: 8, isFlatFee: false, netOrGross: 'GROSS' },
+      { id: 'r2', universityId: 'uni-b', universityName: 'Uni B', intake: 'Jan 2026', sourceSheet: 'Public', studyLevel: 'PG', aggregator: 'SI-UK', masterRate: 20, agentRate: 12, diffMargin: 8, isFlatFee: false, netOrGross: 'GROSS' },
+    ];
+    const change = { type: 'rates' as const, title: 'Rates updated', summary: 'Rates updated.', rates: multiRates, operationId: 'op-multi' };
+    const split = splitChangeBySchool(change);
+    expect(split.length).toBe(2);
+    expect(split[0].rates.map((r) => r.universityId)).toEqual(['uni-a']);
+    expect(split[1].rates.map((r) => r.universityId)).toEqual(['uni-b']);
   });
 });
 
