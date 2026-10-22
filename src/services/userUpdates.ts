@@ -125,11 +125,17 @@ export function getFavoriteSchoolUpdates(updates: UserUpdate[], favoriteSchoolId
 
 export async function publishRelevantUpdates(change: UpdateChange): Promise<PublishUpdateResult> {
   assertFirestoreWritesAllowed('Activity updates');
-  const [requestSnapshot, usersSnapshot] = await Promise.all([
-    getDocs(collection(db, 'agent_access_requests')),
-    getDocs(collection(db, 'users')),
-  ]);
-  const settingsSnapshot = await getDocs(collection(db, 'sheet_settings'));
+  let requestSnapshot, usersSnapshot, settingsSnapshot;
+  try {
+    [requestSnapshot, usersSnapshot] = await Promise.all([
+      getDocs(collection(db, 'agent_access_requests')),
+      getDocs(collection(db, 'users')),
+    ]);
+    settingsSnapshot = await getDocs(collection(db, 'sheet_settings'));
+  } catch (readErr) {
+    console.error('[publishRelevantUpdates read error]:', readErr);
+    throw readErr;
+  }
   const hiddenByRole: Record<string, Partial<Record<'AGENT' | 'STAFF', boolean>>> = {};
   settingsSnapshot.docs.forEach((item) => {
     const data = item.data();
@@ -147,10 +153,16 @@ export async function publishRelevantUpdates(change: UpdateChange): Promise<Publ
   let filteredCount = 0;
   for (let offset = 0; offset < recipients.length; offset += 350) {
     const chunk = recipients.slice(offset, offset + 350);
-    const newRecipients = await Promise.all(chunk.map(async (recipient) => {
-      const noticeRef = doc(db, 'users', recipient.uid, 'updates', `${id}-${recipient.uid}`);
-      return (await getDoc(noticeRef)).exists() ? { recipient, noticeRef, alreadyPublished: true } : { recipient, noticeRef, alreadyPublished: false };
-    }));
+    let newRecipients;
+    try {
+      newRecipients = await Promise.all(chunk.map(async (recipient) => {
+        const noticeRef = doc(db, 'users', recipient.uid, 'updates', `${id}-${recipient.uid}`);
+        return (await getDoc(noticeRef)).exists() ? { recipient, noticeRef, alreadyPublished: true } : { recipient, noticeRef, alreadyPublished: false };
+      }));
+    } catch (checkErr) {
+      console.error('[publishRelevantUpdates notice check getDoc error]:', checkErr);
+      throw checkErr;
+    }
     const batch = writeBatch(db);
     for (const entry of newRecipients) {
       if (entry.alreadyPublished) {
@@ -164,7 +176,12 @@ export async function publishRelevantUpdates(change: UpdateChange): Promise<Publ
         createdCount++;
       } else filteredCount++;
     }
-    await batch.commit();
+    try {
+      await batch.commit();
+    } catch (commitErr) {
+      console.error('[publishRelevantUpdates batch commit error]:', commitErr);
+      throw commitErr;
+    }
   }
   return { operationId: id, recipientCount: recipients.length, createdCount, alreadyPublishedCount, filteredCount, complete: true };
 }

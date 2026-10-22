@@ -30,10 +30,10 @@ import { ShareRateCardModal } from './ShareRateCardModal';
 import { UniversityDetailModal, type UniversityDetailData } from './UniversityDetailModal';
 import { AddUniversityModal } from './AddUniversityModal';
 import { useAuth } from '../context/AuthContext';
-import { deleteRates, updateRate, updateRates, createRates } from '../services/adminRateWriteService';
+import { deleteRates, updateRate, updateRates, createRates, writeRateOperation, type RateWriteMutation } from '../services/adminRateWriteService';
 import { isEligibleAgentPayout } from '../services/rateReadModels';
 import { exportMultiSheetRoleWorkbook } from '../utils/exportUtils';
-import { generateCompositeId } from '../utils/idGenerator';
+import { generateCompositeId, normalizeUniversitySlug } from '../utils/idGenerator';
 import {
   ArrowUpDown,
   Search,
@@ -1127,63 +1127,158 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
   // Batch action handlers
   const handleSaveUniversityRecord = async (updatedData: UniversityDetailData, makeDefaultIntake?: boolean) => {
-    // CRITICAL: filter by BOTH university name AND intake to avoid overwriting
-    // rates from other intakes of the same university (e.g. "Sept 2026" vs "2026 SI-UK")
-    const targetIntake = updatedData.baselineIntake;
-    const uniRates = data.filter(
-      (rate) =>
-        rate.universityName === updatedData.university &&
-        (!targetIntake || rate.intake === targetIntake)
-    );
-    if (!uniRates.length) return;
-    const parseRateNumber = (value: string) => {
-      const parsed = parseFloat((value || '').replace(/[^0-9.]/g, ''));
-      return Number.isNaN(parsed) ? 0 : parsed;
-    };
+    const targetIntake = updatedData.baselineIntake || defaultIntake || 'Sept 2026';
+    const uniName = updatedData.university;
+    const country = updatedData.country || 'United Kingdom';
     const isFlat = updatedData.commissionType === 'Fixed Fee';
     const targetDefaultRoute = (updatedData.defaultRoute || 'BASECHAN').toUpperCase();
+    const resolvedGuidance = (updatedData.guidance as SchoolGuidance) || 'ALLOWED';
+
+    const parseRateNumber = (value: string) => {
+      if (!value || value === '-' || value === '–' || value === '—') return 0;
+      const parsed = parseFloat(value.replace(/[^0-9.]/g, ''));
+      return Number.isNaN(parsed) ? 0 : parsed;
+    };
+
+    // Sub-agent payouts set by Admin
+    const fdAgent = parseRateNumber(updatedData.agentRateFD);
+    const ugAgent = parseRateNumber(updatedData.agentRateUG);
+    const pgAgent = parseRateNumber(updatedData.agentRatePG);
+
+    // Master Direct contract rates set by Admin
+    const ugMasterDirect = parseRateNumber(updatedData.masterRateUG);
+    const pgMasterDirect = parseRateNumber(updatedData.masterRatePG);
+
+    // Map of all 7 aggregators to their UG & PG incoming rates
+    const aggregatorSpecs: Array<{
+      aggregator: string;
+      ugRaw: string;
+      pgRaw: string;
+    }> = [
+      { aggregator: 'BASECHAN', ugRaw: updatedData.masterRateUG, pgRaw: updatedData.masterRatePG },
+      { aggregator: 'EDVOY', ugRaw: updatedData.edvoyUG, pgRaw: updatedData.edvoyPG },
+      { aggregator: 'SI-UK', ugRaw: updatedData.siUkUG, pgRaw: updatedData.siUkPG },
+      { aggregator: 'UAP', ugRaw: updatedData.uapUG, pgRaw: updatedData.uapPG },
+      { aggregator: 'CRIZAC', ugRaw: updatedData.crizacUG, pgRaw: updatedData.crizacPG },
+      { aggregator: 'KC OVERSEAS', ugRaw: updatedData.kcOverseasUG, pgRaw: updatedData.kcOverseasPG },
+      { aggregator: 'AIMS EDUCATION', ugRaw: updatedData.aimsEducationUG, pgRaw: updatedData.aimsEducationPG },
+    ];
+
+    const mutations: RateWriteMutation[] = [];
+
+    // FD Basechan route
+    if (fdAgent > 0) {
+      const id = generateCompositeId(uniName, targetIntake, 'BASECHAN', 'FD');
+      const existing = data.find((r) => r.id === id || (r.universityName === uniName && r.intake === targetIntake && r.aggregator === 'BASECHAN' && r.studyLevel === 'FD'));
+      const nextRate: CommissionRate = {
+        id: existing?.id || id,
+        universityId: normalizeUniversitySlug(uniName),
+        universityName: uniName,
+        country,
+        intake: targetIntake,
+        aggregator: 'BASECHAN',
+        studyLevel: 'FD',
+        masterRate: fdAgent,
+        agentRate: fdAgent,
+        diffMargin: 0,
+        isFlatFee: isFlat,
+        netOrGross: 'NET',
+        guidance: resolvedGuidance,
+        isDefaultRoute: targetDefaultRoute === 'BASECHAN',
+        updatedAt: new Date().toISOString(),
+      };
+      mutations.push({ previous: existing, next: nextRate });
+    }
+
+    // UG & PG routes for all 7 aggregators
+    aggregatorSpecs.forEach(({ aggregator, ugRaw, pgRaw }) => {
+      const isBasechan = aggregator === 'BASECHAN';
+
+      // UG Level
+      const ugIncoming = isBasechan ? ugMasterDirect : parseRateNumber(ugRaw);
+      if (ugIncoming > 0 || (isBasechan && ugAgent > 0)) {
+        const id = generateCompositeId(uniName, targetIntake, aggregator, 'UG');
+        const existing = data.find((r) => r.id === id || (r.universityName === uniName && r.intake === targetIntake && r.aggregator.toUpperCase() === aggregator && r.studyLevel === 'UG'));
+        const isDefault = aggregator.includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && aggregator === 'Direct');
+        const masterRate = ugIncoming > 0 ? ugIncoming : ugMasterDirect;
+        const agentRate = ugAgent;
+        const diffMargin = Number((masterRate - agentRate).toFixed(2));
+
+        const nextRate: CommissionRate = {
+          id: existing?.id || id,
+          universityId: normalizeUniversitySlug(uniName),
+          universityName: uniName,
+          country,
+          intake: targetIntake,
+          aggregator,
+          studyLevel: 'UG',
+          masterRate,
+          agentRate,
+          diffMargin,
+          isFlatFee: isFlat,
+          netOrGross: 'NET',
+          guidance: resolvedGuidance,
+          isDefaultRoute: isDefault,
+          updatedAt: new Date().toISOString(),
+        };
+        mutations.push({ previous: existing, next: nextRate });
+      }
+
+      // PG Level
+      const pgIncoming = isBasechan ? pgMasterDirect : parseRateNumber(pgRaw);
+      if (pgIncoming > 0 || (isBasechan && pgAgent > 0)) {
+        const id = generateCompositeId(uniName, targetIntake, aggregator, 'PG');
+        const existing = data.find((r) => r.id === id || (r.universityName === uniName && r.intake === targetIntake && r.aggregator.toUpperCase() === aggregator && r.studyLevel === 'PG'));
+        const isDefault = aggregator.includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && aggregator === 'Direct');
+        const masterRate = pgIncoming > 0 ? pgIncoming : pgMasterDirect;
+        const agentRate = pgAgent;
+        const diffMargin = Number((masterRate - agentRate).toFixed(2));
+
+        const nextRate: CommissionRate = {
+          id: existing?.id || id,
+          universityId: normalizeUniversitySlug(uniName),
+          universityName: uniName,
+          country,
+          intake: targetIntake,
+          aggregator,
+          studyLevel: 'PG',
+          masterRate,
+          agentRate,
+          diffMargin,
+          isFlatFee: isFlat,
+          netOrGross: 'NET',
+          guidance: resolvedGuidance,
+          isDefaultRoute: isDefault,
+          updatedAt: new Date().toISOString(),
+        };
+        mutations.push({ previous: existing, next: nextRate });
+      }
+    });
+
+    if (!mutations.length) return;
+
     try {
       setBatchActionLoading(true);
-      await updateRates(uniRates, (rate) => {
-        let agentRate = rate.agentRate;
-        let masterRate = rate.masterRate;
-        if (rate.aggregator === 'BASECHAN' || rate.aggregator === 'Direct') {
-          if (rate.studyLevel === 'FD') agentRate = parseRateNumber(updatedData.agentRateFD);
-          else if (rate.studyLevel === 'UG') { agentRate = parseRateNumber(updatedData.agentRateUG); masterRate = parseRateNumber(updatedData.masterRateUG); }
-          else if (rate.studyLevel === 'PG') { agentRate = parseRateNumber(updatedData.agentRatePG); masterRate = parseRateNumber(updatedData.masterRatePG); }
-        } else {
-          const aggregator = rate.aggregator.toUpperCase();
-          if (aggregator.includes('EDVOY')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.edvoyUG : updatedData.edvoyPG);
-          else if (aggregator.includes('SI-UK')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.siUkUG : updatedData.siUkPG);
-          else if (aggregator.includes('UAP')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.uapUG : updatedData.uapPG);
-          else if (aggregator.includes('CRIZAC')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.crizacUG : updatedData.crizacPG);
-          else if (aggregator.includes('KC OVERSEAS')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.kcOverseasUG : updatedData.kcOverseasPG);
-          else if (aggregator.includes('AIMS EDUCATION')) agentRate = parseRateNumber(rate.studyLevel === 'UG' ? updatedData.aimsEducationUG : updatedData.aimsEducationPG);
-        }
-        const isDefault = rate.aggregator.toUpperCase().includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && rate.aggregator === 'Direct');
-        const intake = updatedData.baselineIntake || rate.intake;
-        const id = intake === rate.intake ? rate.id : generateCompositeId(rate.universityName, intake, rate.aggregator, rate.studyLevel);
-        const resolvedGuidance = (updatedData.guidance as SchoolGuidance) || rate.guidance || 'ALLOWED';
-        return {
-          ...rate,
-          id,
-          intake,
-          agentRate,
-          masterRate,
-          diffMargin: Number((masterRate - agentRate).toFixed(2)),
-          isFlatFee: isFlat,
-          isDefaultRoute: isDefault,
-          guidance: resolvedGuidance,
-          updatedAt: new Date().toISOString()
-        };
-      }, user?.email || 'admin@basechan.com');
+      await writeRateOperation({
+        mutations,
+        adminEmail: user?.email || 'admin@basechan.com',
+        notify: true,
+        allowUpsert: true,
+      });
+
       if (makeDefaultIntake && updatedData.baselineIntake) {
-        try { await updateDefaultIntake(updatedData.baselineIntake, user?.email || 'admin@basechan.com'); }
-        catch { onBatchActionComplete?.('Rate changes are saved locally; the default intake preference could not be updated yet.'); }
+        try {
+          await updateDefaultIntake(updatedData.baselineIntake, user?.email || 'admin@basechan.com');
+        } catch {
+          onBatchActionComplete?.('Rate changes saved; default intake preference could not be updated.');
+        }
       }
-      onBatchActionComplete?.(`Saved rate changes locally for ${updatedData.university}; waiting to sync.`);
-    } catch (err) { console.error('Error saving university record:', err); }
-    finally { setBatchActionLoading(false); }
+      onBatchActionComplete?.(`Successfully saved rate changes for ${uniName} (${mutations.length} routes updated).`);
+    } catch (err) {
+      console.error('Error saving university record:', err);
+    } finally {
+      setBatchActionLoading(false);
+    }
   };
 
   const handleDeleteUniversityRecord = async (uniName: string, intake?: string) => {

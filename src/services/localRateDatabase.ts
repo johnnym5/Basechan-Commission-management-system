@@ -1,4 +1,4 @@
-import type { AgentRateReadModel, ChatConversation, CommissionRate, FavoriteSchool, RateSheetBucket, StaffRateReadModel, UserRole } from '../types';
+﻿import type { AgentRateReadModel, ChatConversation, CommissionRate, FavoriteSchool, RateSheetBucket, StaffRateReadModel, UserRole } from '../types';
 import type { AgentChatProfile } from '../types/chat';
 import type { PendingRateOperation, PendingRateOperationPatch } from '../types/rateWriteQueue';
 
@@ -103,6 +103,17 @@ export async function saveLocalSheetBucket(sheetKey: string, bucket: RateSheetBu
   });
 }
 
+
+/** Clear all locally cached sheetBuckets and the stale metadata timestamp so the
+ *  next call to syncRateSheetsCacheFirst re-fetches all rate_sheets from Firestore. */
+export async function clearLocalSheetBuckets(uid: string): Promise<void> {
+  for (const scope of [uid, 'global']) {
+    await transact<void>(scope, ['sheetBuckets', 'metadata'], 'readwrite', (tx) => {
+      tx.objectStore('sheetBuckets').clear();
+      tx.objectStore('metadata').delete('scope');
+    }).catch(() => { /* scope store may not exist yet -- ignore */ });
+  }
+}
 export async function getLocalSheetBucket(sheetKey: string, uid = 'global'): Promise<RateSheetBucket | null> {
   const database = await openDatabase(uid);
   return new Promise((resolve, reject) => {
@@ -491,7 +502,7 @@ export async function deleteLocalRateDatabase(uid: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const request = indexedDB.deleteDatabase(name);
     request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error || new Error('Could not clear this account’s local school data.'));
+    request.onerror = () => reject(request.error || new Error('Could not clear this accountâ€™s local school data.'));
     request.onblocked = () => reject(new Error('Close other Basechan tabs to finish clearing local school data.'));
   });
   await new Promise<void>((resolve) => {

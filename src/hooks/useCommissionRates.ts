@@ -174,7 +174,7 @@ export function useCommissionRates() {
         if (role === 'ADMIN') {
           const freshRates = await syncRateSheetsCacheFirst(scope);
           const localRates = await getLocalRates(user.uid);
-          combined = Array.from(new Map([...localRates, ...freshRates].map((r) => [r.id, r])).values());
+          combined = Array.from(new Map([...freshRates, ...localRates].map((r) => [r.id, r])).values());
         } else {
           await syncLocalRateData(scope);
           const localRates = await getLocalRates(user.uid);

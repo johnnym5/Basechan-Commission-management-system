@@ -68,7 +68,11 @@ async function commitCanonicalPackage(operation: PendingRateOperation, packageIn
       } else if (mutation.kind === 'update') {
         const current = currentRate(mutation.id);
         if (!current) { conflicts.push({ mutationIndex, id: mutation.id, reason: 'This rate was deleted in Firestore.' }); continue; }
-        if (!matchesBase(current, mutation.baseFields)) { conflicts.push({ mutationIndex, id: mutation.id, reason: 'One or more edited fields changed in Firestore.', cloudRate: current }); continue; }
+        // For admin edits, only raise a conflict if one of the fields being patched has changed in the cloud compared to the edit's base
+        const relevantBaseFields = Object.fromEntries(
+          Object.keys(mutation.patch).map((k) => [k, mutation.baseFields[k as keyof CommissionRate]])
+        );
+        if (!matchesBase(current, relevantBaseFields)) { conflicts.push({ mutationIndex, id: mutation.id, reason: 'One or more edited fields changed in Firestore.', cloudRate: current }); continue; }
         const collision = mutation.nextId === mutation.id ? null : currentRate(mutation.nextId);
         if (collision) { conflicts.push({ mutationIndex, id: mutation.nextId, reason: 'The new rate ID already exists in Firestore.', cloudRate: collision }); continue; }
         const next = { ...current, ...mutation.patch, id: mutation.nextId };
@@ -125,6 +129,24 @@ export async function syncRateOperation(operation: PendingRateOperation): Promis
       notify: operation.notify, mutations: allMutations, canonicalAlreadyCommitted: true,
     });
     await finishLocalRateOperation(operation.uid, operation.operationId, canonical);
+    if (canonical.length > 0) {
+      // Fire-and-forget: rebuild ALL rate_sheets buckets from the full rates collection.
+      // Using only `canonical` (the edited subset) would overwrite each affected bucket with
+      // just the edited rows, making every other university disappear on reload.
+      // partitionMasterIntoRateSheets reads every doc in `rates` and writes complete buckets.
+      void (async () => {
+        try {
+          const { partitionMasterIntoRateSheets } = await import('./rateReadModels');
+          await partitionMasterIntoRateSheets(operation.adminEmail);
+        } catch (err) {
+          console.error('Failed to rebuild rate_sheets after sync:', err);
+        }
+      })();
+      // Do NOT write partial sheetBuckets to local IndexedDB here.
+      // The stale local cache will be invalidated on next load because
+      // partitionMasterIntoRateSheets updates ratesLastUpdatedAt in Firestore,
+      // causing syncRateSheetsCacheFirst to re-fetch all full buckets.
+    }
     return 'synced';
   } catch (error) {
     const quota = isQuotaError(error) || isQuotaOffline(operation.uid);

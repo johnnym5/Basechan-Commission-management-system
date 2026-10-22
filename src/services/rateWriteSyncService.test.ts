@@ -7,7 +7,7 @@ const { runTransaction, firestoreDoc, writeRateOperation, updatePendingRateOpera
 }));
 vi.mock('firebase/firestore', () => ({ runTransaction, doc: firestoreDoc }));
 vi.mock('../lib/firebase', () => ({ db: {} }));
-vi.mock('./adminRateWriteService', () => ({ writeRateOperation }));
+vi.mock('./adminRateWriteService', () => ({ writeRateOperation, sanitizeFirestoreData: (data: unknown) => data }));
 vi.mock('./localRateDatabase', () => ({ finishLocalRateOperation }));
 vi.mock('./rateWriteQueue', () => ({ updatePendingRateOperation }));
 import { syncRateOperation } from './rateWriteSyncService';

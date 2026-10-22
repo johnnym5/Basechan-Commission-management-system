@@ -166,10 +166,15 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
   const needsOverrideCleanup = mutations.some(({ previous, next }) => previous && (!next || previous.id !== next.id));
   const agentTargets = needsOverrideCleanup ? await resolveAgentTargets() : undefined;
   const visibility = await loadVisibilitySettings();
-  for (let index = 0; index < mutations.length; index++) {
-    const mutation = mutations[index];
-    if (mutation.next) await syncRateReadModels(mutation.next, { previousRate: mutation.previous, updateType: updateCategory([mutation]), publishUpdate: false, publishFeed: false, agentTargets, operationId: `${operationId}-${index}-projection` });
-    else if (mutation.previous) await removeRateReadModels(mutation.previous, agentTargets, `${operationId}-${index}-projection`, false);
+  try {
+    for (let index = 0; index < mutations.length; index++) {
+      const mutation = mutations[index];
+      if (mutation.next) await syncRateReadModels(mutation.next, { previousRate: mutation.previous, updateType: updateCategory([mutation]), publishUpdate: false, publishFeed: false, agentTargets, operationId: `${operationId}-${index}-projection` });
+      else if (mutation.previous) await removeRateReadModels(mutation.previous, agentTargets, `${operationId}-${index}-projection`, false);
+    }
+  } catch (err) {
+    console.error('[RateSync sub-step failure] syncRateReadModels:', err);
+    throw err;
   }
   await recordOperation(operationId, 'projections');
 
@@ -212,17 +217,27 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
       }
     }
   }
-  for (const [scope, deltas] of groupedFeeds) {
-    for (let offset = 0; offset < deltas.length; offset += 150) await appendRateDeltas(scope, deltas.slice(offset, offset + 150));
+  try {
+    for (const [scope, deltas] of groupedFeeds) {
+      for (let offset = 0; offset < deltas.length; offset += 150) await appendRateDeltas(scope, deltas.slice(offset, offset + 150));
+    }
+  } catch (err) {
+    console.error('[RateSync sub-step failure] appendRateDeltas:', err);
+    throw err;
   }
-  for (let index = 0; index < mutations.length; index++) {
-    const { previous, next } = mutations[index];
-    const auditId = `${operationId}-${index}`;
-    if (next && !previous) await logRateChange(input.adminEmail, 'CREATE', next.id, next.universityName, undefined, auditId);
-    else if (next && previous) await logRateChange(input.adminEmail, 'EDIT', next.id, next.universityName, Object.fromEntries(
-      (Object.keys(next) as Array<keyof CommissionRate>).filter((key) => previous[key] !== next[key]).map((key) => [key, { oldVal: previous[key] ?? null, newVal: next[key] ?? null }]),
-    ), auditId);
-    else if (previous) await logRateChange(input.adminEmail, 'DELETE', previous.id, previous.universityName, undefined, auditId);
+  try {
+    for (let index = 0; index < mutations.length; index++) {
+      const { previous, next } = mutations[index];
+      const auditId = `${operationId}-${index}`;
+      if (next && !previous) await logRateChange(input.adminEmail, 'CREATE', next.id, next.universityName, undefined, auditId);
+      else if (next && previous) await logRateChange(input.adminEmail, 'EDIT', next.id, next.universityName, Object.fromEntries(
+        (Object.keys(next) as Array<keyof CommissionRate>).filter((key) => previous[key] !== next[key]).map((key) => [key, { oldVal: previous[key] ?? null, newVal: next[key] ?? null }]),
+      ), auditId);
+      else if (previous) await logRateChange(input.adminEmail, 'DELETE', previous.id, previous.universityName, undefined, auditId);
+    }
+  } catch (err) {
+    console.error('[RateSync sub-step failure] logRateChange:', err);
+    throw err;
   }
   await recordOperation(operationId, 'audited');
 
@@ -241,22 +256,32 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
       if (Array.from(changedFields).some((field) => agentVisibleFields.has(field))) roles.push('AGENT');
       if (Array.from(changedFields).some((field) => staffVisibleFields.has(field))) roles.push('STAFF');
     }
-    if (roles.length) await publishRelevantUpdates({
-      type: category,
-      title: notice.title,
-      summary: notice.summary,
-      rates: notice.rates,
-      roles,
-      includeStaff: roles.includes('STAFF'),
-      operationId,
-    });
+    try {
+      if (roles.length) await publishRelevantUpdates({
+        type: category,
+        title: notice.title,
+        summary: notice.summary,
+        rates: notice.rates,
+        roles,
+        includeStaff: roles.includes('STAFF'),
+        operationId,
+      });
+    } catch (err) {
+      console.error('[RateSync sub-step failure] publishRelevantUpdates:', err);
+      throw err;
+    }
   }
   await recordOperation(operationId, 'complete', { completedAt: new Date().toISOString() });
-  const savedMutations = await getDocs(collection(db, 'admin_rate_operations', operationId, 'mutations'));
-  for (let offset = 0; offset < savedMutations.docs.length; offset += 400) {
-    const cleanup = writeBatch(db);
-    savedMutations.docs.slice(offset, offset + 400).forEach((item) => cleanup.delete(item.ref));
-    await cleanup.commit();
+  try {
+    const savedMutations = await getDocs(collection(db, 'admin_rate_operations', operationId, 'mutations'));
+    for (let offset = 0; offset < savedMutations.docs.length; offset += 400) {
+      const cleanup = writeBatch(db);
+      savedMutations.docs.slice(offset, offset + 400).forEach((item) => cleanup.delete(item.ref));
+      await cleanup.commit();
+    }
+  } catch (err) {
+    console.error('[RateSync sub-step failure] cleanup savedMutations:', err);
+    throw err;
   }
   return { operationId, completed: mutations.length };
 }

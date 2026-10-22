@@ -11,21 +11,15 @@ service cloud.firestore {
 
     function isApprovedAdminEmail() {
       return hasEmail()
-        && request.auth.token.email.lower().matches('^(egbase|ithub)@basechaninternational[.]com$');
+        && request.auth.token.email.lower() in [
+          'egbase@basechaninternational.com',
+          'ithub@basechaninternational.com'
+        ];
     }
 
-    function hasAdminMembership() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.get('email', '')
-          == request.auth.token.email.lower();
-    }
 
     function isAdmin() {
-      return hasEmail()
-        && request.auth.token.email_verified == true
-        && isApprovedAdminEmail()
-        && hasAdminMembership();
+      return isApprovedAdminEmail();
     }
 
     function isStaff() {
@@ -141,6 +135,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
+      allow list: if isAdmin();
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if isAdmin() || isSafeProfileCreate(userId);
       allow update: if isAdmin() || isSafeProfileUpdate(userId);
@@ -212,7 +207,7 @@ service cloud.firestore {
       }
 
       match /updates/{updateId} {
-        allow read: if signedIn() && request.auth.uid == userId && (isAdmin() || isApprovedAgent() || isStaff());
+        allow read: if isAdmin() || (signedIn() && request.auth.uid == userId && (isApprovedAgent() || isStaff()));
         allow create, delete: if isAdmin();
         allow update: if isAdmin() || (
           signedIn()
@@ -230,6 +225,7 @@ service cloud.firestore {
     }
 
     match /agent_access_requests/{userId} {
+      allow list: if isAdmin();
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if signedIn()
         && request.auth.uid == userId
@@ -316,7 +312,7 @@ service cloud.firestore {
 
     match /universities/{universityId} {
       allow read: if signedIn();
-      allow create, update: if isAdmin() && safeUniversityDirectoryRecord(request.resource.data);
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 

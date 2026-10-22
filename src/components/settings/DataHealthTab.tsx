@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { CommissionRate } from '../../types';
 import { useAuth } from '../../context/AuthContext';
-import { ensureRoleRateModelMigration } from '../../services/rateReadModels';
+import { ensureRoleRateModelMigration, partitionMasterIntoRateSheets } from '../../services/rateReadModels';
 import { AuditLogsDrawer } from '../AuditLogsDrawer';
 import { DatabaseExplorer } from './DatabaseExplorer';
 import {
+  clearLocalSheetBuckets,
   clearPendingOfflineImports,
   deleteLocalRateDatabase,
   getPendingOfflineImports,
@@ -45,6 +46,7 @@ export const DataHealthTab: React.FC<DataHealthTabProps> = ({
 }) => {
   const { user, role } = useAuth();
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isRebuilding, setIsRebuilding] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [isAuditDrawerOpen, setIsAuditDrawerOpen] = useState(false);
 
@@ -166,6 +168,25 @@ export const DataHealthTab: React.FC<DataHealthTabProps> = ({
     }
   };
 
+  const handleRebuildRateSheets = async () => {
+    if (!user) return;
+    setIsRebuilding(true);
+    setStatusNotice(null);
+    try {
+      // Clear corrupted local sheetBuckets cache so next load re-fetches fresh data
+      await clearLocalSheetBuckets(user.uid);
+      // Rebuild ALL rate_sheets Firestore buckets from the canonical rates collection
+      const count = await partitionMasterIntoRateSheets(user.email || 'Admin');
+      setStatusNotice(`Admin rate sheets rebuilt successfully from ${count} canonical rates. Refreshing...`);
+      onRefreshRates();
+    } catch (err) {
+      console.error('Error rebuilding rate sheets:', err);
+      setStatusNotice('Error rebuilding rate sheets. Please check admin permissions and try again.');
+    } finally {
+      setIsRebuilding(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {statusNotice && (
@@ -256,6 +277,45 @@ export const DataHealthTab: React.FC<DataHealthTabProps> = ({
                 <span>Delete Offline Data</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Rate Sheets Repair Card */}
+      {(role === 'ADMIN' || !role) && (
+        <div className="p-5 rounded-3xl bg-white dark:bg-[#0E1526] border border-rose-200 dark:border-rose-900/50 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-rose-100 dark:border-rose-900/40 pb-3">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-rose-500" />
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
+                Repair Admin Rate Sheets
+              </h3>
+            </div>
+            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300">
+              DATA REPAIR
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            Use this if the Admin view is showing only one university after a rate edit. This rebuilds all{' '}
+            <b>rate_sheets</b> Firestore buckets from the complete canonical <b>rates</b> collection
+            and clears your local cache so the full list reloads correctly.
+          </p>
+
+          <div className="flex items-center justify-between pt-2">
+            <div className="text-xs text-slate-500 font-mono font-bold">
+              Canonical Rates Available: {rates.length}
+            </div>
+
+            <button
+              type="button"
+              disabled={isRebuilding}
+              onClick={handleRebuildRateSheets}
+              className="px-5 py-2.5 bg-rose-600 dark:bg-rose-500 text-white font-extrabold text-xs rounded-xl shadow-xs hover:bg-rose-700 dark:hover:bg-rose-600 disabled:opacity-50 transition cursor-pointer flex items-center gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRebuilding ? 'animate-spin' : ''}`} />
+              <span>{isRebuilding ? 'Rebuilding Rate Sheets...' : 'Rebuild Admin Rate Sheets'}</span>
+            </button>
           </div>
         </div>
       )}
