@@ -176,12 +176,36 @@ export const AppLayout: React.FC = () => {
   const connectionLabel = connectionState === 'quota' ? 'Quota limit reached' : connectionState === 'offline' ? 'Offline' : 'Online';
 
   const handleActivityUpdateClick = (update: UserUpdate) => {
-    if (!user || update.isRead) return;
-    if (isLocalOnly) return;
-    setActivityUpdates((current) => current.map((item) => item.id === update.id ? { ...item, isRead: true } : item));
-    void markUpdateRead(user.uid, update.id).catch(() => {
-      setActivityUpdates((current) => current.map((item) => item.id === update.id ? { ...item, isRead: false } : item));
-    });
+    if (!user) return;
+    if (!update.isRead && !isLocalOnly) {
+      setActivityUpdates((current) => current.map((item) => item.id === update.id ? { ...item, isRead: true } : item));
+      const res = markUpdateRead(user.uid, update.id);
+      if (res && typeof res.catch === 'function') {
+        res.catch(() => {
+          setActivityUpdates((current) => current.map((item) => item.id === update.id ? { ...item, isRead: false } : item));
+        });
+      }
+    }
+
+    setCurrentPage('Dashboard');
+    setIsActivityOpen(false);
+
+    const targetSchoolId = update.universityId || update.affectedSchoolIds?.[0];
+    if (targetSchoolId) {
+      setDashboardFilters({
+        ...createEmptyDashboardFilters(),
+        schoolIds: [targetSchoolId],
+      });
+    } else if (update.universityName) {
+      setDashboardFilters({
+        ...createEmptyDashboardFilters(),
+        query: update.universityName,
+      });
+    }
+
+    window.setTimeout(() => {
+      document.getElementById('dashboard-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
   };
 
   // Dynamic page state based on effective role
@@ -459,13 +483,25 @@ export const AppLayout: React.FC = () => {
                       {isActivityLoading ? <p className="px-3 py-5 text-center text-xs text-slate-500">Loading activity…</p>
                         : activityUpdates.length === 0 ? <p className="px-3 py-5 text-center text-xs text-slate-500">No recent updates.</p>
                           : activityUpdates.slice(0, 20).map((update) => (
-                            <button key={update.id} type="button" onClick={() => handleActivityUpdateClick(update)} className="flex w-full gap-2 rounded-xl px-3 py-2.5 text-left hover:bg-white dark:hover:bg-slate-900">
-                              <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${update.isRead ? 'bg-slate-300 dark:bg-slate-700' : 'bg-indigo-500'}`} />
-                              <span className="min-w-0">
-                                <span className="block text-xs font-bold">{update.title}</span>
-                                <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">{update.summary}</span>
-                                <span className="mt-1 block text-[10px] text-slate-400">{new Date(update.createdAt).toLocaleString()}</span>
-                              </span>
+                            <button
+                              key={update.id}
+                              type="button"
+                              onClick={() => handleActivityUpdateClick(update)}
+                              className="group flex w-full flex-col gap-1.5 rounded-xl p-3 text-left transition hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-slate-200 dark:hover:border-[#222F43]"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`h-2 w-2 shrink-0 rounded-full ${update.isRead ? 'bg-slate-300 dark:bg-slate-700' : 'bg-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900'}`} />
+                                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">{update.title}</span>
+                                </div>
+                                <span className="text-[10px] text-slate-400 shrink-0">{new Date(update.createdAt).toLocaleDateString()}</span>
+                              </div>
+                              <p className="pl-4 text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">{update.summary}</p>
+                              <div className="pl-4 pt-1 flex items-center justify-between">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-amber-400 group-hover:underline">
+                                  Check it out &rarr;
+                                </span>
+                              </div>
                             </button>
                           ))}
                     </div>

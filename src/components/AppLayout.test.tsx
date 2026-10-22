@@ -7,8 +7,10 @@ const mocks = vi.hoisted(() => ({
   quotaMode: false,
   rates: [] as any[],
   pendingImports: [] as any[],
+  userUpdates: [] as any[],
   uploadRatesInBatches: vi.fn(),
   clearPendingOfflineImports: vi.fn(),
+  markUpdateRead: vi.fn(),
 }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { uid: 'user-1', email: 'test@example.com' }, role: mocks.role, access: { role: mocks.role, accessState: mocks.accessState, organizationId: 'org-1' }, signOut: vi.fn() }) }));
 vi.mock('../context/ThemeContext', () => ({ useTheme: () => ({ theme: 'dark', setTheme: vi.fn() }) }));
@@ -16,7 +18,7 @@ vi.mock('../hooks/useCommissionRates', () => ({ useCommissionRates: () => ({ rat
 vi.mock('../hooks/useAgentUniversityDirectory', () => ({ useAgentUniversityDirectory: () => [] }));
 vi.mock('../hooks/usePendingRateChanges', () => ({ usePendingRateChanges: () => ({ operations: [], pendingCount: 0, syncState: 'idle', retry: vi.fn(), discard: vi.fn(), resolveConflict: vi.fn() }) }));
 vi.mock('../services/firestoreOfflineMode', () => ({ isQuotaOffline: () => false, subscribeToFirestoreMode: () => () => {} }));
-vi.mock('../services/chatPersistence', () => ({ markUpdateRead: vi.fn(), subscribeToUserUpdates: () => () => {} }));
+vi.mock('../services/chatPersistence', () => ({ markUpdateRead: (...args: any[]) => mocks.markUpdateRead(...args), subscribeToUserUpdates: (_uid: string, onUpdate: (updates: any[]) => void) => { onUpdate(mocks.userUpdates); return () => {}; } }));
 vi.mock('../services/rateReadModels', () => ({ ensureRoleRateModelMigration: vi.fn(), ensureSheetVisibilityRecords: vi.fn(), isEligibleAgentPayout: (aggregator: string) => ['BASECHAN', 'DIRECT', 'BASECHANDIRECT'].includes(String(aggregator).toUpperCase().replace(/[^A-Z0-9]+/g, '')) }));
 vi.mock('../services/localRateDatabase', () => ({
   getPendingOfflineImports: vi.fn().mockImplementation(() => Promise.resolve(mocks.pendingImports)),
@@ -51,7 +53,36 @@ vi.mock('./UserTutorialModal', () => ({ UserTutorialModal: () => null }));
 import { AppLayout } from './AppLayout';
 
 describe('role dashboard integration', () => {
-  afterEach(() => { mocks.role = 'STAFF'; mocks.accessState = 'staff'; mocks.quotaMode = false; mocks.rates = []; Object.defineProperty(navigator, 'onLine', { configurable: true, value: true }); });
+  afterEach(() => { mocks.role = 'STAFF'; mocks.accessState = 'staff'; mocks.quotaMode = false; mocks.rates = []; mocks.userUpdates = []; Object.defineProperty(navigator, 'onLine', { configurable: true, value: true }); });
+
+  it('filters dashboard to target school and marks update as read when CTA is clicked', async () => {
+    mocks.role = 'AGENT';
+    mocks.accessState = 'approved';
+    mocks.userUpdates = [
+      {
+        id: 'up-1',
+        title: 'New rate update for University of Aberdeen',
+        summary: 'Agent rate updated to 15%.',
+        type: 'rates',
+        createdAt: new Date().toISOString(),
+        isRead: false,
+        universityId: 'uni-aberdeen',
+        universityName: 'University of Aberdeen',
+        affectedSchoolIds: ['uni-aberdeen'],
+      },
+    ];
+
+    render(<AppLayout />);
+
+    const bellButton = screen.getByLabelText(/Activity center, 1 unread updates/i);
+    fireEvent.click(bellButton);
+
+    expect(screen.getByText('New rate update for University of Aberdeen')).toBeInTheDocument();
+    const ctaButton = screen.getByText(/Check it out/i);
+    fireEvent.click(ctaButton);
+
+    expect(mocks.markUpdateRead).toHaveBeenCalledWith('user-1', 'up-1');
+  });
   it.each(['STAFF', 'AGENT'] as const)('%s lands on its dashboard without admin navigation and has Chat FAB', role => {
     mocks.role = role;
     mocks.accessState = role === 'AGENT' ? 'approved' : 'staff';
