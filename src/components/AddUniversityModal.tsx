@@ -100,7 +100,11 @@ export const AddUniversityModal: React.FC<AddUniversityModalProps> = ({
     ) => {
       const agentNum = parseNumber(agentRateVal);
       const masterNum = parseNumber(masterRateVal);
-      if (agentNum === 0 && masterNum === 0) return;
+      if (aggregator === 'BASECHAN') {
+        if (agentNum === 0 && masterNum === 0) return;
+      } else {
+        if (masterNum === 0) return;
+      }
 
       const isDefault = defaultRoute.toUpperCase() === aggregator.toUpperCase();
       const id = generateCompositeId(trimmedName, trimmedIntake, aggregator, studyLevel);
@@ -129,19 +133,19 @@ export const AddUniversityModal: React.FC<AddUniversityModalProps> = ({
     maybeAddRate('BASECHAN', 'UG', agentUG, masterUG);
     maybeAddRate('BASECHAN', 'PG', agentPG, masterPG);
 
-    // Aggregators (master rate set to aggregator rate if master unspecified)
-    maybeAddRate('EDVOY', 'UG', edvoyUG, edvoyUG);
-    maybeAddRate('EDVOY', 'PG', edvoyPG, edvoyPG);
-    maybeAddRate('SI-UK', 'UG', siUkUG, siUkUG);
-    maybeAddRate('SI-UK', 'PG', siUkPG, siUkPG);
-    maybeAddRate('UAP', 'UG', uapUG, uapUG);
-    maybeAddRate('UAP', 'PG', uapPG, uapPG);
-    maybeAddRate('CRIZAC', 'UG', crizacUG, crizacUG);
-    maybeAddRate('CRIZAC', 'PG', crizacPG, crizacPG);
-    maybeAddRate('KC OVERSEAS', 'UG', kcOverseasUG, kcOverseasUG);
-    maybeAddRate('KC OVERSEAS', 'PG', kcOverseasPG, kcOverseasPG);
-    maybeAddRate('AIMS EDUCATION', 'UG', aimsEducationUG, aimsEducationUG);
-    maybeAddRate('AIMS EDUCATION', 'PG', aimsEducationPG, aimsEducationPG);
+    // Aggregators (master rate set to aggregator's incoming rate, agent rate set to Basechan agent payout rate)
+    maybeAddRate('EDVOY', 'UG', agentUG, edvoyUG);
+    maybeAddRate('EDVOY', 'PG', agentPG, edvoyPG);
+    maybeAddRate('SI-UK', 'UG', agentUG, siUkUG);
+    maybeAddRate('SI-UK', 'PG', agentPG, siUkPG);
+    maybeAddRate('UAP', 'UG', agentUG, uapUG);
+    maybeAddRate('UAP', 'PG', agentPG, uapPG);
+    maybeAddRate('CRIZAC', 'UG', agentUG, crizacUG);
+    maybeAddRate('CRIZAC', 'PG', agentPG, crizacPG);
+    maybeAddRate('KC OVERSEAS', 'UG', agentUG, kcOverseasUG);
+    maybeAddRate('KC OVERSEAS', 'PG', agentPG, kcOverseasPG);
+    maybeAddRate('AIMS EDUCATION', 'UG', agentUG, aimsEducationUG);
+    maybeAddRate('AIMS EDUCATION', 'PG', agentPG, aimsEducationPG);
 
     if (createdRates.length === 0) {
       setError('Please enter at least one commission rate (Agent or Aggregator).');
@@ -390,6 +394,7 @@ export const AddUniversityModal: React.FC<AddUniversityModalProps> = ({
                 <label className="block text-[11px] text-slate-400 mb-1">EDVOY (UG)</label>
                 <input
                   type="text"
+                  aria-label="EDVOY (UG)"
                   value={edvoyUG}
                   onChange={(e) => setEdvoyUG(e.target.value)}
                   placeholder="-"
@@ -400,6 +405,7 @@ export const AddUniversityModal: React.FC<AddUniversityModalProps> = ({
                 <label className="block text-[11px] text-slate-400 mb-1">EDVOY (PG)</label>
                 <input
                   type="text"
+                  aria-label="EDVOY (PG)"
                   value={edvoyPG}
                   onChange={(e) => setEdvoyPG(e.target.value)}
                   placeholder="-"

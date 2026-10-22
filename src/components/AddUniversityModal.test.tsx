@@ -59,6 +59,35 @@ describe('AddUniversityModal', () => {
     expect(addedRates[0].aggregator).toBe('BASECHAN');
   });
 
+  it('assigns aggregator rate as masterRate (incoming) and agent rate as agentRate (outgoing) for aggregator routes', async () => {
+    const onUniversityAdded = vi.fn();
+    render(
+      <AddUniversityModal
+        isOpen={true}
+        onClose={vi.fn()}
+        existingRates={[]}
+        defaultIntake="Sept 2026"
+        onUniversityAdded={onUniversityAdded}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/University Name/i), { target: { value: 'Abertay University' } });
+    fireEvent.change(screen.getByLabelText(/Agent Rate \(UG\)/i), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText(/Master Direct \(UG\)/i), { target: { value: '15' } });
+    fireEvent.change(screen.getByLabelText(/EDVOY \(UG\)/i), { target: { value: '10.5' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Save University/i }));
+
+    expect(onUniversityAdded).toHaveBeenCalledTimes(1);
+    const addedRates: CommissionRate[] = onUniversityAdded.mock.calls[0][0];
+
+    const edvoyUg = addedRates.find((r) => r.aggregator === 'EDVOY' && r.studyLevel === 'UG');
+    expect(edvoyUg).toBeDefined();
+    expect(edvoyUg?.masterRate).toBe(10.5);
+    expect(edvoyUg?.agentRate).toBe(5);
+    expect(edvoyUg?.diffMargin).toBe(5.5);
+  });
+
   it('warns when university name already exists for the same intake', () => {
     const existingRates: CommissionRate[] = [
       {

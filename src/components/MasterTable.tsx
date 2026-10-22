@@ -1200,7 +1200,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         const id = generateCompositeId(uniName, targetIntake, aggregator, 'UG');
         const existing = data.find((r) => r.id === id || (r.universityName === uniName && r.intake === targetIntake && r.aggregator.toUpperCase() === aggregator && r.studyLevel === 'UG'));
         const isDefault = aggregator.includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && aggregator === 'Direct');
-        const masterRate = ugIncoming > 0 ? ugIncoming : ugMasterDirect;
+        const masterRate = isBasechan ? (ugMasterDirect > 0 ? ugMasterDirect : ugAgent) : ugIncoming;
         const agentRate = ugAgent;
         const diffMargin = Number((masterRate - agentRate).toFixed(2));
 
@@ -1230,7 +1230,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         const id = generateCompositeId(uniName, targetIntake, aggregator, 'PG');
         const existing = data.find((r) => r.id === id || (r.universityName === uniName && r.intake === targetIntake && r.aggregator.toUpperCase() === aggregator && r.studyLevel === 'PG'));
         const isDefault = aggregator.includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && aggregator === 'Direct');
-        const masterRate = pgIncoming > 0 ? pgIncoming : pgMasterDirect;
+        const masterRate = isBasechan ? (pgMasterDirect > 0 ? pgMasterDirect : pgAgent) : pgIncoming;
         const agentRate = pgAgent;
         const diffMargin = Number((masterRate - agentRate).toFixed(2));
 
