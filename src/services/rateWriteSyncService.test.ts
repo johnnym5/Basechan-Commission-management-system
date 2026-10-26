@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PendingRateOperation } from '../types/rateWriteQueue';
 import type { CommissionRate } from '../types';
-const { runTransaction, firestoreDoc, writeRateOperation, updatePendingRateOperation, finishLocalRateOperation } = vi.hoisted(() => ({
+const { runTransaction, firestoreDoc, writeRateOperation, updatePendingRateOperation, finishLocalRateOperation, clearLocalSheetBuckets } = vi.hoisted(() => ({
   runTransaction: vi.fn(), firestoreDoc: vi.fn((_db: unknown, ...parts: string[]) => ({ id: parts.at(-1), path: parts.join('/') })),
-  writeRateOperation: vi.fn(), updatePendingRateOperation: vi.fn(), finishLocalRateOperation: vi.fn(),
+  writeRateOperation: vi.fn(), updatePendingRateOperation: vi.fn(), finishLocalRateOperation: vi.fn(), clearLocalSheetBuckets: vi.fn(),
 }));
 vi.mock('firebase/firestore', () => ({ runTransaction, doc: firestoreDoc }));
 vi.mock('../lib/firebase', () => ({ db: {} }));
 vi.mock('./adminRateWriteService', () => ({ writeRateOperation, sanitizeFirestoreData: (data: unknown) => data }));
-vi.mock('./localRateDatabase', () => ({ finishLocalRateOperation }));
+vi.mock('./localRateDatabase', () => ({ finishLocalRateOperation, clearLocalSheetBuckets }));
 vi.mock('./rateWriteQueue', () => ({ updatePendingRateOperation }));
 import { syncRateOperation } from './rateWriteSyncService';
 

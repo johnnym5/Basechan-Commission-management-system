@@ -194,4 +194,53 @@ describe('UniversityDetailModal - Add Route', () => {
 
     expect(screen.getByText('15%')).toBeInTheDocument();
   });
+
+  it('correctly maps third-party aggregator rates to their incoming masterRate and sub-agent payouts to agentRate', () => {
+    const mixedRates: CommissionRate[] = [
+      {
+        id: 'oxford__sept_2026__basechan__ug',
+        universityId: 'oxford',
+        universityName: 'University of Oxford',
+        country: 'UK',
+        intake: 'Sept 2026',
+        aggregator: 'BASECHAN',
+        studyLevel: 'UG',
+        masterRate: 25,
+        agentRate: 10,
+        diffMargin: 15,
+        isFlatFee: false,
+        netOrGross: 'GROSS',
+        guidance: 'ALLOWED',
+      },
+      {
+        id: 'oxford__sept_2026__edvoy__ug',
+        universityId: 'oxford',
+        universityName: 'University of Oxford',
+        country: 'UK',
+        intake: 'Sept 2026',
+        aggregator: 'EDVOY',
+        studyLevel: 'UG',
+        masterRate: 17.5,
+        agentRate: 10,
+        diffMargin: 7.5,
+        isFlatFee: false,
+        netOrGross: 'GROSS',
+        guidance: 'ALLOWED',
+      },
+    ];
+
+    render(
+      <UniversityDetailModal
+        isOpen={true}
+        onClose={vi.fn()}
+        ratesForUniversity={mixedRates}
+        universityName="University of Oxford"
+      />
+    );
+
+    // Agent payout UG should be 10%
+    expect(screen.getByText('10%')).toBeInTheDocument();
+    // EDVOY UG benchmark should be 17.5% (the aggregator's incoming master rate, not agentRate)
+    expect(screen.getByText('17.5%')).toBeInTheDocument();
+  });
 });

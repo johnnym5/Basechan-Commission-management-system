@@ -128,6 +128,10 @@ export async function syncRateOperation(operation: PendingRateOperation): Promis
     });
     await finishLocalRateOperation(operation.uid, operation.operationId, canonical);
     if (canonical.length > 0) {
+      // Invalidate local sheet buckets so subsequent queries or refreshes don't read stale cached buckets
+      const { clearLocalSheetBuckets } = await import('./localRateDatabase');
+      await clearLocalSheetBuckets(operation.uid);
+
       // Fire-and-forget: rebuild ALL rate_sheets buckets from the full rates collection.
       // Using only `canonical` (the edited subset) would overwrite each affected bucket with
       // just the edited rows, making every other university disappear on reload.
@@ -140,10 +144,6 @@ export async function syncRateOperation(operation: PendingRateOperation): Promis
           console.error('Failed to rebuild rate_sheets after sync:', err);
         }
       })();
-      // Do NOT write partial sheetBuckets to local IndexedDB here.
-      // The stale local cache will be invalidated on next load because
-      // partitionMasterIntoRateSheets updates ratesLastUpdatedAt in Firestore,
-      // causing syncRateSheetsCacheFirst to re-fetch all full buckets.
     }
     return 'synced';
   } catch (error) {

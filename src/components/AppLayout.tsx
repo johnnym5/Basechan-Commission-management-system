@@ -949,10 +949,12 @@ export const AppLayout: React.FC = () => {
               setEditingRate(null);
             }}
             onSaved={() => {
+              void refreshCommissionRates();
               setBannerNotice('Saved locally — waiting to sync to Firestore.');
               setTimeout(() => setBannerNotice(null), 4000);
             }}
             onDeleted={() => {
+              void refreshCommissionRates();
               setBannerNotice('Deletion saved locally — waiting to sync to Firestore.');
               setTimeout(() => setBannerNotice(null), 4000);
             }}
