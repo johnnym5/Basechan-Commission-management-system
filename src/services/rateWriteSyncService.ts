@@ -2,7 +2,7 @@ import { doc, getDocFromServer, runTransaction } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { CommissionRate } from '../types';
 import type { PendingRateConflict, PendingRateMutation, PendingRateOperation } from '../types/rateWriteQueue';
-import { finishLocalRateOperation, getLocalRateOperations, updateLocalRateOperation } from './localRateDatabase';
+import { finishLocalRateOperation, getLocalRateOperations, rollbackLocalRateOperation, updateLocalRateOperation } from './localRateDatabase';
 import { writeRateOperation, sanitizeFirestoreData, computeRateFingerprint, type RateWriteMutation } from './adminRateWriteService';
 import { updatePendingRateOperation } from './rateWriteQueue';
 import { isQuotaError, isQuotaOffline } from './firestoreOfflineMode';
@@ -99,8 +99,11 @@ async function commitCanonicalPackage(operation: PendingRateOperation, packageIn
   });
 }
 
-export async function syncRateOperation(operation: PendingRateOperation): Promise<'synced' | 'conflict'> {
+export async function syncRateOperation(operation: PendingRateOperation): Promise<'synced' | 'conflict' | 'partial'> {
   await updatePendingRateOperation(operation.uid, operation.operationId, { status: 'syncing', lastError: undefined, lastAttemptAt: new Date().toISOString(), nextRetryAt: undefined });
+  const committedIndexes = new Set<number>();
+  const uncommittedIndexes = () => operation.mutations.map((_, index) => index).filter((index) => !committedIndexes.has(index));
+  const canonicalCommitted = () => committedIndexes.size > 0;
   try {
     const allMutations: RateWriteMutation[] = [];
     const canonical: CommissionRate[] = [];
@@ -108,12 +111,14 @@ export async function syncRateOperation(operation: PendingRateOperation): Promis
     for (let offset = 0; offset < operation.mutations.length; offset += 100) {
       const result = await commitCanonicalPackage(operation, offset / 100, operation.mutations.slice(offset, offset + 100));
       if (result.conflicts.length) { conflicts.push(...result.conflicts); break; }
+      operation.mutations.slice(offset, offset + 100).forEach((_, index) => committedIndexes.add(offset + index));
       allMutations.push(...result.mutations);
       canonical.push(...result.canonical);
     }
     if (conflicts.length) {
+      await rollbackLocalRateOperation(operation.uid, operation.operationId, uncommittedIndexes());
       await updatePendingRateOperation(operation.uid, operation.operationId, { status: 'conflict', conflicts, lastError: conflicts[0].reason });
-      return 'conflict';
+      return canonicalCommitted() ? 'partial' : 'conflict';
     }
     await writeRateOperation({
       operationId: operation.operationId, adminEmail: operation.adminEmail, category: operation.category,
@@ -130,6 +135,12 @@ export async function syncRateOperation(operation: PendingRateOperation): Promis
     await finishLocalRateOperation(operation.uid, operation.operationId, canonical);
     return 'synced';
   } catch (error) {
+    const savedToCloud = canonicalCommitted();
+    if (uncommittedIndexes().length > 0) {
+      await rollbackLocalRateOperation(operation.uid, operation.operationId, uncommittedIndexes()).catch((rollbackError) => {
+        console.error('Could not roll back optimistic rate change:', rollbackError);
+      });
+    }
     const quota = isQuotaError(error) || isQuotaOffline(operation.uid);
     const attemptCount = operation.attemptCount + 1;
     const retryDelay = Math.min(5 * 60_000, 5_000 * (2 ** Math.min(attemptCount - 1, 6)));
@@ -138,7 +149,9 @@ export async function syncRateOperation(operation: PendingRateOperation): Promis
       nextRetryAt: quota ? undefined : new Date(Date.now() + retryDelay).toISOString(),
       lastError: error instanceof Error ? error.message : 'The change could not be synced.',
     });
-    throw error;
+    const syncError = error instanceof Error ? error : new Error('The change could not be synced.');
+    Object.assign(syncError, { canonicalCommitted: savedToCloud });
+    throw syncError;
   }
 }
 

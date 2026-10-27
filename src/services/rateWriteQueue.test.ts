@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommissionRate } from '../types';
-import { getLocalRates, deleteLocalRateDatabase, finishLocalRateOperation, stageRatesToLocalDatabase, subscribeToLocalRateChanges } from './localRateDatabase';
+import { getLocalRates, deleteLocalRateDatabase, finishLocalRateOperation, rollbackLocalRateOperation, stageRatesToLocalDatabase, subscribeToLocalRateChanges } from './localRateDatabase';
 import { getPendingRateOperations, stageRateOperation } from './rateWriteQueue';
 
 const uid = 'local-write-admin';
@@ -47,6 +47,20 @@ describe('local-first rate write queue', () => {
     expect(operation.status).toBe('pending');
     expect((await getPendingRateOperations(uid)).map((item) => item.operationId)).toEqual(['edit-guidance-1']);
     expect((await getLocalRates(uid)).find((rate) => rate.id === existingRate.id)?.guidance).toBe('ALLOWED');
+  });
+
+  it('rolls back only the failed optimistic fields and keeps the operation queued for retry', async () => {
+    await stageRatesToLocalDatabase(uid, [existingRate]);
+    await stageRateOperation(uid, {
+      operationId: 'rollback-edit', adminEmail: 'admin@example.com', category: 'guidance',
+      mutations: [{ kind: 'update', id: existingRate.id, nextId: existingRate.id,
+        patch: { guidance: 'ALLOWED' }, baseFields: { guidance: 'FOCUS' }, baseSnapshot: existingRate }],
+    });
+    await stageRatesToLocalDatabase(uid, [{ ...existingRate, guidance: 'ALLOWED', notes: 'another local field' }]);
+
+    await expect(rollbackLocalRateOperation(uid, 'rollback-edit')).resolves.toBe(true);
+    expect(await getLocalRates(uid)).toEqual([{ ...existingRate, notes: 'another local field' }]);
+    expect((await getPendingRateOperations(uid)).map((item) => item.operationId)).toEqual(['rollback-edit']);
   });
 
   it('preserves the full edited rate when the admin rate store only has sheet buckets', async () => {

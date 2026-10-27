@@ -26,6 +26,19 @@ describe('usePendingRateChanges', () => {
     expect(getPendingRateOperations).not.toHaveBeenCalled();
     expect(result.current.operations).toEqual([]);
   });
+
+  it('reports a saved outcome only after the sync operation succeeds', async () => {
+    const onSyncOutcome = vi.fn();
+    renderHook(() => usePendingRateChanges('admin', true, onSyncOutcome));
+    await waitFor(() => expect(onSyncOutcome).toHaveBeenCalledWith({ operationId: 'op', status: 'saved' }));
+  });
+
+  it('reports failed syncs so the UI can show the rollback toast', async () => {
+    const onSyncOutcome = vi.fn();
+    syncRateOperation.mockRejectedValueOnce(Object.assign(new Error('Network unavailable'), { canonicalCommitted: false }));
+    renderHook(() => usePendingRateChanges('admin', true, onSyncOutcome));
+    await waitFor(() => expect(onSyncOutcome).toHaveBeenCalledWith({ operationId: 'op', status: 'failed', error: 'Network unavailable' }));
+  });
 });
 
 

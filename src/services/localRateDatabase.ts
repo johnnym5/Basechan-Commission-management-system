@@ -253,6 +253,63 @@ export async function finishLocalRateOperation(
   });
   announceLocalRateChanges(uid);
 }
+
+/** Revert an optimistic local projection after a pre-commit sync failure, but keep the queued operation for retry. */
+export async function rollbackLocalRateOperation(uid: string, operationId: string, mutationIndexes?: number[]): Promise<boolean> {
+  const database = await openDatabase(uid);
+  let rolledBack = false;
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['rates', 'pendingRateOperations'], 'readwrite');
+    const rates = tx.objectStore('rates');
+    const operationRequest = tx.objectStore('pendingRateOperations').get(operationId);
+    operationRequest.onsuccess = () => {
+      const operation = operationRequest.result as PendingRateOperation | undefined;
+      if (!operation) return;
+      operation.mutations.forEach((mutation, index) => {
+        if (mutationIndexes && !mutationIndexes.includes(index)) return;
+        if (mutation.kind === 'create') {
+          const request = rates.get(mutation.next.id);
+          request.onsuccess = () => {
+            const current = request.result as CommissionRate | undefined;
+            const stillOptimistic = current && Object.entries(mutation.next).every(([key, value]) => current[key as keyof CommissionRate] === value);
+            if (stillOptimistic) { rates.delete(mutation.next.id); rolledBack = true; }
+          };
+        } else if (mutation.kind === 'delete') {
+          if (!mutation.baseRate) return;
+          const request = rates.get(mutation.id);
+          request.onsuccess = () => {
+            if (!request.result) { rates.put(mutation.baseRate); rolledBack = true; }
+          };
+        } else {
+          const request = rates.get(mutation.nextId);
+          request.onsuccess = () => {
+            const current = request.result as CommissionRate | undefined;
+            if (!current || !mutation.baseSnapshot) return;
+            const restored = { ...current } as Record<string, unknown>;
+            let changed = false;
+            Object.entries(mutation.patch).forEach(([key, optimisticValue]) => {
+              if (current[key as keyof CommissionRate] !== optimisticValue) return;
+              if (Object.prototype.hasOwnProperty.call(mutation.baseSnapshot, key)) restored[key] = mutation.baseSnapshot![key as keyof CommissionRate];
+              else delete restored[key];
+              changed = true;
+            });
+            if (!changed) return;
+            if (mutation.nextId !== mutation.id) rates.delete(mutation.nextId);
+            rates.put({ ...restored, id: mutation.id } as CommissionRate);
+            rolledBack = true;
+          };
+        }
+      });
+    };
+    operationRequest.onerror = () => tx.abort();
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onerror = () => { database.close(); reject(tx.error || new Error('Could not revert the local rate change.')); };
+    tx.onabort = () => { database.close(); reject(tx.error || new Error('Could not revert the local rate change.')); };
+  });
+  if (rolledBack) announceLocalRateChanges(uid);
+  return rolledBack;
+}
+
 export async function resolveLocalRateOperationWithCloud(
   uid: string,
   operationId: string,

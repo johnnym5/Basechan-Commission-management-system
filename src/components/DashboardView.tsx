@@ -8,8 +8,6 @@ import { buildDashboardRates } from '../services/dashboardData';
 import { MasterTable } from './MasterTable';
 import { DashboardShell } from './DashboardShell';
 import { PersonalWorkspaceWidget } from './PersonalWorkspaceWidget';
-import { RateChangeBasket } from './RateChangeBasket';
-import type { PendingRateOperation } from '../types/rateWriteQueue';
 import {
   Building2,
   Layers,
@@ -37,13 +35,6 @@ interface DashboardViewProps {
   onFiltersChange?: (filters: DashboardFilters) => void;
   favoriteCount?: number;
   onOpenChat?: () => void;
-  pendingOperations?: PendingRateOperation[];
-  syncState?: 'idle' | 'syncing' | 'offline' | 'quota-paused';
-  onRetryPending?: (id?: string) => void;
-  onDiscardPending?: (id?: string) => void;
-  onResolvePendingConflict?: (id: string, resolution: 'keep-cloud' | 'apply-local') => void;
-  lastSyncedAt?: string | null;
-  errorMessage?: string | null;
 }
 
 interface AggregatorStat {
@@ -63,13 +54,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onFiltersChange,
   favoriteCount,
   onOpenChat,
-  pendingOperations = [],
-  syncState = 'idle',
-  onRetryPending = () => {},
-  onDiscardPending = () => {},
-  onResolvePendingConflict = () => {},
-  lastSyncedAt,
-  errorMessage,
 }) => {
   // Active Filter states passed down to MasterTable
   const [activeSearchQuery, setActiveSearchQuery] = useState<string>('');
@@ -201,17 +185,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="space-y-6 sm:space-y-8">
       {/* "Jump Back In" Personal Workspace Widget with Smart Search Bar */}
       <PersonalWorkspaceWidget
-        syncIndicator={
-          <RateChangeBasket
-            operations={pendingOperations}
-            syncState={syncState}
-            onRetry={onRetryPending}
-            onDiscard={onDiscardPending}
-            onResolveConflict={onResolvePendingConflict}
-            lastSyncedAt={lastSyncedAt}
-            errorMessage={errorMessage}
-          />
-        }
         rates={rates}
         activeTokens={activeTokens}
         onTokensChange={setActiveTokens}

@@ -6,12 +6,15 @@ import { subscribeToLocalRateChanges } from '../services/localRateDatabase';
 import { getQuotaRetryAt, isQuotaOffline } from '../services/firestoreOfflineMode';
 
 type SyncState = 'idle' | 'syncing' | 'offline' | 'quota-paused';
+export type RateSyncOutcome = { operationId: string; status: 'saved' | 'failed' | 'partial'; error?: string };
 
-export function usePendingRateChanges(uid: string | undefined, enabled: boolean) {
+export function usePendingRateChanges(uid: string | undefined, enabled: boolean, onSyncOutcome?: (outcome: RateSyncOutcome) => void) {
   const [operations, setOperations] = useState<PendingRateOperation[]>([]);
   const [syncState, setSyncState] = useState<SyncState>('idle');
   const busy = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const outcomeCallback = useRef(onSyncOutcome);
+  outcomeCallback.current = onSyncOutcome;
 
   const refresh = useCallback(async () => {
     if (!uid || !enabled) { setOperations([]); return []; }
@@ -55,8 +58,20 @@ export function usePendingRateChanges(uid: string | undefined, enabled: boolean)
       const pending = await refresh();
       const selected = pending.filter((item) => operationId ? item.operationId === operationId : item.status === 'pending' || item.status === 'failed' || item.status === 'quota-paused');
       for (const operation of selected) {
-        try { await syncRateOperation(operation); }
-        catch {
+        try {
+          const result = await syncRateOperation(operation);
+          outcomeCallback.current?.({
+            operationId: operation.operationId,
+            status: result === 'synced' ? 'saved' : result === 'partial' ? 'partial' : 'failed',
+            ...(result === 'conflict' ? { error: 'This change needs attention before it can be saved.' } : {}),
+          });
+        } catch (error) {
+          const savedToCloud = Boolean((error as { canonicalCommitted?: boolean } | null)?.canonicalCommitted);
+          outcomeCallback.current?.({
+            operationId: operation.operationId,
+            status: savedToCloud ? 'partial' : 'failed',
+            error: error instanceof Error ? error.message : 'The change could not be synced.',
+          });
           const attempt = operation.attemptCount + 1;
           const delay = Math.min(5 * 60_000, 5_000 * (2 ** Math.min(attempt - 1, 6)));
           if (timer.current) clearTimeout(timer.current);

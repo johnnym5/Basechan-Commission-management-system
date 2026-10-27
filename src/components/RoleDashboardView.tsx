@@ -19,7 +19,6 @@ interface RoleDashboardViewProps {
   favoriteCount?: number;
   onOpenChat?: () => void;
   agentDirectory?: DirectoryUniversity[];
-  syncIndicator?: React.ReactNode;
   lastSyncedAt?: string | null;
   syncError?: string | null;
   onRetrySync?: () => void;
@@ -36,7 +35,6 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
   favoriteCount,
   onOpenChat,
   agentDirectory: _agentDirectory = [],
-  syncIndicator,
 }) => {
   const [isOverviewOpen, setIsOverviewOpen] = useState<boolean>(false);
   const [isAdvanceFilterOpen, setIsAdvanceFilterOpen] = useState<boolean>(false);
@@ -128,7 +126,6 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
     >
       {/* "Jump Back In" Personal Workspace Widget with Smart Search Bar */}
       <PersonalWorkspaceWidget
-        syncIndicator={syncIndicator}
         rates={commissionRates}
         activeTokens={activeTokens}
         onTokensChange={setActiveTokens}

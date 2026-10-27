@@ -4,6 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useCommissionRates } from '../hooks/useCommissionRates';
 import { useAgentUniversityDirectory } from '../hooks/useAgentUniversityDirectory';
 import { usePendingRateChanges } from '../hooks/usePendingRateChanges';
+import type { RateSyncOutcome } from '../hooks/usePendingRateChanges';
 import { ensureRoleRateModelMigration, ensureSheetVisibilityRecords } from '../services/rateReadModels';
 import type { CommissionRate, UserRole, UserUpdate } from '../types';
 import { DashboardView } from './DashboardView';
@@ -52,6 +53,7 @@ import {
   Moon,
   Monitor,
   CheckCircle2,
+  AlertTriangle,
   WifiOff,
   HelpCircle,
   Bell,
@@ -141,7 +143,19 @@ export const AppLayout: React.FC = () => {
   const [isAuditLogsOpen, setIsAuditLogsOpen] = useState<boolean>(false);
   const [isSheetVisibilityOpen, setIsSheetVisibilityOpen] = useState<boolean>(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(false);
+  const [rateSaveToast, setRateSaveToast] = useState<RateSyncOutcome | null>(null);
+  const rateSaveToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleRateSyncOutcome = useCallback((outcome: RateSyncOutcome) => {
+    setRateSaveToast(outcome);
+    if (rateSaveToastTimer.current) clearTimeout(rateSaveToastTimer.current);
+    rateSaveToastTimer.current = setTimeout(() => setRateSaveToast(null), 5000);
+  }, []);
+
+  useEffect(() => () => {
+    if (rateSaveToastTimer.current) clearTimeout(rateSaveToastTimer.current);
+  }, []);
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -161,7 +175,7 @@ export const AppLayout: React.FC = () => {
 
   // Effective role used across views and sidebar
   const effectiveRole = role === 'ADMIN' ? viewAsRole : role;
-  const pendingRateChanges = usePendingRateChanges(user?.uid, role === 'ADMIN' && viewAsRole === 'ADMIN');
+  const pendingRateChanges = usePendingRateChanges(user?.uid, role === 'ADMIN' && viewAsRole === 'ADMIN', handleRateSyncOutcome);
   const agentUniversityDirectory = useAgentUniversityDirectory(effectiveRole === 'AGENT' && access.accessState === 'approved');
   const canUseAdminNavigation = role === 'ADMIN' && viewAsRole === 'ADMIN';
   const isQuotaMode = isQuotaOfflineMode || quotaMode;
@@ -349,14 +363,9 @@ export const AppLayout: React.FC = () => {
     setTimeout(() => setBannerNotice(null), 6000);
   };
 
-  const handleRateAdded = (newRate: CommissionRate) => {
-    setBannerNotice(`Saved commission rate for ${newRate.universityName} locally; waiting to sync.`);
-    setTimeout(() => setBannerNotice(null), 6000);
-  };
-
   return (
     role === 'AGENT' && access.accessState !== 'approved' ? <AgentAccessGate /> :
-    <div className="min-h-screen bg-[#FDFBF7] dark:bg-[#18181B] flex font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full overflow-x-hidden">
+    <div className="min-h-screen bg-[#FDFBF7] dark:bg-[#18181B] flex font-sans antialiased text-slate-800 dark:text-slate-100 transition-colors w-full max-w-full overflow-x-clip">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col w-full">
         {/* Offline Connection Drop Banner */}
         {isOffline && (
@@ -414,7 +423,7 @@ export const AppLayout: React.FC = () => {
           )
         )}
         {/* Header - 2nd Color (Secondary Dark Blue #0E1526) in Dark Mode */}
-        <header className="flex-none bg-[#F7F4EF]/95 dark:bg-[#0E1526]/90 backdrop-blur-md border-b border-slate-200 dark:border-[#222F43] sticky top-0 z-30 transition-colors">
+        <header className="sticky top-0 z-30 flex-none border-b border-white/50 bg-[#F7F4EF]/90 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.65)] backdrop-blur-sm transition-[background-color,border-color,box-shadow] duration-200 dark:border-white/10 dark:bg-[#0E1526]/82 dark:shadow-[0_8px_24px_-18px_rgba(0,0,0,0.9)] supports-[backdrop-filter]:bg-[#F7F4EF]/75 dark:supports-[backdrop-filter]:bg-[#0E1526]/72">
           <div className="mx-auto flex h-16 w-full min-w-0 max-w-7xl items-center justify-between gap-2 px-2 sm:px-6 lg:px-8">
             <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3">
               <img
@@ -441,6 +450,20 @@ export const AppLayout: React.FC = () => {
 
             {/* HEADER RIGHT: User Tutorial Question Mark & User Profile FAB Button */}
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+
+              <RateChangeBasket
+                operations={canUseAdminNavigation ? pendingRateChanges.operations : []}
+                syncState={canUseAdminNavigation ? pendingRateChanges.syncState : loading ? 'syncing' : (ratesError ? 'offline' : 'idle')}
+                onRetry={(id) => {
+                  if (canUseAdminNavigation && id) void pendingRateChanges.retry(id);
+                  else if (canUseAdminNavigation && pendingRateChanges.operations.length > 0) void pendingRateChanges.retry();
+                  else void refreshCommissionRates();
+                }}
+                onDiscard={canUseAdminNavigation ? (id) => void pendingRateChanges.discard(id) : undefined}
+                onResolveConflict={canUseAdminNavigation ? (id, resolution) => void pendingRateChanges.resolveConflict(id, resolution) : undefined}
+                lastSyncedAt={lastSyncedAt}
+                errorMessage={ratesError}
+              />
 
               {/* Question Mark Onboarding Tutorial Button */}
               <button
@@ -807,6 +830,24 @@ export const AppLayout: React.FC = () => {
             </div>
           )}
 
+          {rateSaveToast && (
+            <div
+              role={rateSaveToast.status === 'failed' ? 'alert' : 'status'}
+              aria-live="polite"
+              className={`fixed bottom-5 right-5 z-[90] flex max-w-sm items-start gap-2.5 rounded-xl border px-3.5 py-3 text-xs font-semibold shadow-xl animate-in fade-in slide-in-from-bottom-2 ${rateSaveToast.status === 'saved' ? 'border-emerald-500/40 bg-emerald-950 text-emerald-100' : rateSaveToast.status === 'partial' ? 'border-amber-500/40 bg-amber-950 text-amber-100' : 'border-rose-500/40 bg-rose-950 text-rose-100'}`}
+            >
+              {rateSaveToast.status === 'saved' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+              <span>
+                {rateSaveToast.status === 'saved'
+                  ? 'Saved to cloud.'
+                  : rateSaveToast.status === 'partial'
+                    ? 'Saved to cloud; some sync work is still pending. Use the sync basket to retry.'
+                    : `Save failed and was reverted. ${rateSaveToast.error || 'Try again from the sync basket.'}`}
+              </span>
+              <button type="button" onClick={() => setRateSaveToast(null)} className="ml-1 text-current/70 hover:text-current" aria-label="Dismiss save status">×</button>
+            </div>
+          )}
+
           <div key={`${effectiveRole}-${access.accessState}-${access.organizationId || 'none'}`} className="animate-page-enter">
             {currentPage === 'Dashboard' && (effectiveRole === 'ADMIN'
               ? <DashboardView
@@ -816,16 +857,6 @@ export const AppLayout: React.FC = () => {
                   onEditRate={handleEditRate}
                   filters={dashboardFilters}
                   onFiltersChange={setDashboardFilters}
-                  pendingOperations={pendingRateChanges.operations}
-                  syncState={pendingRateChanges.syncState}
-                  onRetryPending={(id) => {
-                    if (id) void pendingRateChanges.retry(id);
-                    else void refreshCommissionRates();
-                  }}
-                  onDiscardPending={(id) => void pendingRateChanges.discard(id)}
-                  onResolvePendingConflict={(id, resolution) => void pendingRateChanges.resolveConflict(id, resolution)}
-                  lastSyncedAt={lastSyncedAt}
-                  errorMessage={ratesError}
                 />
               : <RoleDashboardView
                   role={effectiveRole}
@@ -837,15 +868,6 @@ export const AppLayout: React.FC = () => {
                   lastSyncedAt={lastSyncedAt}
                   syncError={ratesError}
                   onRetrySync={() => void refreshCommissionRates()}
-                  syncIndicator={
-                    <RateChangeBasket
-                      operations={[]}
-                      syncState={loading ? 'syncing' : (ratesError ? 'offline' : 'idle')}
-                      onRetry={() => void refreshCommissionRates()}
-                      lastSyncedAt={lastSyncedAt}
-                      errorMessage={ratesError}
-                    />
-                  }
                 />)}
             {effectiveRole === 'ADMIN' && currentPage !== 'Dashboard' && (currentPage === 'Compare Rates' || currentPage === 'Compare') && <CompareView allRates={rates} />}
             {effectiveRole === 'ADMIN' && currentPage === 'Deal Calculator' && <DealCalculatorView rates={rates} />}
@@ -948,23 +970,13 @@ export const AppLayout: React.FC = () => {
               setIsEditModalOpen(false);
               setEditingRate(null);
             }}
-            onSaved={() => {
-              void refreshCommissionRates();
-              setBannerNotice('Saved locally — waiting to sync to Firestore.');
-              setTimeout(() => setBannerNotice(null), 4000);
-            }}
-            onDeleted={() => {
-              void refreshCommissionRates();
-              setBannerNotice('Deletion saved locally — waiting to sync to Firestore.');
-              setTimeout(() => setBannerNotice(null), 4000);
-            }}
           />
 
           <AddRateModal
             isOpen={isAddRateModalOpen}
             onClose={() => setIsAddRateModalOpen(false)}
             existingRates={rates}
-            onRateAdded={handleRateAdded}
+            onRateAdded={() => {}}
           />
 
           <ExcelUploadModal

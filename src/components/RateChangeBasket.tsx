@@ -163,7 +163,7 @@ export const RateChangeBasket: React.FC<Props> = ({
       {isOpen && (
         <div
           data-testid="sync-status-popover"
-          className="fixed left-4 right-4 sm:left-auto sm:right-0 sm:absolute top-auto mt-2 sm:w-80 max-w-[calc(100vw-2rem)] rounded-2xl bg-[#0E1526] border border-[#222F43] p-4 text-xs text-slate-200 shadow-2xl z-50 space-y-3 animate-in fade-in zoom-in-95 duration-150"
+          className="fixed left-4 right-4 top-[4.5rem] mt-2 max-w-[calc(100vw-2rem)] rounded-2xl border border-[#222F43] bg-[#0E1526] p-4 text-xs text-slate-200 shadow-2xl z-50 space-y-3 animate-in fade-in zoom-in-95 duration-150 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:w-80"
         >
           <div className="flex items-center justify-between pb-2 border-b border-[#222F43]">
             <div className="flex items-center gap-2">
