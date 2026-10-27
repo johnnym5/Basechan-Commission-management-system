@@ -65,6 +65,13 @@ describe('role-safe update fanout', () => {
     expect(notice?.universityName).toBe('University of Aberdeen');
   });
 
+  it('uses recommended-route wording for Staff default changes without changing Agent copy', () => {
+    const change = { type: 'routing' as const, title: 'Application routing updated', summary: 'Application routing information was updated.', rates: [rates[0]], roles: ['STAFF'] as Array<'STAFF' | 'AGENT'>, recommendedRoute: true, operationId: 'default-route-1' };
+    const staff = buildUserUpdateNotice(change, { uid: 'staff', email: 'staff@example.com', role: 'STAFF' }, {});
+    expect(staff?.title).toBe('Recommended route updated for Visible School');
+    expect(selectUpdateRecipients(change, [{ uid: 'agent', email: 'agent@example.com' }, { uid: 'staff', email: 'sara.basechaninternational@gmail.com' }], []).map((recipient) => recipient.role)).toEqual(['STAFF']);
+  });
+
   it('splits multi-school update changes into per-school UpdateChange objects', () => {
     const multiRates: CommissionRate[] = [
       { id: 'r1', universityId: 'uni-a', universityName: 'Uni A', intake: 'Jan 2026', sourceSheet: 'Public', studyLevel: 'PG', aggregator: 'SI-UK', masterRate: 20, agentRate: 12, diffMargin: 8, isFlatFee: false, netOrGross: 'GROSS' },

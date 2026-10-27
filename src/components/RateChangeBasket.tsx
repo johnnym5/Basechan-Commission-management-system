@@ -197,6 +197,9 @@ export const RateChangeBasket: React.FC<Props> = ({
               <p className="text-[11px] text-slate-300 leading-relaxed break-words font-mono">
                 {failureReason}
               </p>
+              {failedOps[0]?.nextRetryAt && (
+                <p className="text-[11px] text-rose-200">Next automatic retry: {formatLastSync(failedOps[0].nextRetryAt)}</p>
+              )}
             </div>
           )}
 

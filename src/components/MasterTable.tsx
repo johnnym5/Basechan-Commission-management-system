@@ -852,7 +852,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   // Grouped Data Calculations
   const groupedUniversities = useMemo(() => {
     if (effectiveGroupByMode !== 'UNIVERSITY') return [];
-    const grouped = groupRatesByUniversity(sortedFilteredData);
+    const grouped = groupRatesByUniversity(sortedFilteredData, { includeUnpricedRoutes: isStaff });
     const targetSortMode: GroupSortMode =
       selectedSortBy === 'HIGHEST_MARGIN'
         ? 'HIGHEST_MARGIN'
@@ -860,7 +860,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         ? 'MOST_ROUTES'
         : 'ALPHABETICAL';
     return sortGroupedUniversities(grouped, targetSortMode);
-  }, [sortedFilteredData, effectiveGroupByMode, selectedSortBy]);
+  }, [sortedFilteredData, effectiveGroupByMode, selectedSortBy, isStaff]);
 
   // CARD GRID PAGINATION SLICES
   const totalGroupPages = Math.ceil(groupedUniversities.length / CARDS_PER_PAGE) || 1;

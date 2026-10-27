@@ -121,7 +121,11 @@ export async function syncLocalRateData(input: RateScope): Promise<RateSyncResul
 
   const names = scopeNames(input);
   const previous = await getLocalRateMetadata(input.uid);
-  const sameScope = previous?.complete && previous.uid === input.uid && previous.role === input.role && previous.organizationId === input.organizationId;
+  const sameScope = previous?.complete
+    && previous.uid === input.uid
+    && previous.role === input.role
+    && previous.organizationId === input.organizationId
+    && (input.role !== 'ADMIN' || previous.adminFeedInitialized === true);
 
   if (!sameScope) {
     const cursors = Object.fromEntries(await Promise.all(names.map(async (name) => [name, await getFeedCursor(name)] as const)));

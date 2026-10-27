@@ -6,6 +6,8 @@ import {
   clearPendingOfflineImports,
   stageRatesToLocalDatabase,
   getLocalRates,
+  getLocalRateMetadata,
+  replaceLocalRateSnapshot,
   deleteLocalRateDatabase,
   type PendingOfflineImport,
 } from './localRateDatabase';
@@ -54,6 +56,17 @@ describe('localRateDatabase - Pending Offline Imports and Local Rate Staging', (
     importedAt: '2026-03-31T12:00:00.000Z',
     importedBy: 'admin@basechan.com',
   };
+
+  it('marks a complete Admin snapshot as initialized for delta-feed sync', async () => {
+    await replaceLocalRateSnapshot({ uid: testUid, role: 'ADMIN' }, [mockRate1], [], [], { admin: 4 });
+
+    await expect(getLocalRateMetadata(testUid)).resolves.toMatchObject({
+      complete: true,
+      role: 'ADMIN',
+      cursors: { admin: 4 },
+      adminFeedInitialized: true,
+    });
+  });
 
   beforeEach(async () => {
     await deleteLocalRateDatabase(testUid);

@@ -93,14 +93,15 @@ describe('useCommissionRates', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('invokes syncRateSheetsCacheFirst and indexes rates when user is authenticated', async () => {
+  it('syncs the Admin cursor feed and indexes the local canonical snapshot', async () => {
     vi.mocked(useAuth).mockReturnValue({
       user: mockUser,
       role: 'ADMIN',
       access: mockAccess,
     } as any);
 
-    vi.mocked(syncRateSheetsCacheFirst).mockResolvedValue([sampleRate]);
+    vi.mocked(syncLocalRateData).mockResolvedValue({ rates: [sampleRate], organizationOverrides: [], personalOverrides: [], lastSyncedAt: new Date().toISOString(), changed: true });
+    vi.mocked(getLocalRates).mockResolvedValue([sampleRate]);
 
     const { result } = renderHook(() => useCommissionRates());
 
@@ -108,7 +109,7 @@ describe('useCommissionRates', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(syncRateSheetsCacheFirst).toHaveBeenCalledWith({
+    expect(syncLocalRateData).toHaveBeenCalledWith({
       uid: 'user_123',
       role: 'ADMIN',
       organizationId: 'org_1',
@@ -121,7 +122,7 @@ describe('useCommissionRates', () => {
     expect(result.current.stats.totalRates).toBe(1);
     expect(result.current.stats.totalUniversities).toBe(1);
     expect(result.current.stats.focusCount).toBe(1);
-    expect(syncLocalRateData).not.toHaveBeenCalled();
+    expect(syncRateSheetsCacheFirst).not.toHaveBeenCalled();
   });
 
   it.each(['STAFF', 'AGENT'] as const)('%s uses only its UID-scoped rate snapshot', async (role) => {
@@ -170,7 +171,7 @@ describe('useCommissionRates', () => {
       access: mockAccess,
     } as any);
 
-    vi.mocked(syncRateSheetsCacheFirst).mockRejectedValue(new Error('Network error'));
+    vi.mocked(syncLocalRateData).mockRejectedValue(new Error('Network error'));
 
     const { result } = renderHook(() => useCommissionRates());
 

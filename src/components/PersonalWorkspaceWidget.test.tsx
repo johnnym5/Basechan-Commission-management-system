@@ -78,7 +78,7 @@ describe('PersonalWorkspaceWidget', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /View Rates/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Show All Rates|View Rates|Show all available rates/i }));
     expect(onScrollToResults).toHaveBeenCalledTimes(1);
   });
 

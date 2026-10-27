@@ -14,6 +14,7 @@ export interface UpdateChange {
   includeStaff?: boolean;
   roles?: Array<'AGENT' | 'STAFF'>;
   operationId?: string;
+  recommendedRoute?: boolean;
 }
 
 export interface UpdateUser {
@@ -102,7 +103,9 @@ export function buildUserUpdateNotice(
     const schoolName = uniqueSchoolNames[0];
     if (change.type === 'rates') formattedTitle = `New rate update for ${schoolName}`;
     else if (change.type === 'intake') formattedTitle = `New intake update for ${schoolName}`;
-    else if (change.type === 'routing') formattedTitle = `New route update for ${schoolName}`;
+    else if (change.type === 'routing') formattedTitle = change.recommendedRoute
+      ? `Recommended route updated for ${schoolName}`
+      : `New route update for ${schoolName}`;
     else if (change.type === 'guidance') formattedTitle = `New guidance update for ${schoolName}`;
   }
 

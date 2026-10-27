@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { scopeForUser, verifyServerRateAccess, syncRateSheetsCacheFirst } from './rateSyncService';
+import { scopeForUser, verifyServerRateAccess, syncRateSheetsCacheFirst, syncLocalRateData } from './rateSyncService';
 import type { RateSheetBucket, CommissionRate } from '../types';
 import type { RateScope } from './localRateDatabase';
 import * as localDb from './localRateDatabase';
@@ -23,6 +23,7 @@ vi.mock(import('firebase/firestore'), async (importOriginal) => {
     collection: vi.fn(),
     getDocFromServer: vi.fn(),
     getDocsFromServer: vi.fn(),
+    getDocs: vi.fn(),
     query: vi.fn(),
     where: vi.fn(),
   };
@@ -196,6 +197,48 @@ describe('rateSyncService', () => {
       const rates = await syncRateSheetsCacheFirst({ uid: 'admin-1', role: 'ADMIN' });
       expect(rates).toHaveLength(2);
       expect(rates[0].id).toBe('aberdeen__sept_2026__si_uk__ug');
+    });
+  });
+
+  describe('Admin delta sync', () => {
+    it('uses only the feed cursor when a complete Admin cache is initialized', async () => {
+      vi.mocked(localDb.getLocalRateMetadata).mockResolvedValue({
+        id: 'scope', uid: 'admin-1', role: 'ADMIN', complete: true, cursors: { admin: 8 },
+        adminFeedInitialized: true, lastSyncedAt: '', lastVerifiedAt: '',
+      });
+      vi.mocked(firestoreModule.getDocFromServer).mockResolvedValue({ data: () => ({ sequence: 8 }) } as any);
+      vi.mocked(localDb.applyLocalRateDeltas).mockResolvedValue();
+
+      const result = await syncLocalRateData({ uid: 'admin-1', role: 'ADMIN' });
+
+      expect(result.changed).toBe(false);
+      expect(firestoreModule.getDocFromServer).toHaveBeenCalledTimes(1);
+      expect(firestoreModule.getDocs).not.toHaveBeenCalled();
+      expect(firestoreModule.getDocsFromServer).not.toHaveBeenCalled();
+      expect(localDb.applyLocalRateDeltas).toHaveBeenCalledWith({ uid: 'admin-1', role: 'ADMIN' }, [], { admin: 8 });
+    });
+
+    it('bootstraps a legacy cache from a cursor taken before the canonical snapshot', async () => {
+      vi.mocked(localDb.getLocalRateMetadata).mockResolvedValue({
+        id: 'scope', uid: 'admin-1', role: 'ADMIN', complete: true, cursors: {},
+        lastSyncedAt: '', lastVerifiedAt: '',
+      });
+      vi.mocked(firestoreModule.getDocFromServer).mockResolvedValue({ data: () => ({ sequence: 8 }) } as any);
+      vi.mocked(firestoreModule.collection).mockReturnValue({ path: 'rates' } as any);
+      vi.mocked(firestoreModule.getDocs).mockResolvedValue({ docs: [{ id: 'rate-1', data: () => sampleBucket.rates[0] }] } as any);
+      vi.mocked(firestoreModule.getDocsFromServer).mockResolvedValue({ docs: [] } as any);
+      vi.mocked(localDb.replaceLocalRateSnapshot).mockResolvedValue();
+      vi.mocked(localDb.applyLocalRateDeltas).mockResolvedValue();
+
+      const result = await syncLocalRateData({ uid: 'admin-1', role: 'ADMIN' });
+
+      expect(result.changed).toBe(true);
+      expect(firestoreModule.getDocFromServer).toHaveBeenCalledTimes(1);
+      expect(firestoreModule.getDocs).toHaveBeenCalledTimes(1);
+      expect(localDb.replaceLocalRateSnapshot).toHaveBeenCalledWith(
+        { uid: 'admin-1', role: 'ADMIN' },
+        [{ ...sampleBucket.rates[0], id: 'rate-1' }], [], [], { admin: 8 },
+      );
     });
   });
 });

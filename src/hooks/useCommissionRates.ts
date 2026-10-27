@@ -9,7 +9,7 @@ import {
   isQuotaError, isQuotaOffline, isConnectivityError, subscribeToFirestoreMode,
 } from '../services/firestoreOfflineMode';
 import { getAllLocalSheetBuckets, getLocalAgentOverrides, getLocalRateMetadata, getLocalRates, subscribeToLocalRateChanges } from '../services/localRateDatabase';
-import { scopeForUser, syncLocalRateData, syncRateSheetsCacheFirst, verifyServerRateAccess } from '../services/rateSyncService';
+import { scopeForUser, syncLocalRateData, verifyServerRateAccess } from '../services/rateSyncService';
 import { selectRatesForScope } from '../services/rateSnapshot';
 
 export interface IndexedCommissionRate extends CommissionRate { _searchToken: string }
@@ -172,9 +172,9 @@ export function useCommissionRates() {
         }
         let combined: CommissionRate[];
         if (role === 'ADMIN') {
-          const freshRates = await syncRateSheetsCacheFirst(scope);
+          await syncLocalRateData(scope);
           const localRates = await getLocalRates(user.uid);
-          combined = Array.from(new Map([...freshRates, ...localRates].map((r) => [r.id, r])).values());
+          combined = localRates;
         } else {
           await syncLocalRateData(scope);
           const localRates = await getLocalRates(user.uid);

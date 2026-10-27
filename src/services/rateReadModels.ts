@@ -1,4 +1,4 @@
-import { collection, collectionGroup, deleteDoc, deleteField, doc, getDoc, getDocs, query, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, collectionGroup, deleteDoc, deleteField, doc, getDoc, getDocs, query, runTransaction, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { AgentRateReadModel, CommissionRate, RateSheetBucket, StaffRateReadModel } from '../types';
 import { normalizeOrganizationName } from './accessRequestService';
@@ -65,6 +65,45 @@ export async function partitionMasterIntoRateSheets(userEmail = 'Admin'): Promis
 
   await updateRateSheetsBuckets(allRates, userEmail);
   return allRates.length;
+}
+
+export type RateSheetMutation = { previous?: CommissionRate; next?: CommissionRate };
+
+/** Update only the intake/source-sheet buckets touched by this write package. */
+export async function updateRateSheetBucketsForMutations(mutations: RateSheetMutation[], userEmail = 'Admin'): Promise<void> {
+  const affected = new Map<string, { sheetName: string; removeIds: Set<string>; upserts: Map<string, CommissionRate> }>();
+  const touch = (rate: CommissionRate) => {
+    const sheetName = String(rate.sourceSheet || rate.intake || 'ALL').trim() || 'ALL';
+    const sheetKey = normalizeSheetKey(sheetName);
+    let entry = affected.get(sheetKey);
+    if (!entry) { entry = { sheetName, removeIds: new Set(), upserts: new Map() }; affected.set(sheetKey, entry); }
+    return entry;
+  };
+  for (const { previous, next } of mutations) {
+    if (previous) touch(previous).removeIds.add(previous.id);
+    if (next) touch(next).upserts.set(next.id, next);
+  }
+  if (!affected.size) return;
+  const timestamp = new Date().toISOString();
+  await runTransaction(db, async (transaction) => {
+    const entries = Array.from(affected.entries());
+    const snapshots = await Promise.all(entries.map(([key]) => transaction.get(doc(db, 'rate_sheets', key))));
+    entries.forEach(([sheetKey, entry], index) => {
+      const snapshot = snapshots[index];
+      // A missing bucket means it has not been bootstrapped. Do not create a partial sheet.
+      if (!snapshot.exists()) return;
+      const data = snapshot.data() as Partial<RateSheetBucket>;
+      const rates = new Map<string, CommissionRate>();
+      (Array.isArray(data.rates) ? data.rates : []).forEach((rate) => { if (rate?.id) rates.set(rate.id, rate); });
+      entry.removeIds.forEach((id) => rates.delete(id));
+      entry.upserts.forEach((rate, id) => rates.set(id, rate));
+      transaction.set(doc(db, 'rate_sheets', sheetKey), sanitizeFirestoreData({
+        sheetKey, sheetName: entry.sheetName || data.sheetName || 'ALL', rateCount: rates.size,
+        updatedAt: timestamp, updatedBy: userEmail, rates: Array.from(rates.values()),
+      } satisfies RateSheetBucket));
+    });
+    transaction.set(doc(db, 'settings', 'system_config'), { ratesLastUpdatedAt: timestamp, updatedBy: userEmail }, { merge: true });
+  });
 }
 
 const legacyOpaqueRateId = (rate: CommissionRate) => encodeURIComponent(`${rate.universityId}_${rate.intake}_${rate.studyLevel}`.toLowerCase()).replaceAll('.', '%2E');

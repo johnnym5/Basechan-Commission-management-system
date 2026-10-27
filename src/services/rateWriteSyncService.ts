@@ -107,7 +107,7 @@ async function commitCanonicalPackage(operation: PendingRateOperation, packageIn
 }
 
 export async function syncRateOperation(operation: PendingRateOperation): Promise<'synced' | 'conflict'> {
-  await updatePendingRateOperation(operation.uid, operation.operationId, { status: 'syncing', lastError: undefined });
+  await updatePendingRateOperation(operation.uid, operation.operationId, { status: 'syncing', lastError: undefined, lastAttemptAt: new Date().toISOString(), nextRetryAt: undefined });
   try {
     const allMutations: RateWriteMutation[] = [];
     const canonical: CommissionRate[] = [];
@@ -131,19 +131,18 @@ export async function syncRateOperation(operation: PendingRateOperation): Promis
       const { clearLocalSheetBuckets } = await import('./localRateDatabase');
       await clearLocalSheetBuckets(operation.uid);
 
-      // Rebuild ALL rate_sheets buckets from the full rates collection before removing the queued operation.
-      // Using only `canonical` (the edited subset) would overwrite each affected bucket with
-      // just the edited rows, making every other university disappear on reload.
-      // partitionMasterIntoRateSheets reads every doc in `rates` and writes complete buckets.
-      const { partitionMasterIntoRateSheets } = await import('./rateReadModels');
-      await partitionMasterIntoRateSheets(operation.adminEmail);
+      const { updateRateSheetBucketsForMutations } = await import('./rateReadModels');
+      await updateRateSheetBucketsForMutations(allMutations, operation.adminEmail);
     }
     await finishLocalRateOperation(operation.uid, operation.operationId, canonical);
     return 'synced';
   } catch (error) {
     const quota = isQuotaError(error) || isQuotaOffline(operation.uid);
+    const attemptCount = operation.attemptCount + 1;
+    const retryDelay = Math.min(5 * 60_000, 5_000 * (2 ** Math.min(attemptCount - 1, 6)));
     await updatePendingRateOperation(operation.uid, operation.operationId, {
       status: quota ? 'quota-paused' : 'failed', attemptCount: operation.attemptCount + 1,
+      nextRetryAt: quota ? undefined : new Date(Date.now() + retryDelay).toISOString(),
       lastError: error instanceof Error ? error.message : 'The change could not be synced.',
     });
     throw error;

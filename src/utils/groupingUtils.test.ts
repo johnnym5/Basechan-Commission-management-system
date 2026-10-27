@@ -50,6 +50,12 @@ describe('groupingUtils - Country Resolution', () => {
     expect(grouped[0].rates.map((r) => r.id)).toEqual(['1']);
   });
 
+  it('includes authorized unpriced Staff routes only when requested', () => {
+    const unpriced: CommissionRate = { id: 'staff-only', universityId: 'u2', universityName: 'Staff University', intake: 'Sept 2026', studyLevel: 'UG', aggregator: 'SI-UK', masterRate: 0, agentRate: 0, diffMargin: 0, isFlatFee: false, netOrGross: 'GROSS' };
+    expect(groupRatesByUniversity([unpriced])).toHaveLength(0);
+    expect(groupRatesByUniversity([unpriced], { includeUnpricedRoutes: true })).toHaveLength(1);
+  });
+
   describe('isHistoricalIntake', () => {
     // Pass referenceMonth=8 (August) so these tests are deterministic regardless of
     // which real-world month they run in. Sept 2026 with referenceMonth=8 is future

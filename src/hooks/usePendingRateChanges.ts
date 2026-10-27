@@ -87,12 +87,12 @@ export function usePendingRateChanges(uid: string | undefined, enabled: boolean)
   const retry = useCallback(async (operationId?: string) => {
     if (!uid) return;
     if (operationId) {
-      await updatePendingRateOperation(uid, operationId, { status: 'pending', lastError: undefined });
+      await updatePendingRateOperation(uid, operationId, { status: 'pending', lastError: undefined, nextRetryAt: undefined });
       await flush(operationId);
     } else {
       const ops = await refresh();
       for (const op of ops) {
-        await updatePendingRateOperation(uid, op.operationId, { status: 'pending', lastError: undefined });
+        await updatePendingRateOperation(uid, op.operationId, { status: 'pending', lastError: undefined, nextRetryAt: undefined });
       }
       await flush();
     }

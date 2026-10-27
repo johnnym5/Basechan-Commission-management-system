@@ -71,7 +71,7 @@ export const normalizeUniversityName = (name: string): string => {
 };
 
 // Group commission rates by University
-export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversity[] => {
+export const groupRatesByUniversity = (rates: CommissionRate[], options: { includeUnpricedRoutes?: boolean } = {}): GroupedUniversity[] => {
   const map = new Map<string, CommissionRate[]>();
 
   (rates || []).forEach((rate) => {
@@ -89,6 +89,7 @@ export const groupRatesByUniversity = (rates: CommissionRate[]): GroupedUniversi
     if (!items || items.length === 0) return;
     const validItems = items.filter((item) => {
       if (!item || typeof item.universityName !== 'string') return false;
+      if (options.includeUnpricedRoutes) return true;
       const master = typeof item.masterRate === 'number' ? item.masterRate : 0;
       const agent = typeof item.agentRate === 'number' ? item.agentRate : 0;
       return master > 0 || agent > 0;

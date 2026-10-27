@@ -2,6 +2,7 @@ import {
   collection, doc, getDocFromServer, getDocsFromServer, limit, orderBy, query, runTransaction, where,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import type { CommissionRate } from '../types';
 import type { RateDelta } from './localRateDatabase';
 
 export interface FeedRecord extends RateDelta {
@@ -84,6 +85,9 @@ function currentRateRef(scope: string, delta: RateDelta) {
 
 export async function hydrateRateDelta(scope: string, delta: RateDelta): Promise<RateDelta> {
   if (delta.kind === 'delete') return delta;
+  if (scope === 'admin' && delta.target === 'rates' && isCompleteAdminRate(delta.record, delta.id)) {
+    return delta;
+  }
   try {
     const snapshot = await getDocFromServer(currentRateRef(scope, delta));
     if (!snapshot.exists()) return { ...delta, kind: 'delete', record: undefined };
@@ -94,4 +98,19 @@ export async function hydrateRateDelta(scope: string, delta: RateDelta): Promise
     }
     throw error;
   }
+}
+
+function isCompleteAdminRate(record: RateDelta['record'], id: string): record is CommissionRate {
+  if (!record || record.id !== id) return false;
+  const canonical = record as CommissionRate;
+  return typeof canonical.universityId === 'string'
+    && typeof canonical.universityName === 'string'
+    && typeof canonical.intake === 'string'
+    && typeof canonical.studyLevel === 'string'
+    && typeof canonical.aggregator === 'string'
+    && typeof canonical.masterRate === 'number'
+    && typeof canonical.agentRate === 'number'
+    && typeof canonical.diffMargin === 'number'
+    && typeof canonical.isFlatFee === 'boolean'
+    && (canonical.netOrGross === 'NET' || canonical.netOrGross === 'GROSS');
 }

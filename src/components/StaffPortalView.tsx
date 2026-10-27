@@ -294,7 +294,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ rates, chatMod
 
   const groupedUniversities = useMemo(() => {
     if (groupByMode !== 'UNIVERSITY') return [];
-    return sortGroupedUniversities(groupRatesByUniversity(filteredRates), groupSortMode);
+    return sortGroupedUniversities(groupRatesByUniversity(filteredRates, { includeUnpricedRoutes: true }), groupSortMode);
   }, [filteredRates, groupByMode, groupSortMode]);
 
   // CARD GRID PAGINATION SLICES

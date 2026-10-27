@@ -44,12 +44,13 @@ function updateCategory(mutations: RateWriteMutation[]): RateWriteCategory {
   const fields = new Set<string>();
   mutations.forEach(({ previous, next }) => {
     if (!previous || !next) return;
-    for (const field of ['guidance', 'aggregator', 'intake', 'agentRate', 'masterRate', 'studyLevel', 'isFlatFee', 'netOrGross'] as const) {
+    for (const field of ['guidance', 'aggregator', 'intake', 'agentRate', 'masterRate', 'studyLevel', 'isFlatFee', 'netOrGross', 'isDefaultRoute'] as const) {
       if (previous[field] !== next[field]) fields.add(field);
     }
   });
   if (fields.size === 1 && fields.has('guidance')) return 'guidance';
   if (fields.size === 1 && fields.has('aggregator')) return 'routing';
+  if (fields.size === 1 && fields.has('isDefaultRoute')) return 'routing';
   if (fields.size === 1 && fields.has('intake')) return 'intake';
   return 'rates';
 }
@@ -246,7 +247,7 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
     const category = input.category || updateCategory(activeMutations);
     const notice = buildRateWriteNotice(activeMutations, category);
     const agentVisibleFields = new Set(['universityId', 'universityName', 'country', 'intake', 'studyLevel', 'agentRate', 'isFlatFee', 'netOrGross', 'guidance', 'notes', 'sourceSheet']);
-    const staffVisibleFields = new Set(['universityId', 'universityName', 'country', 'intake', 'studyLevel', 'aggregator', 'guidance', 'notes', 'sourceSheet']);
+    const staffVisibleFields = new Set(['universityId', 'universityName', 'country', 'intake', 'studyLevel', 'aggregator', 'guidance', 'notes', 'sourceSheet', 'isDefaultRoute']);
     const changedFields = new Set(activeMutations.flatMap(({ previous, next }) => previous && next
       ? Object.keys(next).filter((key) => previous[key as keyof CommissionRate] !== next[key as keyof CommissionRate])
       : ['created']));
@@ -265,6 +266,9 @@ async function executeRateOperation(input: RateWriteOperationInput): Promise<{ o
         roles,
         includeStaff: roles.includes('STAFF'),
         operationId,
+        ...(category === 'routing' && activeMutations.some(({ previous, next }) => previous && next && previous.isDefaultRoute !== next.isDefaultRoute)
+          ? { recommendedRoute: true }
+          : {}),
       });
     } catch (err) {
       console.error('[RateSync sub-step failure] publishRelevantUpdates:', err);

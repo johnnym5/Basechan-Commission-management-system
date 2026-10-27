@@ -1,4 +1,4 @@
-﻿import type { AgentRateReadModel, ChatConversation, CommissionRate, FavoriteSchool, RateSheetBucket, StaffRateReadModel, UserRole } from '../types';
+import type { AgentRateReadModel, ChatConversation, CommissionRate, FavoriteSchool, RateSheetBucket, StaffRateReadModel, UserRole } from '../types';
 import type { AgentChatProfile } from '../types/chat';
 import type { PendingRateOperation, PendingRateOperationPatch } from '../types/rateWriteQueue';
 
@@ -16,6 +16,7 @@ export interface LocalRateMetadata extends RateScope {
   lastVerifiedAt: string;
   quotaRetryAt?: number;
   ratesLastUpdatedAt?: string;
+  adminFeedInitialized?: boolean;
   adminMembershipVerified?: boolean;
   adminEmail?: string;
 }
@@ -357,6 +358,7 @@ export async function replaceLocalRateSnapshot(
 ): Promise<void> {
   const incomplete: LocalRateMetadata = {
     id: 'scope', ...scope, complete: false, cursors,
+    ...(scope.role === 'ADMIN' ? { adminFeedInitialized: true } : {}),
     lastSyncedAt: new Date().toISOString(), lastVerifiedAt: new Date().toISOString(),
   };
   await transact<void>(scope.uid, ['metadata', 'rates', 'organizationOverrides', 'personalOverrides'], 'readwrite', (tx) => {

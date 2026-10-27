@@ -27,6 +27,8 @@ export interface PendingRateOperation {
   createdAt: string;
   updatedAt: string;
   lastError?: string;
+  lastAttemptAt?: string;
+  nextRetryAt?: string;
   conflicts?: PendingRateConflict[];
 }
 
@@ -34,7 +36,7 @@ export type StageRateOperationInput = Pick<PendingRateOperation, 'adminEmail' | 
   & Partial<Pick<PendingRateOperation, 'operationId' | 'category' | 'notify'>>;
 
 export type PendingRateOperationPatch = Partial<Pick<PendingRateOperation,
-  'status' | 'attemptCount' | 'updatedAt' | 'lastError' | 'conflicts' | 'mutations'>>;
+  'status' | 'attemptCount' | 'updatedAt' | 'lastError' | 'lastAttemptAt' | 'nextRetryAt' | 'conflicts' | 'mutations'>>;
 
 
 
