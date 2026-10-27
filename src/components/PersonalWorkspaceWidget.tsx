@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
-import { Star, ArrowDown } from 'lucide-react';
+import { Star, ArrowDown, Search } from 'lucide-react';
 import { getLocalFavorites } from '../services/localRateDatabase';
 import { getOrganization } from '../services/accessRequestService';
 import { SmartSearchBar } from './SmartSearchBar';
@@ -93,6 +93,7 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
   const [orgName, setOrgName] = useState<string>('');
   const [draftSearch, setDraftSearch] = useState(queryText);
   const [showSearchDock, setShowSearchDock] = useState(false);
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const searchBarSentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -110,6 +111,10 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (!showSearchDock) setIsMobileSearchOpen(false);
+  }, [showSearchDock]);
 
   const effectiveName = user?.displayName || (user?.email ? user.email.split('@')[0] : 'User');
 
@@ -271,23 +276,59 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
         />
       </div>
 
-      {typeof document !== 'undefined' && createPortal(
-        <div
-          className="search-dock fixed inset-x-0 top-16 z-50 px-2 pt-2 sm:px-5"
-          data-visible={showSearchDock}
-          aria-hidden={!showSearchDock}
-          inert={!showSearchDock}
-        >
-          <div className="mx-auto max-w-7xl rounded-2xl border border-white/15 bg-slate-900/80 p-1.5 shadow-xl shadow-slate-950/20 backdrop-blur-md sm:p-2">
+      {typeof document !== 'undefined' && document.getElementById('header-search-slot') && createPortal(
+        showSearchDock ? (
+          <button
+            type="button"
+            aria-label="Open search"
+            aria-expanded={isMobileSearchOpen}
+            aria-controls="mobile-search-panel"
+            onClick={() => setIsMobileSearchOpen((open) => !open)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200/80 bg-white/70 text-slate-700 shadow-sm transition duration-150 hover:bg-white active:scale-95 dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        ) : null,
+        document.getElementById('header-search-slot')!
+      )}
+
+      {typeof document !== 'undefined' && document.getElementById('header-search-desktop-slot') && createPortal(
+        showSearchDock ? (
+          <div className="header-search-entry mx-auto w-full max-w-3xl rounded-2xl border border-white/15 bg-slate-900/75 p-1 shadow-lg shadow-slate-950/15 backdrop-blur-sm">
             <SmartSearchBar
               {...smartSearchProps}
               compact
-              advanceFiltersOpen={showSearchDock ? advanceFiltersOpen : false}
+              advanceFiltersOpen={advanceFiltersOpen}
             />
           </div>
-        </div>,
+        ) : null,
+        document.getElementById('header-search-desktop-slot')!
+      )}
+
+      {typeof document !== 'undefined' && isMobileSearchOpen && createPortal(
+        <>
+          <button
+            type="button"
+            aria-label="Close search"
+            onClick={() => setIsMobileSearchOpen(false)}
+            className="fixed inset-0 z-40 bg-slate-950/15 lg:hidden"
+          />
+          <div
+            id="mobile-search-panel"
+            role="dialog"
+            aria-label="Search rates and filters"
+            className="mobile-search-panel fixed inset-x-3 top-[4.5rem] z-50 rounded-2xl border border-white/20 bg-slate-900/95 p-1.5 shadow-xl shadow-slate-950/25 backdrop-blur-sm lg:hidden"
+          >
+            <SmartSearchBar
+              {...smartSearchProps}
+              compact
+              advanceFiltersOpen={advanceFiltersOpen}
+            />
+          </div>
+        </>,
         document.body
       )}
+
     </div>
   );
 };

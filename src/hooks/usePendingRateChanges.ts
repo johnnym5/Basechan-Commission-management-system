@@ -101,16 +101,18 @@ export function usePendingRateChanges(uid: string | undefined, enabled: boolean,
 
   const retry = useCallback(async (operationId?: string) => {
     if (!uid) return;
-    if (operationId) {
-      await updatePendingRateOperation(uid, operationId, { status: 'pending', lastError: undefined, nextRetryAt: undefined });
-      await flush(operationId);
-    } else {
-      const ops = await refresh();
-      for (const op of ops) {
+    const ops = await refresh();
+    const selected = ops.filter((op) => !operationId || op.operationId === operationId);
+    for (const op of selected) {
+      if (op.status === 'conflict') {
+        // Rebase the saved field patch against the latest cloud record before retrying.
+        // This preserves unrelated cloud edits and makes normal edits self-healing.
+        await resolveRateOperationConflict(uid, op.operationId, 'apply-local');
+      } else {
         await updatePendingRateOperation(uid, op.operationId, { status: 'pending', lastError: undefined, nextRetryAt: undefined });
       }
-      await flush();
     }
+    await flush(operationId);
   }, [uid, refresh, flush]);
   const discard = useCallback(async (operationId?: string) => {
     if (!uid) return;

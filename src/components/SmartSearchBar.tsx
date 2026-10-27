@@ -448,45 +448,13 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
 
         {/* Advance Filter Dropdown Popover */}
         {isAdvanceOpen && (
-          <div className={`p-4 bg-[#090d16] border border-[#33415d] rounded-2xl space-y-4 text-xs shadow-2xl animate-in fade-in duration-150 relative z-50 ${compact ? 'mt-2' : ''}`}>
+          <div className={`bg-[#090d16] border border-[#33415d] rounded-2xl text-xs shadow-2xl animate-in fade-in duration-150 z-50 ${compact ? 'absolute right-0 top-full mt-2 w-full max-w-[min(760px,calc(100vw-2rem))] max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain p-3 space-y-3' : 'relative p-4 space-y-4'}`}>
             <div className="flex items-center justify-between font-bold text-slate-300 border-b border-[#26334b] pb-2">
               <span className="flex items-center gap-1.5 font-extrabold text-blue-300">
                 <SlidersHorizontal className="w-4 h-4 text-amber-400" />
-                Advanced Filters & View Mode Preferences
+                Advanced Filters
               </span>
               <div className="flex items-center gap-3">
-                {/* View Mode Switcher for Desktop */}
-                {onViewModeChange && (
-                  <div className="hidden md:flex items-center gap-1 bg-[#18181B] border border-slate-700 p-0.5 rounded-xl">
-                    <button
-                      type="button"
-                      onClick={() => onViewModeChange('cards')}
-                      className={`px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
-                        viewMode === 'cards'
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Grid Cards View"
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                      <span>Cards</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onViewModeChange('table')}
-                      className={`px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
-                        viewMode === 'table'
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Table List View"
-                    >
-                      <TableProperties className="w-3.5 h-3.5" />
-                      <span>Table List</span>
-                    </button>
-                  </div>
-                )}
-
                 {hasActiveFilters && (
                   <button
                     type="button"
@@ -502,7 +470,7 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
             </div>
 
             {/* Detailed Filters Grid (University, Country, Commission Type, Level, Intake, Status, Portal, Sort By) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2.5">
+            <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))' }}>
               <div>
                 <label htmlFor="advance-university-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">University</label>
                 <StyledSelect

@@ -25,7 +25,7 @@ describe('RateChangeBasket', () => {
     // Clicking trigger opens the detailed status popover
     fireEvent.click(triggerBtn);
     expect(screen.getByTestId('sync-status-popover')).toBeInTheDocument();
-    expect(screen.getByText('Network request failed')).toBeInTheDocument();
+    expect(screen.getByText(/Retry Sync Now will apply your changed fields and preserve unrelated cloud updates/i)).toBeInTheDocument();
 
     // Clicking Retry Sync button inside popover calls onRetry
     const retryNowBtn = screen.getByRole('button', { name: /Retry Sync Now/i });
@@ -51,27 +51,23 @@ describe('RateChangeBasket', () => {
     expect(onDiscard).toHaveBeenCalledWith('basket-op');
   });
 
-  it('renders Force Push button for conflict and invokes onResolveConflict with apply-local', () => {
-    const onResolveConflict = vi.fn();
+  it('offers retry for conflicts without a Force Push action', () => {
     render(
       <RateChangeBasket
         operations={[item]}
         syncState="idle"
         onRetry={vi.fn()}
-        onResolveConflict={onResolveConflict}
       />
     );
     fireEvent.click(screen.getByRole('button', { name: /sync failed or pending - click to retry/i }));
 
-    const forceBtn = screen.getByRole('button', { name: /Force Push/i });
-    expect(forceBtn).toBeInTheDocument();
-    fireEvent.click(forceBtn);
-    expect(onResolveConflict).toHaveBeenCalledWith('basket-op', 'apply-local');
+    expect(screen.getByRole('button', { name: /Retry Sync Now/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Force Push/i })).not.toBeInTheDocument();
   });
 
-  it('does not offer Force Push for a rate ID collision that it cannot resolve', () => {
+  it('does not offer Force Push for a rate ID collision', () => {
     const collision = { ...item, conflicts: [{ mutationIndex: 0, id: 'occupied', reason: 'Another rate already uses the new ID. Resolve this ID collision before saving.' }] };
-    render(<RateChangeBasket operations={[collision]} syncState="idle" onRetry={vi.fn()} onResolveConflict={vi.fn()} />);
+    render(<RateChangeBasket operations={[collision]} syncState="idle" onRetry={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /sync failed or pending - click to retry/i }));
     expect(screen.queryByRole('button', { name: /Force Push/i })).not.toBeInTheDocument();
   });

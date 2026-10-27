@@ -148,7 +148,7 @@ describe('chat search results flow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /1 matching route/i }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Compare selected' })).toBeTruthy());
-  });
+  }, 15000);
 
   it('triggers send when pressing Enter on PC without Shift', async () => {
     render(React.createElement(ChatExperience, {

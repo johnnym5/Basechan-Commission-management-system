@@ -448,8 +448,12 @@ export const AppLayout: React.FC = () => {
               </div>
             </div>
 
+            <div id="header-search-desktop-slot" className="hidden min-w-0 flex-1 px-3 lg:block" />
+
             {/* HEADER RIGHT: User Tutorial Question Mark & User Profile FAB Button */}
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+
+              <div id="header-search-slot" className="flex lg:hidden" />
 
               <RateChangeBasket
                 operations={canUseAdminNavigation ? pendingRateChanges.operations : []}
@@ -460,7 +464,6 @@ export const AppLayout: React.FC = () => {
                   else void refreshCommissionRates();
                 }}
                 onDiscard={canUseAdminNavigation ? (id) => void pendingRateChanges.discard(id) : undefined}
-                onResolveConflict={canUseAdminNavigation ? (id, resolution) => void pendingRateChanges.resolveConflict(id, resolution) : undefined}
                 lastSyncedAt={lastSyncedAt}
                 errorMessage={ratesError}
               />

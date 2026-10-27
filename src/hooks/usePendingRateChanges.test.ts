@@ -39,6 +39,22 @@ describe('usePendingRateChanges', () => {
     renderHook(() => usePendingRateChanges('admin', true, onSyncOutcome));
     await waitFor(() => expect(onSyncOutcome).toHaveBeenCalledWith({ operationId: 'op', status: 'failed', error: 'Network unavailable' }));
   });
+
+  it('rebases a conflicted edit onto the latest cloud values when retrying', async () => {
+    const conflictedOperation: PendingRateOperation = { ...operation, status: 'conflict', conflicts: [{ mutationIndex: 0, id: 'rate', reason: 'Cloud value changed.' }] };
+    getPendingRateOperations.mockImplementation(async () => [conflictedOperation]);
+    resolveRateOperationConflict.mockImplementation(async (_uid, _operationId, resolution) => {
+      expect(resolution).toBe('apply-local');
+      conflictedOperation.status = 'pending';
+    });
+    const { result } = renderHook(() => usePendingRateChanges('admin', true));
+    await waitFor(() => expect(result.current.operations[0]?.status).toBe('conflict'));
+
+    await act(async () => { await result.current.retry('op'); });
+
+    expect(resolveRateOperationConflict).toHaveBeenCalledWith('admin', 'op', 'apply-local');
+    expect(syncRateOperation).toHaveBeenCalledWith(conflictedOperation);
+  });
 });
 
 

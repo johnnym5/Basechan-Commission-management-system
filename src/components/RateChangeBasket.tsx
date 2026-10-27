@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CheckCircle2, LoaderCircle, XCircle, RefreshCw, AlertTriangle, Clock, X, Trash2, ArrowUpRight } from 'lucide-react';
+import { CheckCircle2, LoaderCircle, XCircle, RefreshCw, AlertTriangle, Clock, X, Trash2 } from 'lucide-react';
 import type { PendingRateOperation } from '../types/rateWriteQueue';
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'quota-paused';
@@ -9,7 +9,6 @@ type Props = {
   syncState: SyncState;
   onRetry: (id?: string) => void;
   onDiscard?: (id?: string) => void;
-  onResolveConflict?: (id: string, resolution: 'keep-cloud' | 'apply-local') => void;
   lastSyncedAt?: string | null;
   errorMessage?: string | null;
   lastSyncUploadName?: string | null;
@@ -20,7 +19,6 @@ export const RateChangeBasket: React.FC<Props> = ({
   syncState,
   onRetry,
   onDiscard,
-  onResolveConflict,
   lastSyncedAt,
   errorMessage,
   lastSyncUploadName,
@@ -108,21 +106,15 @@ export const RateChangeBasket: React.FC<Props> = ({
     }
   };
 
-  const handleForcePushClick = () => {
-    if (!onResolveConflict) return;
-    const targetOp = failedOps.find((op) => op.status === 'conflict') || failedOps[0] || operations[0];
-    if (targetOp) {
-      onResolveConflict(targetOp.operationId, 'apply-local');
-    }
-  };
-
-  // Detailed reason for failure
-  const failureReason =
-    failedOps[0]?.lastError ||
-    errorMessage ||
-    failedOps[0]?.conflicts?.[0]?.reason ||
-    (syncState === 'offline' ? 'Offline - No network connection' : null) ||
-    'Rate synchronization could not connect to Firestore (Permission or Quota limitation)';
+  const firstFailedOperation = failedOps[0];
+  const conflictReason = firstFailedOperation?.conflicts?.[0]?.reason;
+  const hasRateIdCollision = Boolean(conflictReason?.toLowerCase().includes('already uses the new id'));
+  // Value conflicts are rebased automatically when the user retries; only a key collision needs editing.
+  const failureReason = firstFailedOperation?.status === 'conflict' && !hasRateIdCollision
+    ? 'Cloud data changed while this edit was pending. Retry Sync Now will apply your changed fields and preserve unrelated cloud updates.'
+    : conflictReason || firstFailedOperation?.lastError || errorMessage ||
+      (syncState === 'offline' ? 'Offline - No network connection' : null) ||
+      'Rate synchronization could not connect to Firestore (Permission or Quota limitation)';
 
   return (
     <div className="relative inline-block z-20" ref={popoverRef}>
@@ -243,18 +235,6 @@ export const RateChangeBasket: React.FC<Props> = ({
               >
                 <Trash2 className="w-3 h-3 text-rose-400" />
                 <span>{operations.length > 1 ? `Discard All (${operations.length})` : 'Discard Change'}</span>
-              </button>
-            )}
-
-            {hasFailed && onResolveConflict && failedOps.some((op) => op.status === 'conflict' && !op.conflicts?.some((conflict) => conflict.reason.toLowerCase().includes('already uses the new id'))) && (
-              <button
-                type="button"
-                onClick={handleForcePushClick}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-extrabold text-[11px] transition shadow-xs active:scale-95 cursor-pointer"
-                title="Overwrite Firestore with this local version"
-              >
-                <ArrowUpRight className="w-3 h-3 text-amber-400" />
-                <span>Force Push</span>
               </button>
             )}
 
