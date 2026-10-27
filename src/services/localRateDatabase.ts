@@ -205,7 +205,7 @@ export async function stageLocalRateOperation(
         operationsStore.put({ ...merged, id: merged.operationId });
         ratesStore.get(incoming.id).onsuccess = (event) => {
           const current = (event.target as IDBRequest<CommissionRate | undefined>).result;
-          const next = { ...(current || { id: incoming.id }), ...incoming.patch, id: incoming.nextId } as CommissionRate;
+          const next = { ...(current || prior.baseSnapshot || { id: incoming.id }), ...incoming.patch, id: incoming.nextId } as CommissionRate;
           if (incoming.nextId !== incoming.id) ratesStore.delete(incoming.id);
           ratesStore.put(next);
         };
@@ -218,7 +218,7 @@ export async function stageLocalRateOperation(
           else {
             ratesStore.get(mutation.id).onsuccess = (event) => {
               const current = (event.target as IDBRequest<CommissionRate | undefined>).result;
-              const next = { ...(current || { id: mutation.id }), ...mutation.patch, id: mutation.nextId } as CommissionRate;
+              const next = { ...(current || mutation.baseSnapshot || { id: mutation.id }), ...mutation.patch, id: mutation.nextId } as CommissionRate;
               if (mutation.nextId !== mutation.id) ratesStore.delete(mutation.id);
               ratesStore.put(next);
             };

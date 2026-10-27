@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { Star, ArrowDown } from 'lucide-react';
 import { getLocalFavorites } from '../services/localRateDatabase';
@@ -16,6 +17,7 @@ export interface PersonalWorkspaceWidgetProps {
   favoriteCount?: number;
   onOpenChat?: () => void;
   onScrollToResults?: () => void;
+  onShowAllRates?: () => void;
   onToggleAdvanceFilters?: () => void;
   advanceFiltersOpen?: boolean;
   selectedUniversity?: string;
@@ -55,6 +57,7 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
   onQueryTextChange = () => {},
   favoriteCount,
   onScrollToResults,
+  onShowAllRates,
   onToggleAdvanceFilters,
   advanceFiltersOpen = false,
   selectedUniversity,
@@ -88,6 +91,25 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
   const { user, role, access, accessRequest } = useAuth();
   const [loadedFavoriteCount, setLoadedFavoriteCount] = useState<number>(0);
   const [orgName, setOrgName] = useState<string>('');
+  const [draftSearch, setDraftSearch] = useState(queryText);
+  const [showSearchDock, setShowSearchDock] = useState(false);
+  const searchBarSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setDraftSearch(queryText);
+  }, [queryText]);
+
+  useEffect(() => {
+    const sentinel = searchBarSentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      const headerBottom = 64;
+      setShowSearchDock(!entry.isIntersecting && entry.boundingClientRect.bottom <= headerBottom);
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
 
   const effectiveName = user?.displayName || (user?.email ? user.email.split('@')[0] : 'User');
 
@@ -124,6 +146,8 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
   }, [role, orgName]);
 
   const handleScrollToResults = () => {
+    if (onShowAllRates) onShowAllRates();
+    else onResetFilters?.();
     if (onScrollToResults) {
       onScrollToResults();
       return;
@@ -132,6 +156,44 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+  };
+
+  const smartSearchProps = {
+    rates,
+    activeTokens,
+    onTokensChange,
+    queryText,
+    onQueryTextChange,
+    draftText: draftSearch,
+    onDraftTextChange: setDraftSearch,
+    onToggleAdvanceFilters,
+    totalResultCount: rates.length,
+    selectedUniversity,
+    onUniversityChange,
+    selectedCountry,
+    onCountryChange,
+    selectedLevel,
+    onLevelChange,
+    selectedIntake,
+    onIntakeChange,
+    selectedStatus,
+    onStatusChange,
+    selectedAggregator,
+    onAggregatorChange,
+    selectedCommissionType,
+    onCommissionTypeChange,
+    selectedSortBy,
+    onSortByChange,
+    viewMode,
+    onViewModeChange,
+    onlyShowStarred,
+    onToggleStarred,
+    watchlistCount,
+    groupByMode,
+    onGroupByModeChange,
+    activeCurrency,
+    onCurrencyChange,
+    onResetFilters,
   };
 
   return (
@@ -191,53 +253,41 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
 
           <button
             onClick={handleScrollToResults}
+            type="button"
+            aria-label="Show all available rates"
             className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
           >
             <ArrowDown className="w-3.5 h-3.5 text-slate-400" />
-            <span>View Rates</span>
+            <span>Show All Rates</span>
           </button>
         </div>
       </div>
 
       {/* Embedded Smart Conversational Search Bar inside Welcome Card */}
-      <div className="relative z-10 pt-2 border-t border-slate-800/80">
+      <div ref={searchBarSentinelRef} className="relative z-10 pt-2 border-t border-slate-800/80">
         <SmartSearchBar
-          rates={rates}
-          activeTokens={activeTokens}
-          onTokensChange={onTokensChange}
-          queryText={queryText}
-          onQueryTextChange={onQueryTextChange}
-          onToggleAdvanceFilters={onToggleAdvanceFilters}
-          advanceFiltersOpen={advanceFiltersOpen}
-          totalResultCount={rates.length}
-          selectedUniversity={selectedUniversity}
-          onUniversityChange={onUniversityChange}
-          selectedCountry={selectedCountry}
-          onCountryChange={onCountryChange}
-          selectedLevel={selectedLevel}
-          onLevelChange={onLevelChange}
-          selectedIntake={selectedIntake}
-          onIntakeChange={onIntakeChange}
-          selectedStatus={selectedStatus}
-          onStatusChange={onStatusChange}
-          selectedAggregator={selectedAggregator}
-          onAggregatorChange={onAggregatorChange}
-          selectedCommissionType={selectedCommissionType}
-          onCommissionTypeChange={onCommissionTypeChange}
-          selectedSortBy={selectedSortBy}
-          onSortByChange={onSortByChange}
-          viewMode={viewMode}
-          onViewModeChange={onViewModeChange}
-          onlyShowStarred={onlyShowStarred}
-          onToggleStarred={onToggleStarred}
-          watchlistCount={watchlistCount}
-          groupByMode={groupByMode}
-          onGroupByModeChange={onGroupByModeChange}
-          activeCurrency={activeCurrency}
-          onCurrencyChange={onCurrencyChange}
-          onResetFilters={onResetFilters}
+          {...smartSearchProps}
+          advanceFiltersOpen={showSearchDock ? false : advanceFiltersOpen}
         />
       </div>
+
+      {typeof document !== 'undefined' && createPortal(
+        <div
+          className="search-dock fixed inset-x-0 top-16 z-50 px-2 pt-2 sm:px-5"
+          data-visible={showSearchDock}
+          aria-hidden={!showSearchDock}
+          inert={!showSearchDock}
+        >
+          <div className="mx-auto max-w-7xl rounded-2xl border border-white/15 bg-slate-900/80 p-1.5 shadow-xl shadow-slate-950/20 backdrop-blur-md sm:p-2">
+            <SmartSearchBar
+              {...smartSearchProps}
+              compact
+              advanceFiltersOpen={showSearchDock ? advanceFiltersOpen : false}
+            />
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

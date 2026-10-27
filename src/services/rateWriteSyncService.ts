@@ -126,25 +126,19 @@ export async function syncRateOperation(operation: PendingRateOperation): Promis
       operationId: operation.operationId, adminEmail: operation.adminEmail, category: operation.category,
       notify: operation.notify, mutations: allMutations, canonicalAlreadyCommitted: true,
     });
-    await finishLocalRateOperation(operation.uid, operation.operationId, canonical);
-    if (canonical.length > 0) {
+    if (allMutations.length > 0) {
       // Invalidate local sheet buckets so subsequent queries or refreshes don't read stale cached buckets
       const { clearLocalSheetBuckets } = await import('./localRateDatabase');
       await clearLocalSheetBuckets(operation.uid);
 
-      // Fire-and-forget: rebuild ALL rate_sheets buckets from the full rates collection.
+      // Rebuild ALL rate_sheets buckets from the full rates collection before removing the queued operation.
       // Using only `canonical` (the edited subset) would overwrite each affected bucket with
       // just the edited rows, making every other university disappear on reload.
       // partitionMasterIntoRateSheets reads every doc in `rates` and writes complete buckets.
-      void (async () => {
-        try {
-          const { partitionMasterIntoRateSheets } = await import('./rateReadModels');
-          await partitionMasterIntoRateSheets(operation.adminEmail);
-        } catch (err) {
-          console.error('Failed to rebuild rate_sheets after sync:', err);
-        }
-      })();
+      const { partitionMasterIntoRateSheets } = await import('./rateReadModels');
+      await partitionMasterIntoRateSheets(operation.adminEmail);
     }
+    await finishLocalRateOperation(operation.uid, operation.operationId, canonical);
     return 'synced';
   } catch (error) {
     const quota = isQuotaError(error) || isQuotaOffline(operation.uid);

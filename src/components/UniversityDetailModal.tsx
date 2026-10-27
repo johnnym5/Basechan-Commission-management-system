@@ -78,6 +78,7 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [makeDefaultIntake, setMakeDefaultIntake] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Add Route state
   const [newRouteAggregator, setNewRouteAggregator] = useState('');
@@ -160,11 +161,13 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
     setEditForm(resolvedData);
     setIsEditing(false);
     setMakeDefaultIntake(false);
+    setSaveError(null);
   }, [resolvedData, isOpen]);
 
   if (!isOpen || !isAdmin) return null;
 
   const handleInputChange = (field: keyof UniversityDetailData, value: string) => {
+    setSaveError(null);
     setEditForm((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -174,11 +177,13 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
       return;
     }
     setSaving(true);
+    setSaveError(null);
     try {
       await onSaveUniversity(editForm, makeDefaultIntake);
       setIsEditing(false);
     } catch (err) {
       console.error('Failed to save university rate changes:', err);
+      setSaveError(err instanceof Error ? err.message : 'Could not save rate changes. Please retry.');
     } finally {
       setSaving(false);
     }
@@ -428,6 +433,11 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
 
         {/* Modal Scrollable Body */}
         <div className="p-5 sm:p-6 space-y-6 overflow-y-auto flex-1 text-xs">
+          {saveError && (
+            <div role="alert" className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-700 dark:text-rose-300">
+              {saveError}
+            </div>
+          )}
           {/* SECTION 1: Top Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Sub-Agent Rates */}

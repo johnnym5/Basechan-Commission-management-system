@@ -13,7 +13,7 @@ export interface DashboardFilters {
   payoutMaximum?: number;
 }
 export type AdminDashboardRate = CommissionRate & { role: 'ADMIN' };
-export type StaffDashboardRate = Pick<CommissionRate, 'id' | 'universityId' | 'universityName' | 'country' | 'intake' | 'aggregator' | 'studyLevel' | 'guidance' | 'notes' | 'updatedAt' | 'sourceSheet'> & { role: 'STAFF' };
+export type StaffDashboardRate = Pick<CommissionRate, 'id' | 'universityId' | 'universityName' | 'country' | 'intake' | 'aggregator' | 'studyLevel' | 'guidance' | 'notes' | 'updatedAt' | 'sourceSheet' | 'isDefaultRoute'> & { role: 'STAFF' };
 export type AgentDashboardRate = Pick<CommissionRate, 'id' | 'universityId' | 'universityName' | 'country' | 'intake' | 'studyLevel' | 'guidance' | 'notes' | 'updatedAt' | 'sourceSheet' | 'agentRate' | 'isFlatFee' | 'netOrGross'> & { role: 'AGENT' };
 export type DashboardRate = AdminDashboardRate | StaffDashboardRate | AgentDashboardRate;
 export interface DashboardKpis { routes: number; schools: number; countries: number; focusRoutes: number; }

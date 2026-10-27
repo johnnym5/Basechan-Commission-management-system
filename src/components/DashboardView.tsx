@@ -80,6 +80,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [selectedSortBy, setSelectedSortBy] = useState<string>('ALPHABETICAL');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [advanceFiltersOpen, setAdvanceFiltersOpen] = useState<boolean>(false);
+  const [showAllRates, setShowAllRates] = useState(false);
 
   const controlledFilters = filters ?? {
     ...createEmptyDashboardFilters(), query: activeSearchQuery,
@@ -134,6 +135,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setActiveGuidanceFilter('ALL');
     setActiveAggregatorFilter('ALL');
     onFiltersChange?.(createEmptyDashboardFilters());
+  };
+
+  const handleShowAllRates = () => {
+    handleClearAllFilters();
+    setShowAllRates(true);
   };
 
   const visibleRates = useMemo(() => applyDashboardFilters('ADMIN', buildDashboardRates('ADMIN', rates), controlledFilters), [rates, controlledFilters]) as CommissionRate[];
@@ -214,6 +220,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         favoriteCount={favoriteCount}
         onOpenChat={onOpenChat}
         onScrollToResults={scrollToTable}
+        onShowAllRates={handleShowAllRates}
         onToggleAdvanceFilters={() => setAdvanceFiltersOpen(!advanceFiltersOpen)}
         advanceFiltersOpen={advanceFiltersOpen}
         selectedUniversity={selectedUniversity}
@@ -579,6 +586,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           activeTokens={activeTokens}
           onTokensChange={setActiveTokens}
           externalSchoolIdsFilter={controlledFilters.schoolIds}
+          showAllRates={showAllRates}
         />
       </section>
     </div>

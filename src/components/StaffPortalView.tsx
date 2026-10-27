@@ -11,7 +11,7 @@ import {
 } from '../utils/groupingUtils';
 import { getWatchlist, toggleWatchlist, isStarred } from '../utils/watchlistUtils';
 import { useSheetVisibility } from '../hooks/useSheetVisibility';
-import { exportToExcel, printSchedule } from '../utils/exportUtils';
+import { exportMultiSheetRoleWorkbook, printSchedule } from '../utils/exportUtils';
 import { ShareRateCardModal } from './ShareRateCardModal';
 import {
   Building2,
@@ -470,7 +470,11 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ rates, chatMod
           <div className="flex items-center gap-1 pl-2 border-l border-slate-200 dark:border-[#222F43]">
             <button
               type="button"
-              onClick={() => exportToExcel(filteredRates, 'Basechan_Staff_Application_Guide.xlsx')}
+              onClick={() => exportMultiSheetRoleWorkbook({
+                rates: filteredRates,
+                role: 'STAFF',
+                customFilename: 'Basechan_Staff_Application_Guide.xlsx',
+              })}
               className="p-2 rounded-xl border border-slate-200 dark:border-[#222F43] text-indigo-600 dark:text-indigo-400"
             >
               <Download className="w-4 h-4" />

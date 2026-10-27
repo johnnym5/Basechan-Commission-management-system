@@ -18,7 +18,9 @@ export function buildDashboardRates(role: UserRole, rates: CommissionRate[]): Da
   }
   if (role === 'AGENT') rates = selectAgentPayoutRates(rates);
 
-  // Filter 1 single authorized route per university, studyLevel, and intake for STAFF & AGENT
+  // Keep routes grouped by university, level, and intake. Staff can have
+  // multiple Admin-designated defaults; Agents remain restricted to one
+  // eligible payout route per group.
   const groupMap = new Map<string, CommissionRate[]>();
   rates.forEach((rate) => {
     const key = `${rate.universityId || rate.universityName}__${rate.studyLevel}__${rate.intake}`;
@@ -26,23 +28,28 @@ export function buildDashboardRates(role: UserRole, rates: CommissionRate[]): Da
     groupMap.get(key)!.push(rate);
   });
 
-  const singleRoutes: CommissionRate[] = [];
+  const visibleRoutes: CommissionRate[] = [];
   groupMap.forEach((ratesForKey) => {
     if (role === 'AGENT') {
-      singleRoutes.push(ratesForKey[0]);
+      visibleRoutes.push(ratesForKey[0]);
       return;
     }
-    const adminDefault = ratesForKey.find((r) => r.isDefaultRoute === true) || ratesForKey.find((r) => r.guidance === 'FOCUS');
-    if (adminDefault) {
-      singleRoutes.push(adminDefault);
+    const adminDefaults = ratesForKey.filter((rate) => rate.isDefaultRoute === true);
+    if (adminDefaults.length > 0) {
+      visibleRoutes.push(...adminDefaults);
     } else {
+      const focusRoute = ratesForKey.find((rate) => rate.guidance === 'FOCUS');
+      if (focusRoute) {
+        visibleRoutes.push(focusRoute);
+        return;
+      }
       const topYield = ratesForKey.reduce((best, curr) => (curr.diffMargin > best.diffMargin ? curr : best), ratesForKey[0]);
-      singleRoutes.push(topYield);
+      visibleRoutes.push(topYield);
     }
   });
 
   if (role === 'STAFF') {
-    return singleRoutes.map((rate) => ({
+    return visibleRoutes.map((rate) => ({
       role: 'STAFF',
       id: rate.id,
       universityId: rate.universityId,
@@ -52,6 +59,7 @@ export function buildDashboardRates(role: UserRole, rates: CommissionRate[]): Da
       aggregator: rate.aggregator,
       studyLevel: rate.studyLevel,
       guidance: rate.guidance,
+      isDefaultRoute: rate.isDefaultRoute,
       notes: rate.notes,
       updatedAt: rate.updatedAt,
       sourceSheet: rate.sourceSheet,
@@ -59,7 +67,7 @@ export function buildDashboardRates(role: UserRole, rates: CommissionRate[]): Da
   }
 
   // AGENT role
-  return singleRoutes.map((rate) => ({
+  return visibleRoutes.map((rate) => ({
     role: 'AGENT',
     id: rate.id,
     universityId: rate.universityId,

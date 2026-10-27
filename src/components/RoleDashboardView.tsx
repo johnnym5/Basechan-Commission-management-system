@@ -44,6 +44,7 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
   const [selectedUniversity, setSelectedUniversity] = useState<string>('ALL');
   const [selectedSortBy, setSelectedSortBy] = useState<string>('ALPHABETICAL');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [showAllRates, setShowAllRates] = useState(false);
   const options = useMemo(() => getDashboardFilterOptions(rates), [rates]);
   const visibleRates = useMemo(() => applyDashboardFilters(role, rates, filters), [role, rates, filters]);
   const kpis = useMemo(() => getDashboardKpis(visibleRates), [visibleRates]);
@@ -80,6 +81,7 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
         isFlatFee,
         netOrGross,
         guidance: r.guidance || 'ALLOWED',
+        ...('isDefaultRoute' in r ? { isDefaultRoute: r.isDefaultRoute } : {}),
         notes: r.notes || '',
       };
     });
@@ -108,6 +110,14 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
     if (tableEl) {
       tableEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+  };
+
+  const handleShowAllRates = () => {
+    setActiveTokens([]);
+    setSelectedUniversity('ALL');
+    setSelectedSortBy('ALPHABETICAL');
+    onFiltersChange(createEmptyDashboardFilters());
+    setShowAllRates(true);
   };
 
   return (
@@ -143,6 +153,7 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
         favoriteCount={favoriteCount}
         onOpenChat={onOpenChat}
         onScrollToResults={scrollToTable}
+        onShowAllRates={handleShowAllRates}
         onToggleAdvanceFilters={() => setIsAdvanceFilterOpen(!isAdvanceFilterOpen)}
         advanceFiltersOpen={isAdvanceFilterOpen}
         onResetFilters={() => {
@@ -303,6 +314,7 @@ export const RoleDashboardView: React.FC<RoleDashboardViewProps> = ({
             activeTokens={activeTokens}
             onTokensChange={setActiveTokens}
             externalSchoolIdsFilter={filters.schoolIds}
+            showAllRates={showAllRates}
           />
         )}
       </section>

@@ -13,7 +13,7 @@ import { getWatchlist, toggleWatchlist, isStarred } from '../utils/watchlistUtil
 import { useSheetVisibility } from '../hooks/useSheetVisibility';
 import type { CurrencyCode } from '../utils/currencyUtils';
 import { formatCurrencyValue } from '../utils/currencyUtils';
-import { exportToExcel, printSchedule } from '../utils/exportUtils';
+import { exportMultiSheetRoleWorkbook, printSchedule } from '../utils/exportUtils';
 import { ShareRateCardModal } from './ShareRateCardModal';
 import { selectAgentPayoutRates } from '../services/dashboardData';
 import {
@@ -464,7 +464,12 @@ export const AgentPortalView: React.FC<AgentPortalViewProps> = ({ rates, chatMod
           <div className="flex items-center gap-1 pl-2 border-l border-slate-200 dark:border-[#222F43]">
             <button
               type="button"
-              onClick={() => exportToExcel(filteredRates, 'Basechan_Agent_Commission_Schedule.xlsx')}
+              onClick={() => exportMultiSheetRoleWorkbook({
+                rates: filteredRates,
+                role: 'AGENT',
+                currency: activeCurrency,
+                customFilename: 'Basechan_Agent_Commission_Schedule.xlsx',
+              })}
               className="p-2 rounded-xl border border-slate-200 dark:border-[#222F43] text-emerald-600 dark:text-emerald-400"
             >
               <Download className="w-4 h-4" />

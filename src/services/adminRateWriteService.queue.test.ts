@@ -11,7 +11,7 @@ vi.mock('./userUpdates', () => ({ publishRelevantUpdates: vi.fn() }));
 vi.mock('./firestoreOfflineMode', () => ({ enterQuotaOfflineMode: vi.fn(), isQuotaError: vi.fn(() => false) }));
 vi.mock('./firestoreWriteGuard', () => ({ assertFirestoreWritesAllowed: vi.fn() }));
 vi.mock('./rateChangeFeed', () => ({ appendRateDeltas: vi.fn() }));
-import { createRate, deleteRates, updateRate } from './adminRateWriteService';
+import { createRate, deleteRates, queueRateChanges, updateRate } from './adminRateWriteService';
 
 const rate: CommissionRate = { id: 'rate', universityId: 'uni', universityName: 'University', intake: 'Sept 2027', aggregator: 'BASECHAN', studyLevel: 'UG', masterRate: 20, agentRate: 10, diffMargin: 10, isFlatFee: false, netOrGross: 'GROSS', guidance: 'FOCUS' };
 describe('interactive rate writes stage locally', () => {
@@ -25,6 +25,14 @@ describe('interactive rate writes stage locally', () => {
     await createRate(rate, 'admin@example.com');
     await deleteRates([rate], 'admin@example.com');
     expect(stageRateOperation).toHaveBeenCalledTimes(2);
+    expect(writeBatch).not.toHaveBeenCalled();
+  });
+  it('stages a mixed university-detail save through the same local-first queue', async () => {
+    await queueRateChanges([{ previous: rate, next: { ...rate, masterRate: 11, diffMargin: 1 } }], 'admin@example.com', 'rates');
+    expect(stageRateOperation).toHaveBeenCalledWith('admin-uid', expect.objectContaining({
+      category: 'rates',
+      mutations: [{ kind: 'update', id: 'rate', nextId: 'rate', patch: { masterRate: 11, diffMargin: 1 }, baseFields: { masterRate: 20, diffMargin: 10 }, baseSnapshot: rate }],
+    }));
     expect(writeBatch).not.toHaveBeenCalled();
   });
 });

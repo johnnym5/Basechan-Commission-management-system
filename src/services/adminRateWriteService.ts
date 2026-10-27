@@ -433,6 +433,12 @@ async function queueAdminRateOperation(input: RateWriteOperationInput) {
   });
 }
 
+export const queueRateChanges = (
+  mutations: RateWriteMutation[],
+  adminEmail: string,
+  category?: RateWriteCategory,
+) => queueAdminRateOperation({ mutations, adminEmail, category });
+
 export const createRate = (rate: CommissionRate, adminEmail: string) => queueAdminRateOperation({ mutations: [{ next: rate }], adminEmail, category: 'intake' });
 export const createRates = (rates: CommissionRate[], adminEmail: string) => queueAdminRateOperation({ mutations: rates.map((next) => ({ next })), adminEmail, category: 'intake' });
 

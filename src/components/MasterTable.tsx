@@ -30,7 +30,7 @@ import { ShareRateCardModal } from './ShareRateCardModal';
 import { UniversityDetailModal, type UniversityDetailData } from './UniversityDetailModal';
 import { AddUniversityModal } from './AddUniversityModal';
 import { useAuth } from '../context/AuthContext';
-import { deleteRates, updateRate, updateRates, createRates, writeRateOperation, type RateWriteMutation } from '../services/adminRateWriteService';
+import { deleteRates, updateRate, updateRates, createRates, queueRateChanges, type RateWriteMutation } from '../services/adminRateWriteService';
 import { isEligibleAgentPayout } from '../services/rateReadModels';
 import { exportMultiSheetRoleWorkbook } from '../utils/exportUtils';
 import { generateCompositeId, normalizeUniversitySlug } from '../utils/idGenerator';
@@ -90,6 +90,7 @@ interface MasterTableProps {
   onExternalGroupByModeChange?: (mode: GroupByMode) => void;
   externalActiveCurrency?: CurrencyCode;
   onExternalCurrencyChange?: (code: CurrencyCode) => void;
+  showAllRates?: boolean;
 }
 
 const COMMON_AGGREGATORS = ['SI-UK', 'EDVOY', 'UAP', 'CRIZAC', 'BASECHAN', 'Direct'];
@@ -259,7 +260,8 @@ const GroupRoutesModal: React.FC<{
     if (!group) return [];
     if (isAdmin) return group.rates;
 
-    // For STAFF & AGENT: Show EXPLICITLY 1 single route per study level & intake
+    // Staff may see multiple routes when Admin marks multiple defaults. Agents
+    // continue to see only their eligible payout route below.
     const levelMap = new Map<string, CommissionRate[]>();
     group.rates.forEach((r) => {
       const key = `${r.studyLevel}__${r.intake}`;
@@ -267,27 +269,33 @@ const GroupRoutesModal: React.FC<{
       levelMap.get(key)!.push(r);
     });
 
-    const singleRoutePerLevel: CommissionRate[] = [];
+    const visibleRoutes: CommissionRate[] = [];
     levelMap.forEach((ratesForLevel) => {
       if (isAgent) {
         const payout = ratesForLevel.find((rate) => isEligibleAgentPayout(rate.aggregator));
-        if (payout) singleRoutePerLevel.push(payout);
+        if (payout) visibleRoutes.push(payout);
       } else {
-        // STAFF ROLE: Explicit Admin Default Route if set (isDefaultRoute === true); otherwise System Recommended Route (Top Yield)
-        const adminDefault = ratesForLevel.find((r) => r.isDefaultRoute === true) || ratesForLevel.find((r) => r.guidance === 'FOCUS');
-        if (adminDefault) {
-          singleRoutePerLevel.push(adminDefault);
+        // STAFF ROLE: Show all explicit Admin defaults; use the existing
+        // focus/top-yield fallback only when no route has been designated.
+        const adminDefaults = ratesForLevel.filter((r) => r.isDefaultRoute === true);
+        if (adminDefaults.length > 0) {
+          visibleRoutes.push(...adminDefaults);
         } else {
+          const focusRoute = ratesForLevel.find((r) => r.guidance === 'FOCUS');
+          if (focusRoute) {
+            visibleRoutes.push(focusRoute);
+            return;
+          }
           const topYield = ratesForLevel.reduce(
             (best, curr) => (curr.diffMargin > best.diffMargin ? curr : best),
             ratesForLevel[0]
           );
-          singleRoutePerLevel.push(topYield);
+          visibleRoutes.push(topYield);
         }
       }
     });
 
-    return singleRoutePerLevel;
+    return visibleRoutes;
   }, [group, isAdmin, isAgent]);
 
   const { activeRoutes, previousRoutes } = useMemo(() => {
@@ -335,24 +343,27 @@ const GroupRoutesModal: React.FC<{
             )}
 
             {/* Default Route Status Badge or Set Default Button */}
-            {isDefaultRoute ? (
+            {isAdmin && onSetDefaultRoute ? (
+              <button
+                type="button"
+                onClick={() => void onSetDefaultRoute(rate)}
+                aria-pressed={isDefaultRoute}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border transition cursor-pointer flex items-center gap-1 shrink-0 ${
+                  isDefaultRoute
+                    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-400/50 hover:bg-rose-500/15 hover:text-rose-300 hover:border-rose-400/50'
+                    : 'bg-slate-200 dark:bg-slate-800 hover:bg-amber-500/20 text-slate-700 dark:text-slate-300 hover:text-amber-300 border-slate-300 dark:border-slate-700'
+                }`}
+                title={isDefaultRoute ? 'Remove this default route' : 'Set this route as a default for Staff'}
+              >
+                <Star className={`w-3 h-3 ${isDefaultRoute ? 'fill-amber-400 text-amber-400' : 'text-amber-400'}`} />
+                {isDefaultRoute ? 'DEFAULT ROUTE · REMOVE' : 'Set Default Route'}
+              </button>
+            ) : isDefaultRoute ? (
               <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-400/40 flex items-center gap-1 shrink-0" title="Admin Default Route for Staff">
                 <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
                 DEFAULT ROUTE
               </span>
-            ) : (
-              isAdmin && onSetDefaultRoute && (
-                <button
-                  type="button"
-                  onClick={() => void onSetDefaultRoute(rate)}
-                  className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800 hover:bg-amber-500/20 text-slate-700 dark:text-slate-300 hover:text-amber-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer flex items-center gap-1 shrink-0"
-                  title="Set this route as the default aggregator for this school"
-                >
-                  <Star className="w-3 h-3 text-amber-400" />
-                  Set Default Route
-                </button>
-              )
-            )}
+            ) : null}
           </div>
           <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
             Intake: <strong className="text-slate-800 dark:text-slate-200">{rate.intake}</strong> • Level: <strong className="text-indigo-600 dark:text-indigo-400">{rate.studyLevel}</strong>
@@ -544,6 +555,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   externalOnlyShowStarred,
   externalGroupByMode,
   externalActiveCurrency,
+  showAllRates = false,
 }) => {
   const { role, user } = useAuth();
   const isAdmin = role === 'ADMIN';
@@ -831,6 +843,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   }, [filteredData, selectedSortBy]);
 
   const hasUserSearched = Boolean(
+    showAllRates ||
     sortedFilteredData.length > 0 ||
     (searchQuery && searchQuery.trim().length > 0) ||
     (externalSearchQuery && externalSearchQuery.trim().length > 0)
@@ -1179,6 +1192,10 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
     const existingUniId = data.find((r) => r.universityName.trim().toLowerCase() === uniName.trim().toLowerCase() && Boolean(r.universityId && r.universityId.trim()))?.universityId || normalizeUniversitySlug(uniName);
 
+    const matchesDefaultAggregator = (aggregator: string) =>
+      aggregator.toUpperCase() === targetDefaultRoute ||
+      (targetDefaultRoute === 'BASECHAN' && aggregator.toUpperCase() === 'DIRECT');
+
     // FD Basechan route
     if (fdAgent > 0) {
       const existing = findExistingRate('BASECHAN', 'FD');
@@ -1197,7 +1214,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         isFlatFee: isFlat,
         netOrGross: 'NET',
         guidance: resolvedGuidance,
-        isDefaultRoute: targetDefaultRoute === 'BASECHAN',
+        isDefaultRoute: existing?.isDefaultRoute === true || targetDefaultRoute === 'BASECHAN',
         updatedAt: new Date().toISOString(),
       };
       mutations.push({ previous: existing, next: nextRate });
@@ -1212,7 +1229,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       if (ugIncoming > 0 || (isBasechan && ugAgent > 0)) {
         const existing = findExistingRate(aggregator, 'UG');
         const id = existing?.id || generateCompositeId(uniName, targetIntake, aggregator, 'UG');
-        const isDefault = aggregator.includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && aggregator === 'Direct');
+        const isDefault = existing?.isDefaultRoute === true || matchesDefaultAggregator(aggregator);
         const masterRate = isBasechan ? (ugMasterDirect > 0 ? ugMasterDirect : ugAgent) : ugIncoming;
         const agentRate = ugAgent;
         const diffMargin = Number((masterRate - agentRate).toFixed(2));
@@ -1242,7 +1259,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       if (pgIncoming > 0 || (isBasechan && pgAgent > 0)) {
         const existing = findExistingRate(aggregator, 'PG');
         const id = existing?.id || generateCompositeId(uniName, targetIntake, aggregator, 'PG');
-        const isDefault = aggregator.includes(targetDefaultRoute) || (targetDefaultRoute === 'BASECHAN' && aggregator === 'Direct');
+        const isDefault = existing?.isDefaultRoute === true || matchesDefaultAggregator(aggregator);
         const masterRate = isBasechan ? (pgMasterDirect > 0 ? pgMasterDirect : pgAgent) : pgIncoming;
         const agentRate = pgAgent;
         const diffMargin = Number((masterRate - agentRate).toFixed(2));
@@ -1272,12 +1289,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
     try {
       setBatchActionLoading(true);
-      await writeRateOperation({
-        mutations,
-        adminEmail: user?.email || 'admin@basechan.com',
-        notify: true,
-        allowUpsert: true,
-      });
+      await queueRateChanges(mutations, user?.email || 'admin@basechan.com', 'rates');
 
       if (makeDefaultIntake && updatedData.baselineIntake) {
         try {
@@ -1286,9 +1298,10 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           onBatchActionComplete?.('Rate changes saved; default intake preference could not be updated.');
         }
       }
-      onBatchActionComplete?.(`Successfully saved rate changes for ${uniName} (${mutations.length} routes updated).`);
+      onBatchActionComplete?.(`Saved ${mutations.length} rate changes for ${uniName} on this device; syncing to Firestore.`);
     } catch (err) {
       console.error('Error saving university record:', err);
+      throw err;
     } finally {
       setBatchActionLoading(false);
     }
@@ -1347,20 +1360,17 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const handleSetDefaultRoute = async (targetRate: CommissionRate) => {
     try {
       setBatchActionLoading(true);
-      const relatedRates = data.filter(
-        (r) => r.universityName === targetRate.universityName && r.studyLevel === targetRate.studyLevel
+      const nextIsDefault = targetRate.isDefaultRoute !== true;
+      await updateRate(
+        targetRate,
+        { ...targetRate, isDefaultRoute: nextIsDefault, updatedAt: new Date().toISOString() },
+        user?.email || 'admin@basechan.com'
       );
-      for (const rate of relatedRates) {
-        const isDefault = rate.id === targetRate.id;
-        if (rate.isDefaultRoute !== isDefault) {
-          await updateRate(
-            rate,
-            { ...rate, isDefaultRoute: isDefault, updatedAt: new Date().toISOString() },
-            user?.email || 'admin@basechan.com'
-          );
-        }
-      }
-      onBatchActionComplete?.(`Set ${targetRate.aggregator} as default route for ${targetRate.universityName}.`);
+      onBatchActionComplete?.(
+        nextIsDefault
+          ? `Set ${targetRate.aggregator} (${targetRate.studyLevel}, ${targetRate.intake}) as a default route for Staff.`
+          : `Removed ${targetRate.aggregator} (${targetRate.studyLevel}, ${targetRate.intake}) from Staff defaults.`
+      );
     } catch (err) {
       console.error('Failed to set default route:', err);
     } finally {
@@ -1553,7 +1563,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             </div>
           )}
         </div>
-      ) : !hasActiveSearchOrFilter ? (
+      ) : !hasActiveSearchOrFilter && !showAllRates ? (
         <div className="p-8 sm:p-12 text-center text-slate-500 bg-white dark:bg-[#0E1526] rounded-3xl border border-dashed border-slate-200 dark:border-[#222F43] space-y-3 animate-in fade-in duration-200">
           <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-400/20 flex items-center justify-center mx-auto">
             <Search className="w-6 h-6" />

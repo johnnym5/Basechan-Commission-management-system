@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { UniversityDetailModal } from './UniversityDetailModal';
 import type { CommissionRate } from '../types';
 
@@ -29,6 +29,23 @@ describe('UniversityDetailModal - Add Route', () => {
       isDefaultRoute: true,
     },
   ];
+
+  it('keeps the editor open and reports a failed rate save', async () => {
+    const onSaveUniversity = vi.fn().mockRejectedValue(new Error('Could not save rate changes'));
+    render(
+      <UniversityDetailModal
+        isOpen={true}
+        onClose={vi.fn()}
+        ratesForUniversity={mockRates}
+        universityName="Aberdeen University"
+        onSaveUniversity={onSaveUniversity}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Edit Record/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not save rate changes'));
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+  });
 
   it('renders "+ Add Route" section in edit mode and fires onAddRoute when submitted', async () => {
     const onAddRoute = vi.fn();

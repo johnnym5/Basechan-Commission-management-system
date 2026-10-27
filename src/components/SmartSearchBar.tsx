@@ -45,6 +45,9 @@ export interface SmartSearchBarProps {
   activeCurrency?: string;
   onCurrencyChange?: (code: string) => void;
   onResetFilters?: () => void;
+  compact?: boolean;
+  draftText?: string;
+  onDraftTextChange?: (value: string) => void;
 }
 
 const RECENT_SEARCHES_STORAGE_KEY = 'basechan_recent_searches_v1';
@@ -90,6 +93,9 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
   activeCurrency = 'GBP',
   onCurrencyChange,
   onResetFilters,
+  compact = false,
+  draftText,
+  onDraftTextChange,
 }) => {
   const { role } = useAuth();
   const isAgent = role === 'AGENT';
@@ -101,8 +107,13 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
   const [localInput, setLocalInput] = useState(queryText);
 
   useEffect(() => {
-    setLocalInput(queryText);
-  }, [queryText]);
+    setLocalInput(draftText ?? queryText);
+  }, [draftText, queryText]);
+
+  const updateLocalInput = (value: string) => {
+    setLocalInput(value);
+    onDraftTextChange?.(value);
+  };
 
   const isAdvanceOpen = advanceFiltersOpen || localAdvanceOpen;
   const toggleAdvance = () => {
@@ -184,13 +195,23 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
 
   // Input change updates LOCAL BUFFER ONLY (no parent re-filter while typing)
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalInput(e.target.value);
+    updateLocalInput(e.target.value);
   };
 
   // Submit search and convert entered term to active filter chip
   const handleExecuteSearch = () => {
     const value = localInput.trim();
     if (!value) {
+      onQueryTextChange('');
+      return;
+    }
+
+    // "All" is a request to remove a text search, not a term to match against
+    // school data (for example, "ALLOWED" contains "all"). Preserve structured
+    // filters such as country or intake while clearing any text-search chips.
+    if (/^all(?:\s+(?:universities|university|unis|schools))?$/i.test(value)) {
+      onTokensChange(activeTokens.filter((token) => token.type !== 'search'));
+      updateLocalInput('');
       onQueryTextChange('');
       return;
     }
@@ -222,11 +243,11 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
 
     // If there were recognized tokens AND unparsed remaining text, retain the remaining text in the search input
     if (parsed.tokens.length > 0 && parsed.remainingText.trim()) {
-      setLocalInput(parsed.remainingText.trim());
+      updateLocalInput(parsed.remainingText.trim());
       onQueryTextChange(parsed.remainingText.trim());
     } else {
       // Auto-clear search box when all terms were applied
-      setLocalInput('');
+      updateLocalInput('');
       onQueryTextChange('');
     }
   };
@@ -264,7 +285,7 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
     if (!activeTokens.some((t) => t.id === token.id || t.value === token.value)) {
       onTokensChange([...activeTokens, token]);
     }
-    setLocalInput('');
+    updateLocalInput('');
     onQueryTextChange('');
 
     // Update specific filter dropdown state if applicable
@@ -284,7 +305,12 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
   };
 
   const handleSelectRecentSearch = (term: string) => {
-    setLocalInput('');
+    updateLocalInput('');
+    if (/^all(?:\s+(?:universities|university|unis|schools))?$/i.test(term.trim())) {
+      onTokensChange(activeTokens.filter((token) => token.type !== 'search'));
+      onQueryTextChange('');
+      return;
+    }
     saveRecentSearch(term);
 
     const searchToken: SearchToken = {
@@ -301,7 +327,7 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
 
   const handleResetAll = () => {
     onTokensChange([]);
-    setLocalInput('');
+    updateLocalInput('');
     onQueryTextChange('');
     onUniversityChange?.('ALL');
     onCountryChange?.('ALL');
@@ -323,18 +349,18 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
   };
 
   return (
-    <div className="relative w-full space-y-2">
+    <div className={`relative w-full ${compact ? '' : 'space-y-2'}`}>
       {/* Search Bar Container */}
-      <div className="relative w-full space-y-2">
+      <div className={`relative w-full ${compact ? '' : 'space-y-2'}`}>
         <div
-          className={`relative flex flex-wrap items-center gap-2 min-h-[52px] w-full rounded-2xl border bg-[#090d16] px-3.5 py-2 text-sm text-white transition-all duration-200 ${
-            isFocused ? 'border-blue-400 ring-2 ring-blue-500/20 shadow-lg' : 'border-[#33415d] hover:border-blue-400/60'
+          className={`relative flex ${compact ? 'flex-nowrap' : 'flex-wrap'} items-center ${compact ? 'gap-1.5' : 'gap-2'} min-h-[52px] w-full rounded-2xl border ${compact ? 'px-2 py-1.5 sm:px-3.5 sm:py-2' : 'px-3.5 py-2'} text-sm text-white transition-all duration-200 ${compact ? 'bg-white/5 border-white/15' : 'bg-[#090d16]'} ${
+            isFocused ? 'border-blue-400 ring-2 ring-blue-500/20 shadow-lg' : compact ? 'border-white/15 hover:border-blue-400/60' : 'border-[#33415d] hover:border-blue-400/60'
           }`}
         >
           <Search className="w-4 h-4 text-slate-400 shrink-0 mr-0.5" />
 
           {/* Active Token Chips with Individual X Remove Buttons */}
-          {activeTokens.map((token) => (
+          {!compact && activeTokens.map((token) => (
             <span
               key={token.id}
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-950/80 px-2.5 py-1 text-xs font-bold text-blue-200 border border-blue-800 animate-in fade-in zoom-in-95"
@@ -353,7 +379,7 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
           ))}
 
           {/* Full-Width Search Input Field */}
-          <div className="relative flex-1 min-w-[160px]">
+          <div className={`relative flex-1 ${compact ? 'min-w-0' : 'min-w-[160px]'}`}>
             <input
               type="text"
               value={localInput}
@@ -361,25 +387,25 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
               onKeyDown={handleKeyDown}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setTimeout(() => setIsFocused(false), 200)}
-              aria-label="Search directory"
+              aria-label={compact ? 'Search rates' : 'Search directory'}
               className="w-full bg-transparent text-sm text-white focus:outline-none placeholder-transparent font-medium"
             />
 
             {/* Typewriter Overlay Placeholder (Decoupled from input placeholder for A11Y) */}
-            {!localInput && activeTokens.length === 0 && (
+            {!localInput && (compact || activeTokens.length === 0) && (
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute left-0 top-0 text-sm text-slate-500 font-mono select-none truncate max-w-full"
               >
-                {typewriterText || 'Search for your school, level, intake or route...'}
+                {compact ? 'Search rates...' : typewriterText || 'Search for your school, level, intake or route...'}
                 <span className="animate-pulse">|</span>
               </span>
             )}
           </div>
 
           {/* Right Action Controls: Reset All + Advance Filter Button + Blue Send/Execute Button */}
-          <div className="flex items-center gap-2 shrink-0 ml-auto">
-            {hasActiveFilters && (
+          <div className={`flex items-center ${compact ? 'gap-1' : 'gap-2'} shrink-0 ml-auto`}>
+            {!compact && hasActiveFilters && (
               <button
                 type="button"
                 onClick={handleResetAll}
@@ -395,24 +421,25 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
             <button
               type="button"
               onClick={toggleAdvance}
-              aria-label="Advance filter"
+              aria-label={compact ? 'Open filters' : 'Advance filter'}
               title="Toggle Advance Filters"
-              className={`p-2 sm:p-2.5 rounded-xl border transition cursor-pointer shrink-0 flex items-center gap-1.5 ${
+              className={`rounded-xl border transition cursor-pointer shrink-0 flex items-center gap-1.5 ${compact ? 'min-h-10 min-w-10 justify-center p-2' : 'p-2 sm:p-2.5'} ${
                 isAdvanceOpen
                   ? 'border-blue-400 bg-blue-950/60 text-blue-200 shadow-xs'
                   : 'border-[#33415d] bg-[#18181B] text-slate-300 hover:border-blue-400 hover:text-white'
               }`}
             >
               <SlidersHorizontal className="w-4 h-4 text-amber-400 shrink-0" />
-              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isAdvanceOpen ? 'rotate-180' : ''}`} />
+              {!compact && <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isAdvanceOpen ? 'rotate-180' : ''}`} />}
             </button>
 
             {/* Primary Blue Submit / Send Button */}
             <button
               type="button"
               onClick={handleExecuteSearch}
-              title="Execute Search (Enter)"
-              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl flex items-center justify-center shadow-md transition active:scale-95 cursor-pointer"
+              title={compact ? 'Apply search' : 'Execute Search (Enter)'}
+              aria-label={compact ? 'Apply search' : undefined}
+              className={`bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl flex items-center justify-center shadow-md transition active:scale-95 cursor-pointer ${compact ? 'min-h-10 min-w-10 p-2' : 'px-3.5 py-2'}`}
             >
               <Send className="w-4 h-4 text-white" />
             </button>
@@ -421,7 +448,7 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
 
         {/* Advance Filter Dropdown Popover */}
         {isAdvanceOpen && (
-          <div className="p-4 bg-[#090d16] border border-[#33415d] rounded-2xl space-y-4 text-xs shadow-2xl animate-in fade-in duration-150 relative z-50">
+          <div className={`p-4 bg-[#090d16] border border-[#33415d] rounded-2xl space-y-4 text-xs shadow-2xl animate-in fade-in duration-150 relative z-50 ${compact ? 'mt-2' : ''}`}>
             <div className="flex items-center justify-between font-bold text-slate-300 border-b border-[#26334b] pb-2">
               <span className="flex items-center gap-1.5 font-extrabold text-blue-300">
                 <SlidersHorizontal className="w-4 h-4 text-amber-400" />

@@ -49,6 +49,17 @@ describe('local-first rate write queue', () => {
     expect((await getLocalRates(uid)).find((rate) => rate.id === existingRate.id)?.guidance).toBe('ALLOWED');
   });
 
+  it('preserves the full edited rate when the admin rate store only has sheet buckets', async () => {
+    await stageRateOperation(uid, {
+      operationId: 'edit-with-bucket-cache-only', adminEmail: 'admin@example.com', category: 'routing',
+      mutations: [{ kind: 'update', id: existingRate.id, nextId: existingRate.id,
+        patch: { aggregator: 'SI-UK', masterRate: 30 },
+        baseFields: { aggregator: 'BASECHAN', masterRate: 20 }, baseSnapshot: existingRate }],
+    });
+
+    expect(await getLocalRates(uid)).toEqual([{ ...existingRate, aggregator: 'SI-UK', masterRate: 30 }]);
+  });
+
   it('keeps queued operations isolated by Admin UID', async () => {
     await stageRateOperation(uid, {
       operationId: 'admin-a-create', adminEmail: 'a@example.com', category: 'intake',

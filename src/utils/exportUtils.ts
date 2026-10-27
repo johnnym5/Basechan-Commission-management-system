@@ -62,9 +62,6 @@ export const exportMultiSheetRoleWorkbook = ({
           'Study Level': r.studyLevel,
           'Application Portal': r.aggregator || 'Direct',
           'Status Guidance': r.guidance || 'ALLOWED',
-          'University Commission': fmtVal(r.masterRate),
-          'Type': isFlat ? 'Fixed Fee' : 'Percentage',
-          'Notes': r.notes || '',
         };
       }
 
