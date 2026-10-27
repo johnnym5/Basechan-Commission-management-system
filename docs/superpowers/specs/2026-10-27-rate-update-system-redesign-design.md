@@ -1,136 +1,141 @@
-# Browser-First Rate Update System Redesign
+# Admin Rate Change Packages
 
 **Date:** 2026-10-27
-**Status:** Approved for planning; updated to include live feed listeners
+**Status:** Approved for written-spec review
 **Supersedes:** The interactive rate-write lifecycle portions of `2026-10-19-local-first-rate-editing-design.md` and `2026-10-27-firestore-read-and-sync-latency-design.md` where they conflict with this design. Existing import, snapshot recovery, and role-security requirements remain unless explicitly changed here.
 
 ## Goal
 
-Make ordinary Admin edits appear immediately on that device, commit each small change directly from the browser to Firestore, and propagate it promptly to the authorized Staff and Agent views. Keep a role-scoped local package for fast startup, minimize reads and writes for a single-field edit, and do not depend on Cloud Functions, callable endpoints, or another server-side worker.
+Keep Admin rate edits local until an Admin deliberately publishes them. Let the Admin review, select, upload, or discard individual changes or groups. Publish selected changes as one logical package, then have eligible clients fetch and apply that package to their local role-scoped data. Avoid per-edit Firestore writes and continuous rate-document listeners.
 
 ## User requirements
 
-- A new or reset device downloads a complete local package of the commission-rate data that its signed-in role is allowed to see.
-- Admin receives canonical rate records and Admin-only fields. Staff and Agent packages contain only the records and fields permitted for their role. Agent data must never include master rates, margins, or Admin-only route defaults.
-- An Admin edit is persisted locally and shown immediately, then sent to Firestore as soon as it is staged. A small field edit must not upload or rewrite the full rate document when the ID stays the same.
-- Once Firestore accepts the authoritative update and required role-safe projections, other online users receive the change through the existing client-side change feed.
-- Notifications, audit history, and unrelated maintenance must not hold the rate save open.
-- Offline and quota-paused edits remain in the local queue and retry when eligible. A permanent validation error or genuine document-ID collision is surfaced and can roll back the optimistic edit; a transient/ambiguous response must not discard it.
-- All Firestore mutations and propagation run from the browser. No server-side sync worker is introduced.
+- Rate edits made by Admin stay in the local IndexedDB package and do not automatically write to Firestore.
+- The persistent header sync control displays the number of pending changes and opens a basket with each pending change, its affected school/route/fields, and its local status.
+- Admin can select one, several, or all pending changes to upload; Admin can also select and discard one, several, or all. Both actions require a confirmation dialog.
+- Discarding a local change restores the local value produced by the remaining pending changes and last downloaded/published package. It does not alter published data.
+- Publishing sends selected changes as one logical package. The package becomes visible only after all of its payload is safely stored and a published head/manifest points to it.
+- Other devices listen only to the small package head for their authorized scope. When it changes, they fetch the newly published package, validate it, and apply it to their local IndexedDB package and visible pages. They do not listen to each rate document.
+- Staff and Agents receive only role-authorized package data. Agents see only their own permitted rates; never master rate, margin, or Admin-only route-default data.
+- On first login or missing/corrupt local snapshot, a device gets a role-scoped baseline package and then applies packages newer than its cursor. A role/identity/organization change cannot reuse an incompatible cache.
+- No Cloud Functions, callable endpoints, hosted worker, or automatic Admin upload is introduced.
 
-**Scope assumption:** “Whole database package” means the full rate dataset and supporting rate metadata visible to that role, not unrelated Firestore collections such as chat, access requests, or notifications. The package is local to the current user/device; Firestore Security Rules remain the authority for what can be downloaded.
+## Clarification about “offline” and propagation
 
-## Current flow and reason for redesign
+“Offline” means local rate edits are not sent to Firestore until an Admin confirms Upload. The application still needs a network for initial package download, the lightweight package-head listener, and the explicit upload. Other users do not see unpublished edits. After publication, online devices receive the package through the head listener; offline devices catch up on reconnect or next login.
 
-Interactive writes already stage optimistic mutations in IndexedDB and `usePendingRateChanges` starts a flush when local work changes. A rate operation nevertheless stays in `syncing` until `syncRateOperation` completes the canonical transaction, `writeRateOperation` performs projection/feed/audit/notice work, the rate-sheet bucket transaction completes, and the local queue is finalized. `writeRateOperation` has sequential per-mutation projection/feed/audit loops, and publishing notices reads user, access-request, and sheet-settings collections. The basket counts `pending` and `syncing` as “Syncing” and displays age since creation, so a stalled follow-up appears indistinguishable from a slow primary rate write. Separately, `useCommissionRates` currently calls `syncLocalRateData` at bootstrap, reconnect, visibility restoration, and explicit refresh; it does not subscribe to role-feed changes while a user is active, so the existing feed alone does not provide live cross-user updates.
+## Current flow and motivation
 
-The new design treats a rate save and its side effects as separate lifecycle responsibilities. A rate edit is successful when the canonical change and the role-safe records/feed required for readers are committed. Notifications and audit events are ancillary and do not change that save result.
+The current queue starts a cloud flush after local changes. Completing a rate operation can include canonical writes, role projection/feed work, sheet-bucket work, notices, and audit operations, with sequential steps and broad reads. A pending basket entry can therefore remain “Syncing” while the UI does not identify the blocked phase. The active clients also do not currently subscribe to role-feed changes. The new flow separates local editing from explicit package publication and replaces per-rate listeners with one head listener for each authorized role scope.
 
 ## Architecture
 
-### 1. Role-scoped package and local snapshot
+### 1. Role-scoped local package
 
-On first login or when the local snapshot is missing/incomplete, the browser downloads the complete rate dataset for the active role and stores it in that account's IndexedDB database:
+Maintain a complete local baseline plus an ordered local change log in IndexedDB, scoped by UID, role, access state, and organization. The UI renders the baseline with pending local changes applied. Each change has a stable ID, target rate/route ID, compact field-level before/after patch, creation order, and lifecycle state. Repeated edits remain individually discardable; when selected for upload, ordered patches for the same record are composed deterministically.
 
-- **Admin:** canonical `rates`, including Admin-only fields.
-- **Staff:** `staff_rates` projections and Staff-scoped feed state.
-- **Agent:** eligible `agent_rates` projections plus only the organization/personal override layers authorized for the current Agent.
+- **Admin baseline:** canonical Admin rate data and Admin-only metadata.
+- **Staff baseline/package:** only the staff projection and fields Staff may see.
+- **Agent baseline/package:** only eligible agent payouts and authorized personal/organization overrides.
 
-The package is scoped to UID, role, access state, and organization. A cache from a different identity or role is never reused. Admin and role data remain separate in local storage. Firestore rules and the existing role projections enforce server-side access; client-side filtering is not a security boundary.
+Client-side filtering is not a security boundary. Firestore rules must continue to enforce role access to baselines, package manifests, package payloads, and heads.
 
-After bootstrap, startup loads the local package first, then checks a small role-scoped feed cursor and applies only newer deltas. While active, the client subscribes with Firestore `onSnapshot` to the role-authorized feed-head document(s). When a head advances, it reads and applies only deltas after its local cursor. Subscriptions are scoped to UID, role, access state, and organization and are removed when that scope changes. A complete unchanged local package must not trigger a repeated full collection download. Explicit cache recovery may download the full authorized package again.
+### 2. Pending-change basket
 
-### 2. Direct browser write for one edit
+The header badge counts pending change entries, not cloud write calls. The basket lists changes with useful context and selection controls. Upload and Discard operate on the selected entries only; confirmation states how many changes are affected. Deselecting or closing the basket does not change local data. After an upload, selected entries remain recoverable until publication is acknowledged; unselected entries remain pending.
 
-All interactive Admin mutation entry points use one writer and a stable operation ID. Local staging atomically stores the patch and applies the optimistic local projection. If the browser is online and not quota-paused, the writer starts immediately without a debounce or waiting for a refresh.
+Discard applies only to selected, unpublished entries. The local visible state is recomputed from the baseline plus remaining pending entries, preserving later changes to the same record. An upload already published cannot be discarded locally; reversing a published change requires a new Admin change package.
 
-For a same-ID field edit, the Firestore transaction reads the current canonical rate and only the metadata needed to make an idempotent, role-safe change. It applies the changed fields to the canonical rate and updates only affected role projections and role feed records. For a create, delete, re-key, visibility change, or batch package, the writer uses the corresponding bounded transaction/batch path and deterministic operation/mutation IDs. It never silently overwrites a different record occupying a new ID.
+### 3. Package publication and durable source
 
-Change-feed entries carry the role-safe record needed to update the local package, avoiding a follow-up read of the same changed document. Admin feed content is Admin-only; Staff and Agent feed entries contain only their own read-model shape. Each projection is emitted only when the changed fields affect that role's view.
+The ordinary rate update becomes an append-only package log, rather than an individual write to every changed rate document. A package contains stable package/change IDs, base and target cursors, ordered compact patches, and role-safe payload variants. Admin publishes the Admin package and only the corresponding Staff/Agent variants affected by the selected changes.
 
-The writer does not read every user, access request, rate, or rate-sheet bucket to commit a single edit. Legacy whole-sheet snapshots may remain available for initial bootstrap or explicit repair; routine edits must not rewrite or rebuild them. Any bucket still required by a live reader must be identified and updated incrementally, or removed from that reader's normal path before it is excluded from the critical write.
+Package payload documents are immutable. The publishing client writes payload (and bounded chunks if needed) first, then publishes a manifest/head as the visibility boundary. Readers ignore unreferenced or incomplete payloads. The package log is the durable source for ordinary rate mutations; clients materialize its patches into local role-scoped snapshots. Existing per-rate collections may be retained temporarily for migration, imports, exports, or explicit repair, but normal interactive changes must not also rewrite each rate document.
 
-### 3. Separate ancillary work
+Package sizes are bounded by Firestore document, batch, and transaction limits. A package that exceeds the chosen safe bound is split into deterministic chunks under one logical package ID and is not visible until the manifest references all chunks. If the package cannot be safely published within Firestore limits, keep it queued and report the reason; never publish only part of the selected logical package. Firestore charges still apply per document read/write: a single logical package reduces repeated request and workflow overhead but does not guarantee that arbitrarily large packages cost one document write. A true one-document package also has Firestore's per-document size limit.
 
-User notifications, audit presentation, and nonessential manifest/maintenance updates run after the authoritative save and cannot make the rate edit appear unsaved. The browser records any incomplete ancillary work with the stable operation ID and retries idempotently on the next eligible app session or connection event. The UI reports ancillary work separately from rate-save status. No hidden server process is assumed to finish it.
+To prevent unbounded replay on new or long-offline devices, periodically materialize a role-scoped checkpoint snapshot and advance the retained package cursor. Snapshot creation and retention are explicit maintenance operations with a safe rollback window; do not delete packages needed by active cursors. New devices load the latest authorized checkpoint then apply packages after its cursor.
 
-This phase must not be the only source that makes Staff or Agent rate data visible. Their required role projection and delta are part of the successful rate commit; ancillary processing is limited to effects that do not gate rate visibility or permissions.
+### 4. Passive package delivery
 
-### 4. Honest status and recovery
+An authenticated client listens only to its authorized role-scope package head(s), not the rate collection or individual package documents. An unchanged head does not continuously download package data. When a head advances, the client fetches the referenced manifest/chunks, verifies package ID, scope, cursor continuity, schema version, and integrity metadata, applies the changes atomically to IndexedDB, advances its cursor only after successful application, and refreshes the visible React data.
 
-The Admin UI distinguishes:
+Duplicate or out-of-order head notifications are harmless: stable package IDs and cursors make application idempotent. If a cursor gap exists, the client fetches missing packages or a current authorized checkpoint. If the listener disconnects, reconnect/resume catches up from the saved cursor. No package is applied across role, UID, access-state, or Agent-organization scopes.
 
-- **Saved on this device:** IndexedDB staging completed; Firestore has not yet accepted it.
-- **Saving to cloud:** the direct Firestore write is in progress.
-- **Saved:** canonical rate and required role-safe propagation are committed; show a short success toast.
-- **Waiting for connection/quota:** retain the optimistic value and durable local queue entry; retry on `online`, quota recovery, or explicit retry.
-- **Needs attention:** permanent validation failure, permission denial, or true ID collision; explain the reason and restore the previous local value when the edit cannot be applied safely.
-- **Background update pending:** the rate is already saved, but an ancillary notice/audit/maintenance action is still retrying.
+### 5. Explicit upload lifecycle
 
-The basket's elapsed timer measures the current attempt separately from time spent queued. It shows the most recent failure and phase so a spinner cannot continue indefinitely without an explanation. A timed-out request is treated as ambiguous until the same operation ID is checked/retried; it is not blindly rolled back or duplicated.
+1. Admin edits locally; IndexedDB stores the change and updates the local view immediately. No cloud write begins.
+2. Admin opens the basket, selects pending changes, and confirms Upload.
+3. The client freezes the selected change IDs into a stable logical package. New edits made during upload remain separate pending entries.
+4. Client validates package size, scope, IDs, and base cursor. It writes immutable payload documents/chunks, then publishes the manifest/head only when the full package is ready.
+5. On acknowledged publication, selected entries become published and are removed from the pending badge; show a short success toast. Unselected entries remain pending.
+6. Role-head listeners fetch and apply the matching safe package variants. Each device records its cursor and can resume after reload/offline periods.
+7. If publication fails before the head advances, retain selected changes locally for retry and leave incomplete payloads unreferenced. If the response is ambiguous, inspect/retry with the same package ID and never duplicate or partially expose it.
+8. Discard follows its own confirmation and affects selected unpublished entries only.
 
-### 5. Immediate client propagation
+### 6. Failure and recovery states
 
-Other online users use role-scoped Firestore data and the existing feed/cursor mechanism with a live `onSnapshot` listener on their feed head. A committed feed head change triggers delta retrieval and local IndexedDB/UI application without waiting for a reload, page-visibility change, or manual refresh. Offline users apply deltas after reconnecting. The system promises immediate write initiation and prompt live propagation under a healthy Firestore connection, not zero network/server latency.
+- **Saved on this device:** local edit is durable; not published.
+- **Ready to upload:** pending entry is available in the basket.
+- **Preparing package / Publishing package:** an explicit confirmed upload is active; show the phase and elapsed attempt time.
+- **Published:** head points to the complete package; the package is durable even if some clients have not applied it yet.
+- **Waiting for connection/quota:** retain the local selection and package ID; no background retry. Admin can retry explicitly when appropriate.
+- **Needs attention:** schema, permissions, package-size, cursor, or identity conflict needs explanation. Preserve local changes.
+- **Applying update:** recipient is validating and applying a downloaded package locally.
+- **Catch-up needed:** receiver detects missing cursor continuity and fetches missing package(s) or checkpoint before showing a fully current state.
 
-## Operation lifecycle
-
-1. Admin submits a rate mutation; validate locally and create a stable operation ID.
-2. In one IndexedDB transaction, persist the compact mutation, its blocked ancillary-effect tasks, and the optimistic Admin snapshot. The editor closes/updates with “Saved on this device.”
-3. If online and quota allows, immediately send the operation to Firestore. No refresh, full database upload, or full-document replacement is used for a same-ID field edit.
-4. Firestore commits canonical data, the affected Staff/Agent projections, and their feed deltas idempotently. A retry with the same ID cannot duplicate feed sequence entries.
-5. Feed-head listeners on affected role scopes observe the transaction and apply the committed, role-safe deltas to online users' local packages.
-6. Mark the local mutation cloud-saved, reconcile its canonical server value, remove it from the unsaved queue, and show a brief “Saved” toast.
-7. Process notification/audit/maintenance effects separately; the tasks were staged locally with the mutation, become eligible after primary success, and can retry without changing the successful rate-save status.
-8. On temporary/offline/quota failure, keep the local mutation and retry safely. On permanent rejection, restore the saved base values, cancel its blocked ancillary effects, and show an actionable failure toast.
+Notifications and audit presentation must not hold package publication open unless they are part of the package's required durable record. Audit data for a package should be included as part of the immutable package or written as a deterministic, resumable ancillary effect. A notice failure cannot make a package look unpublished after its head has advanced.
 
 ## Security and data integrity
 
-- Only Admin can write canonical rate records or enqueue an Admin rate mutation.
-- Staff reads only Staff-authorized projections and Staff feed data.
-- Agent reads only eligible payout projections and authorized override layers. Agent documents and feed records exclude master rates, net margin, and default-route metadata.
-- Admin package and cursor data never leak into Staff or Agent local stores or feeds.
-- Updates to different fields on the same rate must preserve unrelated latest cloud values. For the same field, the latest committed Admin patch wins and its old/new values are retained in audit history; do not force a manual override for a same-ID field edit.
-- Operation IDs and per-scope feed markers make retries idempotent, including when Firestore commits but the browser loses the response.
-- Multi-record changes are bounded by Firestore limits and apply deterministic partial-progress/recovery behavior.
+- Only Admin can write Admin package payloads and advance the Admin package head.
+- Staff can read only Staff package variants and baselines allowed by existing rules.
+- Agent can read only their eligible payout package variants and authorized override layers. Agent payloads exclude master rates, net margins, and Admin route defaults.
+- Scope and cursor are validated on every payload/manifest read; local caches are never shared across incompatible roles or organizations.
+- Package IDs and change IDs are deterministic/stable across retries. A response lost after head publication must resolve as already published, not duplicate the package.
+- Package publication is atomic from readers' perspective: the published head never references missing or incomplete package content.
+- Concurrent Admin packages use optimistic base cursors. A stale package is rebased against the latest package state using field-level patches, preserving unrelated fields; overlapping fields use last successfully published patch order and retain before/after audit values. True target-ID collisions remain conflicts and never overwrite a different route.
+- Packages are immutable after publication. Correcting a published change creates a new package.
 
 ## Migration and compatibility
 
-- Keep the existing IndexedDB schema readable; migrate current pending operations and local snapshots without discarding queued edits.
-- Introduce the new writer behind the shared rate-write service and move each interactive Admin edit path to it. Imports and explicit bulk repair remain separate until independently migrated.
-- Keep existing `staff_rates`, `agent_rates`, and role feeds as the outward read contract unless the implementation review proves a specific path redundant. Preserve their current field-level role boundaries and Firestore rules.
-- Stop the new ordinary-write path from invoking the old multi-stage pipeline after the direct transaction. Retain explicit repair/backfill functions for legacy projections and rate-sheet buckets.
-- Before removing a write or cache path, trace all consumers and cover the transition with tests so no dashboard depends on stale legacy data.
+- Upgrade IndexedDB without deleting rate snapshots or unresolved queue entries. Convert existing pending operations into individually discardable local changes; do not auto-publish them during migration.
+- Keep existing `staff_rates`, `agent_rates`, and role authorization rules during transition. Establish how package application updates/serves existing page selectors before removing their read paths.
+- Treat existing canonical rate documents as the initial Admin baseline/checkpoint. Define a one-time migration/reconciliation before packages become the durable source for ordinary edits; prevent old and new write paths from racing or causing duplicate visibility.
+- Imports and explicit database repairs remain explicit bulk workflows. Specify whether an import publishes through the same package log or uses a guarded migration path before implementation; do not silently bypass package cursors.
+- Remove ordinary auto-flush behavior only after all interactive Admin entry points stage into the local basket. Preserve a recovery route for stale `pending`, `syncing`, `failed`, and `conflict` records.
 
 ## Out of scope
 
-- Cloud Functions, callable APIs, a server queue, or another hosted worker.
-- Changing Staff/Agent field permissions or giving them canonical Admin data.
-- Reworking imports, exports, chat, or unrelated user/notification storage beyond decoupling those effects from the rate-save result.
-- Guaranteeing delivery while the browser is closed, offline, or Firestore quota is exhausted. Local work remains durable and resumes when the app can run again.
-- Guaranteeing zero propagation latency across the network.
+- Cloud Functions, callable APIs, a hosted server queue, or server push.
+- Background upload of Admin edits or automatic upload retries.
+- Staff/Agent writes to rate packages.
+- Guarantees of delivery while a browser is closed or offline; recipients catch up next time the app can run.
+- Guaranteeing zero propagation latency or a one-document Firestore cost for arbitrary package size.
+- Reworking unrelated notifications, chat, imports, or exports beyond ensuring rate package consistency and role security.
 
 ## Verification criteria
 
-1. A new Admin device downloads a complete canonical rate package once; a new Staff or Agent device downloads only its role-authorized package and supporting layers.
-2. A warm login with a valid package applies local data immediately and reads only the relevant role feed cursor/deltas, not every rate document.
-3. One same-ID field edit is staged locally immediately and begins its direct Firestore attempt without a timer delay.
-4. The single edit does not read all users/access requests, the full `rates` collection, or all `rate_sheets` as a prerequisite to saving.
-5. The edit commit updates canonical data, the affected role-safe projection(s), and corresponding feed deltas; Staff and Agent receive only permitted fields.
-6. Active Staff and Agent clients apply a new feed delta without reload, visibility restoration, or manual refresh; reconnecting clients catch up from their saved cursor.
-7. A projection/feed failure does not display “Saved”; a notification/audit failure after the required rate commit does not display the rate edit as unsaved.
-8. Offline and quota-paused edits survive reload and retry without duplicate canonical changes or feed entries.
-9. Permanent errors revert only the affected optimistic fields; a genuine target-ID collision preserves both records and reports the collision.
-10. Concurrent edits preserve unrelated fields; two edits to the same field serialize with the latest committed patch winning, without a force-push prompt. Audit effects retain each old/new value.
-11. Existing pending operations, role rules, Admin batch editing, delete, create, re-key, and explicit repair workflows remain recoverable.
-12. A foreground timing trace reports local-stage time, Firestore commit time, role propagation time, and ancillary completion separately; a stalled phase shows its current phase and last error.
+1. An Admin edit updates that device immediately and creates no Firestore write until an explicit confirmed upload.
+2. The header count equals the number of locally pending change entries; selecting/discarding one entry does not affect others, including edits to the same record.
+3. Upload confirmation publishes only selected entries as one logical package; unselected pending changes remain local and visible.
+4. A recipient with an authorized role head listener fetches package data only after that head changes, applies it once, and updates visible views without a reload.
+5. Admin, Staff, and Agent receive the correct package variant, with no Admin-only fields in Staff/Agent payloads and no master rates/margins/default-route metadata in Agent payloads.
+6. A new device loads an authorized checkpoint and replays only packages after its cursor; role or organization changes cannot leak old cache data.
+7. Incomplete payloads, chunk failure, lost upload responses, duplicate head events, and cursor gaps never expose partial or duplicate package state.
+8. Offline/quota failures retain pending local changes; there is no automatic upload retry. Explicit retry uses the same package ID.
+9. Discard requires confirmation, updates only unpublished local changes, and recomputes the view from baseline plus remaining local changes.
+10. Package size, number of Firestore documents written, reads, and listener scopes are measurable and reported accurately; no promise of one billed write for multi-document packages.
+11. Concurrent/stale Admin packages preserve unrelated fields and report true record-ID collisions without force-pushing over another route.
+12. Current pending queue data and existing role-specific page selectors remain recoverable throughout migration.
 
 ## Implementation sequencing
 
-1. Trace and test all current interactive mutation entry points, role projection consumers, Firestore rules, and local queue migrations.
-2. Define the transaction payload and role-scoped feed format; add idempotency, concurrency, and access-boundary tests.
-3. Implement the browser-only direct canonical/projection/feed writer and local acknowledgement lifecycle.
-4. Move one-record edits first, then create/delete/re-key and batch paths, preserving imports and explicit repairs.
-5. Split ancillary notification/audit/maintenance work from authoritative rate-save status and add retry visibility.
-6. Migrate startup to the complete role-scoped package plus delta refresh and active role-feed listeners, using full package reads only for bootstrap/recovery.
-7. Verify all role rules, migration/retry behavior, live propagation, read/write counts for a single edit, and production build before removing obsolete paths.
+1. Inspect current Firestore document shapes/rules, IndexedDB queue, role projections, imports, and page selectors; choose package/checkpoint schema and safe Firestore size/operation bounds.
+2. Define package IDs, cursor protocol, role-safe variants, local change-log/discard semantics, and security rules.
+3. Implement local-only staging, header pending count, basket selection, confirmation flows, and migration of old pending edits.
+4. Implement immutable package payload/chunks, publish-head boundary, idempotent retries, and package audit record.
+5. Add role-scoped package-head listeners, checkpoint bootstrap/catch-up, atomic local application, and UI refresh.
+6. Route every interactive Admin mutation through local staging and explicit package upload; keep imports and repair paths guarded and consistent with package cursors.
+7. Remove ordinary auto-flush/per-rate write behavior after every mutation entry point is verified.
+8. Review quota usage, role boundaries, migration recovery, and build behavior before enabling package publication broadly.
