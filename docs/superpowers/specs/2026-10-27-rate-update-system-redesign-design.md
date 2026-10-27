@@ -1,7 +1,7 @@
 # Admin Rate Change Packages
 
 **Date:** 2026-10-27
-**Status:** Approved for written-spec review
+**Status:** Approved for implementation planning
 **Supersedes:** The interactive rate-write lifecycle portions of `2026-10-19-local-first-rate-editing-design.md` and `2026-10-27-firestore-read-and-sync-latency-design.md` where they conflict with this design. Existing import, snapshot recovery, and role-security requirements remain unless explicitly changed here.
 
 ## Goal
