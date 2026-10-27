@@ -1,137 +1,188 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { PendingRateOperation } from '../types/rateWriteQueue';
-import { discardPendingRateOperation, getPendingRateOperations, updatePendingRateOperation } from '../services/rateWriteQueue';
-import { resolveRateOperationConflict, syncRateOperation } from '../services/rateWriteSyncService';
+import { discardPendingRateOperation, finishPendingRateOperation, getPendingRateOperations, updatePendingRateOperation } from '../services/rateWriteQueue';
 import { subscribeToLocalRateChanges } from '../services/localRateDatabase';
-import { getQuotaRetryAt, isQuotaOffline } from '../services/firestoreOfflineMode';
+import { isRatePackagePublished, partitionRatePackageOperations, publishRateChangePackage } from '../services/ratePackageService';
 
-type SyncState = 'idle' | 'syncing' | 'offline' | 'quota-paused';
+type SyncState = 'idle' | 'publishing' | 'offline' | 'failed';
+export type RatePackageUploadStage = 'idle' | 'verifying' | 'packaging' | 'sending' | 'delivered' | 'failed';
+export interface RatePackageUploadProgress {
+  stage: RatePackageUploadStage;
+  currentBatch: number;
+  totalBatches: number;
+  deliveredBatches: number;
+  failedBatches: number;
+}
 export type RateSyncOutcome = { operationId: string; status: 'saved' | 'failed' | 'partial'; error?: string };
+
+function describeUploadFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || 'Unknown upload failure.');
+  const code = String((error as { code?: unknown })?.code || '').toLowerCase();
+  if (!navigator.onLine) return 'Unable to send changes: this device is offline. Reconnect and retry.';
+  if (code.includes('resource-exhausted') || /quota/i.test(message)) return 'Unable to save changes because the Firestore quota limit was reached. The batch is still in your basket.';
+  if (/too large|too many|safe package/i.test(message)) return 'Unable to package these changes: the batch is too large. Select fewer changes and retry.';
+  if (/corrupt|invalid package|invalid data|malformed|encoding/i.test(message) || code.includes('invalid-argument')) return 'Unable to package changes because one or more changes appear corrupted or invalid. Keep this batch and review its entries.';
+  if (/unavailable|deadline|network|offline|internet|timed out|fetch failed/i.test(message) || code.includes('unavailable') || code.includes('deadline-exceeded')) return 'Unable to send changes because the connection is unstable. The batch is still in your basket.';
+  return `Unable to save this batch: ${message}`;
+}
 
 export function usePendingRateChanges(uid: string | undefined, enabled: boolean, onSyncOutcome?: (outcome: RateSyncOutcome) => void) {
   const [operations, setOperations] = useState<PendingRateOperation[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [syncState, setSyncState] = useState<SyncState>('idle');
-  const busy = useRef(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const outcomeCallback = useRef(onSyncOutcome);
-  outcomeCallback.current = onSyncOutcome;
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<RatePackageUploadProgress>({ stage: 'idle', currentBatch: 0, totalBatches: 0, deliveredBatches: 0, failedBatches: 0 });
 
   const refresh = useCallback(async () => {
-    if (!uid || !enabled) { setOperations([]); return []; }
+    if (!uid || !enabled) { setOperations([]); setSelectedIds([]); return []; }
     const next = await getPendingRateOperations(uid).catch(() => []);
-    // Auto-heal zombie operations stuck in 'syncing' from previously crashed/interrupted sessions
-    const now = Date.now();
-    for (const op of next) {
-      if (op.status === 'syncing') {
-        const age = op.updatedAt ? now - new Date(op.updatedAt).getTime() : 10000;
-        if (age > 5000) {
-          await updatePendingRateOperation(uid, op.operationId, {
-            status: 'failed',
-            lastError: op.lastError || 'Synchronization was interrupted. Click Retry Sync Now or Discard.',
-          });
-          op.status = 'failed';
-          op.lastError = op.lastError || 'Synchronization was interrupted. Click Retry Sync Now or Discard.';
-        }
-      }
-    }
     setOperations(next);
+    setSelectedIds((current) => current.filter((id) => next.some((operation) => operation.operationId === id)));
     return next;
   }, [uid, enabled]);
 
-  const flush = useCallback(async (operationId?: string) => {
-    if (!uid || !enabled || busy.current) return;
-    if (!navigator.onLine) { setSyncState('offline'); return; }
-    if (isQuotaOffline(uid)) {
-      setSyncState('quota-paused');
-      const queued = await refresh();
-      await Promise.all(queued.filter((item) => item.status === 'pending' || item.status === 'failed')
-        .map((item) => updatePendingRateOperation(uid, item.operationId, { status: 'quota-paused' })));
-      await refresh();
-      const delay = Math.max(1_000, getQuotaRetryAt(uid) - Date.now());
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => { if (navigator.onLine) void flush(); }, delay);
-      return;
-    }
-    busy.current = true;
-    setSyncState('syncing');
-    try {
-      const pending = await refresh();
-      const selected = pending.filter((item) => operationId ? item.operationId === operationId : item.status === 'pending' || item.status === 'failed' || item.status === 'quota-paused');
-      for (const operation of selected) {
-        try {
-          const result = await syncRateOperation(operation);
-          outcomeCallback.current?.({
-            operationId: operation.operationId,
-            status: result === 'synced' ? 'saved' : result === 'partial' ? 'partial' : 'failed',
-            ...(result === 'conflict' ? { error: 'This change needs attention before it can be saved.' } : {}),
-          });
-        } catch (error) {
-          const savedToCloud = Boolean((error as { canonicalCommitted?: boolean } | null)?.canonicalCommitted);
-          outcomeCallback.current?.({
-            operationId: operation.operationId,
-            status: savedToCloud ? 'partial' : 'failed',
-            error: error instanceof Error ? error.message : 'The change could not be synced.',
-          });
-          const attempt = operation.attemptCount + 1;
-          const delay = Math.min(5 * 60_000, 5_000 * (2 ** Math.min(attempt - 1, 6)));
-          if (timer.current) clearTimeout(timer.current);
-          timer.current = setTimeout(() => { if (navigator.onLine) void flush(operation.operationId); }, delay);
-        }
-      }
-      await refresh();
-      setSyncState(isQuotaOffline(uid) ? 'quota-paused' : 'idle');
-    } finally { busy.current = false; }
+  useEffect(() => {
+    if (!uid || !enabled) { setOperations([]); setSelectedIds([]); setSyncState('idle'); return; }
+    void refresh();
+    return subscribeToLocalRateChanges(uid, () => { void refresh(); });
   }, [uid, enabled, refresh]);
 
-  useEffect(() => {
-    if (!uid || !enabled) { setOperations([]); setSyncState('idle'); return; }
-    let active = true;
-    const loadAndFlush = async () => { await refresh(); if (active) void flush(); };
-    void loadAndFlush();
-    const unsubscribe = subscribeToLocalRateChanges(uid, () => { void refresh().then(() => flush()); });
-    const onOnline = () => { setSyncState('idle'); void flush(); };
-    window.addEventListener('online', onOnline);
-    return () => {
-      active = false;
-      unsubscribe();
-      window.removeEventListener('online', onOnline);
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [uid, enabled, refresh, flush]);
+  const selectChanges = useCallback((ids: string[]) => setSelectedIds(ids), []);
+  const uploadSelected = useCallback(async () => {
+    if (!uid || !enabled || syncState === 'publishing') return;
+    if (!navigator.onLine) {
+      const message = 'Unable to send changes: this device is offline. Reconnect and retry.';
+      setSyncState('offline'); setErrorMessage(message); setUploadProgress((current) => ({ ...current, stage: 'failed' })); return;
+    }
+    const queue = await refresh();
+    const selected = queue.filter((operation) => selectedIds.includes(operation.operationId));
+    if (!selected.length) return;
+    const selectedSet = new Set(selected.map((operation) => operation.operationId));
+    const incompleteRetry = selected.find((operation) => operation.packageId
+      && (operation.packageChangeIds || [operation.operationId]).some((id) => !selectedSet.has(id)));
+    if (incompleteRetry) {
+      const message = 'Select every change from the failed batch together so it can be safely retried.';
+      setSyncState('failed'); setErrorMessage(message); setUploadProgress((current) => ({ ...current, stage: 'failed' })); return;
+    }
 
-  const retry = useCallback(async (operationId?: string) => {
-    if (!uid) return;
-    const ops = await refresh();
-    const selected = ops.filter((op) => !operationId || op.operationId === operationId);
-    for (const op of selected) {
-      if (op.status === 'conflict') {
-        // Rebase the saved field patch against the latest cloud record before retrying.
-        // This preserves unrelated cloud edits and makes normal edits self-healing.
-        await resolveRateOperationConflict(uid, op.operationId, 'apply-local');
-      } else {
-        await updatePendingRateOperation(uid, op.operationId, { status: 'pending', lastError: undefined, nextRetryAt: undefined });
+    setSyncState('publishing'); setErrorMessage(null);
+    setUploadProgress({ stage: 'verifying', currentBatch: 0, totalBatches: 0, deliveredBatches: 0, failedBatches: 0 });
+    await Promise.resolve();
+    setUploadProgress((current) => ({ ...current, stage: 'packaging' }));
+
+    let batches: PendingRateOperation[][];
+    let oversized: PendingRateOperation[][];
+    try {
+      ({ batches, oversized } = partitionRatePackageOperations(selected));
+    } catch (error) {
+      const message = describeUploadFailure(error);
+      setSyncState('failed'); setErrorMessage(message); setUploadProgress((current) => ({ ...current, stage: 'failed' })); return;
+    }
+
+    const totalBatches = batches.length + oversized.length;
+    setUploadProgress({ stage: batches.length ? 'packaging' : 'failed', currentBatch: 0, totalBatches, deliveredBatches: 0, failedBatches: oversized.length });
+    const messages: string[] = [];
+    for (const oversizedBatch of oversized) {
+      const message = 'Unable to package these changes: the batch is too large or incomplete. Select a smaller group and retry.';
+      messages.push(message);
+      await Promise.all(oversizedBatch.map((operation) => updatePendingRateOperation(uid, operation.operationId, { status: 'failed', lastError: message })));
+      oversizedBatch.forEach((operation) => onSyncOutcome?.({ operationId: operation.operationId, status: 'failed', error: message }));
+    }
+
+    let deliveredBatches = 0;
+    let failedBatches = oversized.length;
+    for (const [batchIndex, packageOperations] of batches.entries()) {
+      const packageId = packageOperations[0]?.packageId || crypto.randomUUID();
+      const memberIds = packageOperations[0]?.packageChangeIds || packageOperations.map((operation) => operation.operationId);
+      const batchNumber = oversized.length + batchIndex + 1;
+      setUploadProgress({ stage: 'sending', currentBatch: batchNumber, totalBatches, deliveredBatches, failedBatches });
+      await Promise.all(packageOperations.map((operation) => updatePendingRateOperation(uid, operation.operationId, {
+        status: 'publishing', packageId, packageChangeIds: memberIds, lastError: undefined,
+      })));
+      try {
+        await publishRateChangePackage({ uid, operations: packageOperations, packageId });
+        for (const operation of packageOperations) {
+          await finishPendingRateOperation(uid, operation.operationId, []);
+          onSyncOutcome?.({ operationId: operation.operationId, status: 'saved' });
+        }
+        deliveredBatches += 1;
+        setSelectedIds((current) => current.filter((id) => !memberIds.includes(id)));
+        setUploadProgress({ stage: 'sending', currentBatch: batchNumber, totalBatches, deliveredBatches, failedBatches });
+        await refresh();
+      } catch (error) {
+        const message = describeUploadFailure(error);
+        messages.push(message);
+        let publicationKnownAbsent = false;
+        try { publicationKnownAbsent = !(await isRatePackagePublished(packageId)); } catch { /* Keep stable IDs while the response is ambiguous. */ }
+        await Promise.all(packageOperations.map((operation) => updatePendingRateOperation(uid, operation.operationId, {
+          status: 'failed',
+          packageId: publicationKnownAbsent ? undefined : packageId,
+          packageChangeIds: publicationKnownAbsent ? undefined : memberIds,
+          lastError: message,
+        })));
+        failedBatches += 1;
+        packageOperations.forEach((operation) => onSyncOutcome?.({ operationId: operation.operationId, status: 'failed', error: message }));
+        setUploadProgress({ stage: 'sending', currentBatch: batchNumber, totalBatches, deliveredBatches, failedBatches });
+        await refresh();
       }
     }
-    await flush(operationId);
-  }, [uid, refresh, flush]);
-  const discard = useCallback(async (operationId?: string) => {
-    if (!uid) return;
-    if (operationId) {
-      await discardPendingRateOperation(uid, operationId);
+
+    if (failedBatches > 0) {
+      setSyncState('failed'); setErrorMessage(messages[0] || 'Some batches could not be saved. Failed batches remain in the basket.');
+      setUploadProgress({ stage: 'failed', currentBatch: totalBatches, totalBatches, deliveredBatches, failedBatches });
     } else {
-      const ops = await getPendingRateOperations(uid).catch(() => []);
-      for (const op of ops) {
-        await discardPendingRateOperation(uid, op.operationId);
-      }
+      setSyncState('idle'); setErrorMessage(null);
+      setUploadProgress({ stage: 'delivered', currentBatch: totalBatches, totalBatches, deliveredBatches, failedBatches: 0 });
     }
     await refresh();
-    setSyncState('idle');
-  }, [uid, refresh]);
-  const resolveConflict = useCallback(async (operationId: string, resolution: 'keep-cloud' | 'apply-local') => {
-    await resolveRateOperationConflict(uid!, operationId, resolution);
+  }, [uid, enabled, syncState, refresh, selectedIds, onSyncOutcome]);
+
+  const discard = useCallback(async (ids?: string[]) => {
+    if (!uid) return;
+    const targets = ids || selectedIds;
+    const protectedIds = new Set<string>();
+    for (const operationId of targets) {
+      const operation = operations.find((item) => item.operationId === operationId);
+      if (operation?.status === 'publishing') continue;
+      let published = false;
+      try {
+        published = Boolean(operation?.packageId && await isRatePackagePublished(operation.packageId));
+      } catch {
+        setErrorMessage('Could not check whether this package was already uploaded. Keep the changes and retry when connected.');
+        setSyncState('failed');
+        return;
+      }
+      if (published && operation?.packageId) {
+        const memberIds = operation.packageChangeIds || [operation.operationId];
+        for (const memberId of memberIds) {
+          protectedIds.add(memberId);
+          const member = operations.find((item) => item.operationId === memberId);
+          if (member) await finishPendingRateOperation(uid, memberId, []);
+        }
+        setErrorMessage('That package was already published. Published changes cannot be discarded; make a new change to reverse them.');
+        setSyncState('failed');
+        continue;
+      }
+      await discardPendingRateOperation(uid, operationId);
+      if (operation?.packageId) {
+        for (const memberId of operation.packageChangeIds || []) {
+          const member = operations.find((item) => item.operationId === memberId);
+          if (member && memberId !== operationId) await updatePendingRateOperation(uid, memberId, {
+            status: 'pending', packageId: undefined, packageChangeIds: undefined,
+          });
+        }
+      }
+    }
+    setSelectedIds((current) => current.filter((id) => !targets.includes(id) && !protectedIds.has(id)));
+    if (!protectedIds.size) { setSyncState('idle'); setErrorMessage(null); }
     await refresh();
-    if (resolution === 'apply-local') void flush(operationId);
-  }, [uid, refresh, flush]);
-  const pendingCount = operations.length;
-  return { operations, pendingCount, syncState, retry, discard, resolveConflict };
+  }, [uid, operations, selectedIds, refresh]);
+
+  const toggleSelection = useCallback((operationId: string, selected: boolean) => {
+    setSelectedIds((current) => selected
+      ? current.includes(operationId) ? current : [...current, operationId]
+      : current.filter((id) => id !== operationId));
+  }, []);
+  const pendingCount = operations.reduce((count, operation) => count + operation.mutations.length, 0);
+  return { operations, pendingCount, selectedIds, syncState, errorMessage, uploadProgress, selectChanges, toggleSelection, uploadSelected, retry: (_operationId?: string) => uploadSelected(), discard };
 }

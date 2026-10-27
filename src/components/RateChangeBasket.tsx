@@ -1,254 +1,173 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { CheckCircle2, LoaderCircle, XCircle, RefreshCw, AlertTriangle, Clock, X, Trash2 } from 'lucide-react';
-import type { PendingRateOperation } from '../types/rateWriteQueue';
+import React, { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Cloud, FileText, LoaderCircle, Package, PackageCheck, ShoppingBasket, Trash2, UploadCloud, X } from 'lucide-react';
+import type { CommissionRate } from '../types';
+import type { PendingRateMutation, PendingRateOperation } from '../types/rateWriteQueue';
+import type { RatePackageUploadProgress } from '../hooks/usePendingRateChanges';
+import './RateChangeBasket.css';
 
-export type SyncState = 'idle' | 'syncing' | 'offline' | 'quota-paused';
+export type SyncState = 'idle' | 'publishing' | 'offline' | 'failed' | 'syncing' | 'quota-paused';
 
 type Props = {
   operations?: PendingRateOperation[];
+  pendingCount?: number;
+  selectedIds?: string[];
   syncState: SyncState;
-  onRetry: (id?: string) => void;
-  onDiscard?: (id?: string) => void;
-  lastSyncedAt?: string | null;
   errorMessage?: string | null;
+  uploadProgress?: RatePackageUploadProgress;
+  onRetry?: (id?: string) => void;
+  lastSyncedAt?: string | null;
   lastSyncUploadName?: string | null;
+  onToggleSelection?: (id: string, selected: boolean) => void;
+  onSelectAll?: (selected: boolean) => void;
+  onUpload?: () => void;
+  onDiscard?: (ids: string[]) => void;
 };
 
+function describeMutation(mutation: PendingRateMutation) {
+  if (mutation.kind === 'create') return { school: mutation.next.universityName, detail: `${mutation.next.intake} · ${mutation.next.studyLevel} · ${mutation.next.aggregator}`, fields: 'New route' };
+  if (mutation.kind === 'delete') return { school: mutation.baseRate?.universityName || mutation.id, detail: mutation.baseRate ? `${mutation.baseRate.intake} · ${mutation.baseRate.studyLevel} · ${mutation.baseRate.aggregator}` : mutation.id, fields: 'Delete route' };
+  const changed = Object.keys(mutation.patch);
+  return {
+    school: mutation.baseSnapshot?.universityName || mutation.id,
+    detail: `${mutation.baseSnapshot?.intake || ''} · ${mutation.baseSnapshot?.studyLevel || ''} · ${mutation.baseSnapshot?.aggregator || ''}`,
+    fields: changed.map((key) => {
+      const before = mutation.baseSnapshot?.[key as keyof CommissionRate];
+      const after = mutation.patch[key as keyof CommissionRate];
+      return `${key}: ${String(before ?? '—')} → ${String(after ?? '—')}`;
+    }).join(', '),
+  };
+}
+
 export const RateChangeBasket: React.FC<Props> = ({
-  operations = [],
-  syncState,
-  onRetry,
-  onDiscard,
-  lastSyncedAt,
-  errorMessage,
-  lastSyncUploadName,
+  operations = [], pendingCount = operations.length, selectedIds = [], syncState,
+  errorMessage, uploadProgress, onToggleSelection, onSelectAll, onUpload, onDiscard,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<'upload' | 'discard' | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const selectedCount = selectedIds.length;
+  const isPublishing = syncState === 'publishing';
+  const allSelected = operations.length > 0 && selectedIds.length === operations.length;
+  const progressStage = uploadProgress?.stage || 'idle';
+  const showingProgress = progressStage !== 'idle';
+  const stageIndex: Record<string, number> = { verifying: 0, packaging: 1, sending: 2, delivered: 3, failed: -1 };
+  const activeStep = stageIndex[progressStage] ?? -1;
+  const busy = ['verifying', 'packaging', 'sending'].includes(progressStage);
+  const failureStep = errorMessage?.toLowerCase().includes('unable to package') ? 1 : errorMessage?.toLowerCase().includes('verify') ? 0 : 2;
 
-  // Close on outside click
   useEffect(() => {
     if (!isOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
+    const handleClickOutside = (event: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+        setIsOpen(false); setConfirmAction(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  const hasFailed =
-    Boolean(errorMessage) ||
-    operations.some((op) => op.status === 'failed' || op.status === 'conflict' || op.status === 'quota-paused') ||
-    syncState === 'offline';
-
-  const isSyncing =
-    syncState === 'syncing' ||
-    operations.some((op) => op.status === 'syncing' || op.status === 'pending');
-
-  const pendingOps = operations.filter((op) => op.status === 'pending' || op.status === 'syncing');
-  const failedOps = operations.filter((op) => op.status === 'failed' || op.status === 'conflict' || op.status === 'quota-paused');
-
-  // Elapsed time calculation for pending items
-  const earliestPendingTime = pendingOps[0]?.createdAt ? new Date(pendingOps[0].createdAt).getTime() : null;
-  const [pendingDurationText, setPendingDurationText] = useState<string>('');
-
-  useEffect(() => {
-    if (!earliestPendingTime) {
-      setPendingDurationText('');
-      return;
-    }
-    const updateDuration = () => {
-      const diffSec = Math.max(0, Math.floor((Date.now() - earliestPendingTime) / 1000));
-      if (diffSec < 60) setPendingDurationText(`${diffSec}s ago`);
-      else if (diffSec < 3600) setPendingDurationText(`${Math.floor(diffSec / 60)}m ${diffSec % 60}s`);
-      else setPendingDurationText(`${Math.floor(diffSec / 3600)}h ${Math.floor((diffSec % 3600) / 60)}m`);
-    };
-    updateDuration();
-    const interval = setInterval(updateDuration, 1000);
-    return () => clearInterval(interval);
-  }, [earliestPendingTime]);
-
-  const formatLastSync = (iso?: string | null) => {
-    if (!iso) return 'Never synced this session';
-    try {
-      const date = new Date(iso);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) +
-        ' (' + date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ')';
-    } catch {
-      return iso;
-    }
+  const confirm = () => {
+    if (!selectedCount) return;
+    if (confirmAction === 'upload') onUpload?.();
+    if (confirmAction === 'discard') onDiscard?.(selectedIds);
+    setConfirmAction(null);
   };
-
-  const handleRetryClick = () => {
-    const failedOp = failedOps[0];
-    if (failedOp) {
-      onRetry(failedOp.operationId);
-    } else if (operations.length > 0) {
-      onRetry(operations[0].operationId);
-    } else {
-      onRetry();
-    }
-  };
-
-  const handleDiscardClick = () => {
-    if (!onDiscard) return;
-    if (operations.length > 1) {
-      onDiscard();
-    } else {
-      const targetOp = failedOps[0] || operations[0];
-      if (targetOp) {
-        onDiscard(targetOp.operationId);
-      } else {
-        onDiscard();
-      }
-    }
-  };
-
-  const firstFailedOperation = failedOps[0];
-  const conflictReason = firstFailedOperation?.conflicts?.[0]?.reason;
-  const hasRateIdCollision = Boolean(conflictReason?.toLowerCase().includes('already uses the new id'));
-  // Value conflicts are rebased automatically when the user retries; only a key collision needs editing.
-  const failureReason = firstFailedOperation?.status === 'conflict' && !hasRateIdCollision
-    ? 'Cloud data changed while this edit was pending. Retry Sync Now will apply your changed fields and preserve unrelated cloud updates.'
-    : conflictReason || firstFailedOperation?.lastError || errorMessage ||
-      (syncState === 'offline' ? 'Offline - No network connection' : null) ||
-      'Rate synchronization could not connect to Firestore (Permission or Quota limitation)';
 
   return (
     <div className="relative inline-block z-20" ref={popoverRef}>
-      {/* Sync Status Button Trigger */}
-      {hasFailed ? (
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          title="Sync failed or pending - Click to retry"
-          aria-label="Sync failed or pending - Click to retry"
-          className="inline-flex items-center justify-center p-2 rounded-2xl bg-rose-500/10 dark:bg-rose-950/40 border border-rose-500/30 text-rose-500 dark:text-rose-400 hover:bg-rose-500/20 active:scale-95 transition cursor-pointer shadow-xs shrink-0"
-        >
-          <XCircle className="h-5 w-5" />
-        </button>
-      ) : isSyncing ? (
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          title="Syncing changes to Firestore..."
-          aria-label="Syncing changes to Firestore"
-          className="inline-flex items-center justify-center p-2 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/30 text-amber-500 dark:text-amber-400 hover:bg-amber-500/20 active:scale-95 transition cursor-pointer shadow-xs shrink-0"
-        >
-          <LoaderCircle className="h-5 w-5 animate-spin" />
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          title="All data is synced"
-          aria-label="All data is synced"
-          className="inline-flex items-center justify-center p-2 rounded-2xl bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/30 text-emerald-500 dark:text-emerald-400 hover:bg-emerald-500/20 active:scale-95 transition cursor-pointer shadow-xs shrink-0"
-        >
-          <CheckCircle2 className="h-5 w-5" />
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+        title={pendingCount ? `${pendingCount} local change${pendingCount === 1 ? '' : 's'} waiting` : 'No local changes waiting'}
+        aria-label={`Pending rate changes: ${pendingCount}`}
+        aria-expanded={isOpen}
+        className={`relative inline-flex h-10 w-10 items-center justify-center rounded-2xl border transition active:scale-95 ${
+          isPublishing ? 'border-amber-500/30 bg-amber-500/10 text-amber-400' : pendingCount ? 'border-blue-500/40 bg-blue-500/10 text-blue-500' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+        }`}
+      >
+        {isPublishing ? <LoaderCircle className="h-5 w-5 animate-spin" /> : pendingCount ? <ShoppingBasket className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+        {pendingCount > 0 && <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full bg-blue-600 px-1 text-[10px] font-black leading-5 text-white">{pendingCount > 99 ? '99+' : pendingCount}</span>}
+      </button>
 
-      {/* Popover State Details */}
-      {isOpen && (
-        <div
-          data-testid="sync-status-popover"
-          className="fixed left-4 right-4 top-[4.5rem] mt-2 max-w-[calc(100vw-2rem)] rounded-2xl border border-[#222F43] bg-[#0E1526] p-4 text-xs text-slate-200 shadow-2xl z-50 space-y-3 animate-in fade-in zoom-in-95 duration-150 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:w-80"
-        >
-          <div className="flex items-center justify-between pb-2 border-b border-[#222F43]">
-            <div className="flex items-center gap-2">
-              {hasFailed ? (
-                <XCircle className="w-4 h-4 text-rose-400" />
-              ) : isSyncing ? (
-                <LoaderCircle className="w-4 h-4 text-amber-400 animate-spin" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              )}
-              <span className="font-extrabold text-sm text-white">
-                {hasFailed ? 'Sync Issue' : isSyncing ? 'Syncing...' : 'Sync Up to Date'}
-              </span>
-            </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-              title="Close"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+      {isOpen && <section data-testid="sync-status-popover" aria-label="Pending rate changes" className="fixed left-3 right-3 top-[4.5rem] z-50 max-h-[min(75vh,620px)] overflow-hidden rounded-2xl border border-[#222F43] bg-[#0E1526] text-xs text-slate-200 shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[min(28rem,calc(100vw-2rem))]">
+        <header className="flex items-center justify-between border-b border-[#222F43] px-4 py-3">
+          <div className="flex items-center gap-2">
+            {isPublishing ? <LoaderCircle className="h-4 w-4 animate-spin text-amber-400" /> : <ShoppingBasket className="h-4 w-4 text-blue-400" />}
+            <div><h2 className="text-sm font-extrabold text-white">{isPublishing ? 'Publishing package…' : 'Change basket'}</h2><p className="text-[11px] text-slate-400">{pendingCount} change{pendingCount === 1 ? '' : 's'} saved on this device</p></div>
           </div>
+          <button type="button" onClick={() => setIsOpen(false)} aria-label="Close" className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-4 w-4" /></button>
+        </header>
 
-          {/* If Failed: Explain Why */}
-          {hasFailed && (
-            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 space-y-1.5">
-              <div className="flex items-center gap-1.5 font-bold text-rose-400 text-[11px]">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                <span>Why did sync fail?</span>
-              </div>
-              <p className="text-[11px] text-slate-300 leading-relaxed break-words font-mono">
-                {failureReason}
-              </p>
-              {failedOps[0]?.nextRetryAt && (
-                <p className="text-[11px] text-rose-200">Next automatic retry: {formatLastSync(failedOps[0].nextRetryAt)}</p>
-              )}
-            </div>
-          )}
-
-          {/* If Pending / Syncing: Show how long */}
-          {isSyncing && (
-            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-amber-400 text-[11px]">
-                <Clock className="w-3.5 h-3.5 shrink-0" />
-                <span>Pending synchronization</span>
-              </div>
-              <p className="text-[11px] text-slate-300">
-                {pendingOps.length > 0
-                  ? `${pendingOps.length} operations queued ${pendingDurationText ? `(${pendingDurationText})` : ''}`
-                  : 'Downloading fresh rate models from server...'}
-              </p>
-            </div>
-          )}
-
-          {/* Last Successful Sync info */}
-          <div className="space-y-1 text-[11px]">
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Last Synced:</span>
-              <span className="font-mono text-slate-200">{formatLastSync(lastSyncedAt)}</span>
-            </div>
-            {lastSyncUploadName && (
-              <div className="flex items-center justify-between text-slate-400">
-                <span>Last Upload Sheet:</span>
-                <span className="font-mono text-emerald-400 truncate max-w-[140px]">{lastSyncUploadName}</span>
-              </div>
-            )}
+        {showingProgress && <div className={`rate-package-progress rate-package-${progressStage}`} role={progressStage === 'failed' ? 'alert' : 'status'} aria-live={progressStage === 'failed' ? 'assertive' : 'polite'} aria-busy={busy}>
+          <div className="rate-package-visual" aria-hidden="true">
+            {progressStage === 'failed' ? <AlertTriangle className="rate-package-failure-icon" /> : progressStage === 'delivered' ? <PackageCheck className="rate-package-delivered-icon" /> : <>
+              <div className="rate-package-cards"><FileText className="rate-package-card rate-package-card-one" /><FileText className="rate-package-card rate-package-card-two" /><FileText className="rate-package-card rate-package-card-three" /></div>
+              <div className="rate-package-box"><Package /></div>
+              <div className="rate-package-flight" />
+              <Cloud className="rate-package-cloud" />
+            </>}
           </div>
-
-          {/* Action / Retry & Discard Buttons */}
-          <div className="pt-2 border-t border-[#222F43] flex flex-wrap items-center justify-end gap-2">
-            {operations.length > 0 && onDiscard && (
-              <button
-                type="button"
-                onClick={handleDiscardClick}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-extrabold text-[11px] transition shadow-xs active:scale-95 cursor-pointer"
-                title="Discard pending changes and restore saved version"
-              >
-                <Trash2 className="w-3 h-3 text-rose-400" />
-                <span>{operations.length > 1 ? `Discard All (${operations.length})` : 'Discard Change'}</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={handleRetryClick}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-[11px] transition shadow-xs active:scale-95 cursor-pointer"
-            >
-              <RefreshCw className="w-3 h-3" />
-              <span>Retry Sync Now</span>
-            </button>
+          <div className="rate-package-copy">
+            <strong>{progressStage === 'failed'
+              ? errorMessage?.toLowerCase().includes('unable to package') ? 'Unable to package changes'
+                : uploadProgress?.deliveredBatches ? 'Some batches delivered' : 'Unable to save changes'
+              : progressStage === 'delivered' ? 'Package delivered'
+                : progressStage === 'verifying' ? 'Verifying your changes…'
+                  : progressStage === 'packaging' ? 'Packaging your changes…' : 'Sending package…'}</strong>
+            {progressStage === 'sending' && uploadProgress?.totalBatches ? <span>Batch {uploadProgress.currentBatch} of {uploadProgress.totalBatches} · {uploadProgress.deliveredBatches} delivered · {uploadProgress.failedBatches} failed</span>
+              : progressStage === 'failed' ? <span>{uploadProgress?.deliveredBatches || 0} delivered · {uploadProgress?.failedBatches || 0} failed. Failed changes remain in your basket.</span>
+                : progressStage === 'delivered' ? <span>{uploadProgress?.deliveredBatches || 0} batch{uploadProgress?.deliveredBatches === 1 ? '' : 'es'} delivered successfully.</span>
+                  : <span>{progressStage === 'verifying' ? 'Checking connection and queued changes.' : 'Compressing selected changes into a safe package.'}</span>}
           </div>
-        </div>
-      )}
+          <ol className="rate-package-steps">
+            {['Verify', 'Package', 'Send', 'Delivered'].map((label, index) => {
+              const partialSend = progressStage === 'failed' && Boolean(uploadProgress?.deliveredBatches);
+              const isComplete = progressStage === 'delivered' || activeStep > index || (partialSend && index < 2);
+              const isActive = activeStep === index || (partialSend && index === 2);
+              return <li key={label} className={progressStage === 'failed' && index === failureStep ? 'is-failed' : isActive ? 'is-active' : isComplete ? 'is-complete' : ''}>
+                <span>{isComplete ? '✓' : index + 1}</span>{label}
+              </li>;
+            })}
+          </ol>
+        </div>}
+
+        {errorMessage && <div role="alert" className="mx-3 mt-3 flex gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-rose-200"><AlertTriangle className="h-4 w-4 shrink-0" /><span>{errorMessage}</span></div>}
+
+        {operations.length > 0 ? <>
+          <div className="flex items-center justify-between border-b border-[#222F43] px-4 py-2 text-[11px]">
+            <button type="button" onClick={() => onSelectAll?.(!allSelected)} className="font-bold text-blue-300 hover:text-blue-200">{allSelected ? 'Clear selection' : 'Select all'}</button>
+            <span className="text-slate-400">{selectedCount} selected</span>
+          </div>
+          <ul className="max-h-[min(42vh,360px)] space-y-2 overflow-y-auto p-3">
+            {operations.map((operation) => {
+              const mutation = operation.mutations[0];
+              if (!mutation) return null;
+              const description = describeMutation(mutation);
+              return <li key={operation.operationId} className={`rounded-xl border p-3 ${selectedIds.includes(operation.operationId) ? 'border-blue-500/50 bg-blue-500/5' : 'border-[#222F43] bg-[#111a2b]'}`}>
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input type="checkbox" checked={selectedIds.includes(operation.operationId)} onChange={(event) => onToggleSelection?.(operation.operationId, event.target.checked)} disabled={isPublishing} className="mt-0.5 h-4 w-4 accent-blue-500" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-extrabold text-slate-100">{description.school}</span>
+                    <span className="mt-0.5 block truncate text-[10px] text-slate-400">{description.detail}</span>
+                    <span className="mt-1 block break-words text-[10px] text-slate-300">{description.fields}</span>
+                  </span>
+                  {operation.status === 'publishing' && <LoaderCircle className="h-4 w-4 animate-spin text-amber-400" />}
+                </label>
+              </li>;
+            })}
+          </ul>
+          {confirmAction ? <div className="border-t border-[#222F43] p-3">
+            <p className="mb-3 text-slate-200">{confirmAction === 'upload' ? `Publish ${selectedCount} selected change${selectedCount === 1 ? '' : 's'} to all authorized users?` : `Discard ${selectedCount} selected local change${selectedCount === 1 ? '' : 's'}? This restores the values from the remaining local changes.`}</p>
+            <div className="flex justify-end gap-2"><button type="button" onClick={() => setConfirmAction(null)} className="rounded-lg border border-slate-600 px-3 py-2 font-bold text-slate-300">Cancel</button><button type="button" onClick={confirm} disabled={!selectedCount} className={`rounded-lg px-3 py-2 font-extrabold text-white disabled:opacity-40 ${confirmAction === 'upload' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-rose-600 hover:bg-rose-500'}`}>Confirm {confirmAction === 'upload' ? 'upload' : 'discard'}</button></div>
+          </div> : <footer className="flex items-center justify-between gap-2 border-t border-[#222F43] p-3">
+            <span className="text-[10px] text-slate-400">Changes stay local until you upload.</span>
+            <div className="flex gap-2">
+              <button type="button" disabled={!selectedCount || isPublishing} onClick={() => setConfirmAction('discard')} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-2 font-bold text-rose-200 disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />Discard</button>
+              <button type="button" disabled={!selectedCount || isPublishing} onClick={() => setConfirmAction('upload')} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 font-extrabold text-white disabled:opacity-40"><UploadCloud className="h-3.5 w-3.5" />Upload</button>
+            </div>
+          </footer>}
+        </> : <div className="flex items-center gap-2 p-5 text-slate-300"><PackageCheck className="h-5 w-5 text-emerald-400" />All changes are published.</div>}
+      </section>}
     </div>
   );
 };

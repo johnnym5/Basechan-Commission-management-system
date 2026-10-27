@@ -23,8 +23,10 @@ vi.mock('../lib/firebase', () => ({
 
 vi.mock('firebase/firestore', () => ({
   collection: vi.fn(),
+  doc: vi.fn(),
+  getDoc: vi.fn().mockResolvedValue({ exists: () => false, data: () => ({}) }),
   onSnapshot: vi.fn((_col, callback) => {
-    callback({ docs: [] });
+    callback({ docs: [], exists: () => false, data: () => ({}) });
     return vi.fn();
   }),
 }));

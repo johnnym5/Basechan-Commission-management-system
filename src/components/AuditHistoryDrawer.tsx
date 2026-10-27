@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { AuditLogEntry } from '../utils/auditLogger';
+import { subscribeToAdminRatePackageAudit } from '../services/ratePackageService';
 import {
   X,
   History,
@@ -27,7 +28,8 @@ export const AuditHistoryDrawer: React.FC<AuditHistoryDrawerProps> = ({
   targetRateId,
   targetUniversityName,
 }) => {
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
+  const [legacyLogs, setLegacyLogs] = useState<AuditLogEntry[]>([]);
+  const [packageLogs, setPackageLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -53,7 +55,7 @@ export const AuditHistoryDrawer: React.FC<AuditHistoryDrawerProps> = ({
           ? records.filter((r) => r.rateId === targetRateId)
           : records;
 
-        setLogs(filtered);
+        setLegacyLogs(filtered);
         setLoading(false);
       },
       (err) => {
@@ -62,8 +64,16 @@ export const AuditHistoryDrawer: React.FC<AuditHistoryDrawerProps> = ({
       }
     );
 
-    return () => unsubscribe();
+    const unsubscribePackages = subscribeToAdminRatePackageAudit((entries) => {
+      const auditEntries = entries as AuditLogEntry[];
+      setPackageLogs(targetRateId ? auditEntries.filter((entry) => entry.rateId === targetRateId) : auditEntries);
+    }, (err) => console.error('Failed to subscribe to rate package audit logs:', err));
+
+    return () => { unsubscribe(); unsubscribePackages(); };
   }, [isOpen, targetRateId]);
+
+  const logs = useMemo(() => [...packageLogs, ...legacyLogs]
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp)), [packageLogs, legacyLogs]);
 
   if (!isOpen) return null;
 

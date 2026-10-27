@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import type { AuditLogEntry } from '../utils/auditLogger';
+import { subscribeToAdminRatePackageAudit } from '../services/ratePackageService';
 import {
   X,
   Clock,
@@ -20,7 +21,8 @@ interface AuditLogsDrawerProps {
 }
 
 export const AuditLogsDrawer: React.FC<AuditLogsDrawerProps> = ({ isOpen, onClose }) => {
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
+  const [legacyLogs, setLegacyLogs] = useState<AuditLogEntry[]>([]);
+  const [packageLogs, setPackageLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [actionFilter, setActionFilter] = useState<string>('ALL');
@@ -42,7 +44,7 @@ export const AuditLogsDrawer: React.FC<AuditLogsDrawerProps> = ({ isOpen, onClos
         snapshot.forEach((docSnap) => {
           records.push({ id: docSnap.id, ...docSnap.data() } as AuditLogEntry);
         });
-        setLogs(records);
+        setLegacyLogs(records);
         setLoading(false);
       },
       (err) => {
@@ -51,8 +53,15 @@ export const AuditLogsDrawer: React.FC<AuditLogsDrawerProps> = ({ isOpen, onClos
       }
     );
 
-    return () => unsubscribe();
+    const unsubscribePackages = subscribeToAdminRatePackageAudit((entries) => {
+      setPackageLogs(entries as AuditLogEntry[]);
+    }, (err) => console.error('Failed to subscribe to rate package audit logs:', err));
+
+    return () => { unsubscribe(); unsubscribePackages(); };
   }, [isOpen]);
+
+  const logs = useMemo(() => [...packageLogs, ...legacyLogs]
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp)), [packageLogs, legacyLogs]);
 
   useEffect(() => {
     if (!isOpen) return;

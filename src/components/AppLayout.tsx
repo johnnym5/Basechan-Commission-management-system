@@ -457,15 +457,15 @@ export const AppLayout: React.FC = () => {
 
               <RateChangeBasket
                 operations={canUseAdminNavigation ? pendingRateChanges.operations : []}
-                syncState={canUseAdminNavigation ? pendingRateChanges.syncState : loading ? 'syncing' : (ratesError ? 'offline' : 'idle')}
-                onRetry={(id) => {
-                  if (canUseAdminNavigation && id) void pendingRateChanges.retry(id);
-                  else if (canUseAdminNavigation && pendingRateChanges.operations.length > 0) void pendingRateChanges.retry();
-                  else void refreshCommissionRates();
-                }}
-                onDiscard={canUseAdminNavigation ? (id) => void pendingRateChanges.discard(id) : undefined}
-                lastSyncedAt={lastSyncedAt}
-                errorMessage={ratesError}
+                pendingCount={canUseAdminNavigation ? pendingRateChanges.pendingCount : 0}
+                selectedIds={canUseAdminNavigation ? pendingRateChanges.selectedIds : []}
+                syncState={canUseAdminNavigation ? pendingRateChanges.syncState : 'idle'}
+                uploadProgress={canUseAdminNavigation ? pendingRateChanges.uploadProgress : undefined}
+                onToggleSelection={pendingRateChanges.toggleSelection}
+                onSelectAll={(selected) => pendingRateChanges.selectChanges(selected ? pendingRateChanges.operations.map((item) => item.operationId) : [])}
+                onUpload={() => void pendingRateChanges.uploadSelected()}
+                onDiscard={canUseAdminNavigation ? (ids) => void pendingRateChanges.discard(ids) : undefined}
+                errorMessage={canUseAdminNavigation ? pendingRateChanges.errorMessage : null}
               />
 
               {/* Question Mark Onboarding Tutorial Button */}

@@ -11,6 +11,7 @@ import {
 import { getAllLocalSheetBuckets, getLocalAgentOverrides, getLocalRateMetadata, getLocalRates, subscribeToLocalRateChanges } from '../services/localRateDatabase';
 import { scopeForUser, syncLocalRateData, verifyServerRateAccess } from '../services/rateSyncService';
 import { selectRatesForScope } from '../services/rateSnapshot';
+import { subscribeToRatePackages } from '../services/ratePackageService';
 
 export interface IndexedCommissionRate extends CommissionRate { _searchToken: string }
 
@@ -106,7 +107,7 @@ export function useCommissionRates() {
         const scopedUserRates = scopedCacheIsValid ? userRates : [];
         const scopedOverrides = scopedCacheIsValid ? overrides : { organization: [], personal: [] };
         let combinedRates = scopedUserRates;
-        if (role === 'ADMIN') {
+        if (role === 'ADMIN' && (!metadata?.complete || metadata.adminFeedInitialized !== true)) {
           const [globalBuckets, userBuckets, globalRates] = await Promise.all([
             getAllLocalSheetBuckets('global').catch(() => []),
             getAllLocalSheetBuckets(user.uid).catch(() => []),
@@ -162,6 +163,13 @@ export function useCommissionRates() {
       : () => {};
 
     let syncInProgress = false;
+    let unsubscribePackages: (() => void) | null = null;
+    const startPackageListener = () => {
+      if (!active || unsubscribePackages || !navigator.onLine) return;
+      unsubscribePackages = subscribeToRatePackages(scope, () => { void showLocal(); }, (packageError) => {
+        console.error('Could not apply a published rate package:', packageError);
+      });
+    };
     const refresh = async (probe = false) => {
       if (!active || !navigator.onLine || syncInProgress) return;
       syncInProgress = true;
@@ -200,6 +208,7 @@ export function useCommissionRates() {
         if (probe) await completeQuotaProbe(user.uid);
         setQuotaMode(false);
         setError(null);
+        startPackageListener();
       } catch (syncError) {
         if (!active) return;
 
@@ -258,7 +267,7 @@ export function useCommissionRates() {
       else void refresh();
     };
     const onOnline = () => {
-      if (!isQuotaOffline(user.uid)) void refresh();
+      if (!isQuotaOffline(user.uid)) void refresh().then(startPackageListener);
       else scheduleQuotaProbe();
     };
     const onVisibility = () => { if (document.visibilityState === 'visible' && !isQuotaOffline(user.uid)) void refresh(); };
@@ -281,7 +290,7 @@ export function useCommissionRates() {
         if (!found) setError('No saved school data is available on this device. Connect when access is restored to download it.');
         scheduleQuotaProbe();
       } else if (navigator.onLine) {
-        void refresh();
+        void refresh().then(startPackageListener);
       } else {
         setLoading(!found);
         if (!found) setError('Connect to the internet once to download your authorized school data.');
@@ -296,6 +305,7 @@ export function useCommissionRates() {
     return () => {
       active = false;
       unsubscribeLocalRates();
+      unsubscribePackages?.();
       if (retryTimer) clearTimeout(retryTimer);
       unsubscribeMode();
       window.removeEventListener('online', onOnline);

@@ -1,7 +1,7 @@
 import type { CommissionRate } from './index';
 
 export type RateWriteCategory = 'rates' | 'guidance' | 'intake' | 'routing';
-export type RateWriteStatus = 'pending' | 'syncing' | 'quota-paused' | 'conflict' | 'failed' | 'cancelled';
+export type RateWriteStatus = 'pending' | 'selected' | 'publishing' | 'syncing' | 'quota-paused' | 'conflict' | 'failed' | 'cancelled';
 
 export type PendingRateMutation =
   | { kind: 'create'; next: CommissionRate }
@@ -23,6 +23,8 @@ export interface PendingRateOperation {
   category: RateWriteCategory;
   notify: boolean;
   status: RateWriteStatus;
+  packageId?: string;
+  packageChangeIds?: string[];
   attemptCount: number;
   createdAt: string;
   updatedAt: string;
@@ -36,7 +38,7 @@ export type StageRateOperationInput = Pick<PendingRateOperation, 'adminEmail' | 
   & Partial<Pick<PendingRateOperation, 'operationId' | 'category' | 'notify'>>;
 
 export type PendingRateOperationPatch = Partial<Pick<PendingRateOperation,
-  'status' | 'attemptCount' | 'updatedAt' | 'lastError' | 'lastAttemptAt' | 'nextRetryAt' | 'conflicts' | 'mutations'>>;
+  'status' | 'packageId' | 'packageChangeIds' | 'attemptCount' | 'updatedAt' | 'lastError' | 'lastAttemptAt' | 'nextRetryAt' | 'conflicts' | 'mutations'>>;
 
 
 

@@ -393,6 +393,71 @@ service cloud.firestore {
       }
     }
 
+    function canReadRatePackage(scope) {
+      return isAdmin()
+        || (isStaff() && scope == 'staff')
+        || (isApprovedAgent() && scope == 'agent');
+    }
+
+    function validRatePackageHead(scope) {
+      return isAdmin()
+        && scope in ['admin', 'staff', 'agent']
+        && request.resource.data.keys().hasOnly(['cursor', 'packageId', 'updatedAt'])
+        && request.resource.data.cursor is int
+        && request.resource.data.packageId is string
+        && request.resource.data.updatedAt is string;
+    }
+
+    function packagePublishedByHead(scope, packageId, cursor) {
+      let headPath = /databases/$(database)/documents/rate_package_heads/$(scope);
+      return existsAfter(headPath)
+        && getAfter(headPath).data.packageId == packageId
+        && getAfter(headPath).data.cursor == cursor;
+    }
+
+    match /rate_package_heads/{scope} {
+      allow read: if canReadRatePackage(scope);
+      allow create: if validRatePackageHead(scope) && request.resource.data.cursor == 1;
+      allow update: if validRatePackageHead(scope)
+        && request.resource.data.cursor == resource.data.cursor + 1;
+      allow delete: if false;
+    }
+
+    match /rate_packages/{scope}/packages/{packageId} {
+      allow read: if canReadRatePackage(scope);
+      allow create: if isAdmin()
+        && scope in ['admin', 'staff', 'agent']
+        && request.resource.data.keys().hasOnly([
+          'packageId', 'scope', 'cursor', 'schemaVersion', 'createdAt', 'actorUid', 'changeCount', 'chunkIds'
+        ])
+        && request.resource.data.packageId == packageId
+        && request.resource.data.scope == scope
+        && request.resource.data.cursor is int
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.createdAt is string
+        && request.resource.data.changeCount is int
+        && request.resource.data.chunkIds is list
+        && request.resource.data.chunkIds.size() > 0
+        && (!request.resource.data.keys().hasAny(['actorUid']) || request.resource.data.actorUid == request.auth.uid)
+        && packagePublishedByHead(scope, packageId, request.resource.data.cursor);
+      allow update, delete: if false;
+
+      match /chunks/{chunkId} {
+        allow read: if canReadRatePackage(scope);
+        allow create: if isAdmin()
+          && scope in ['admin', 'staff', 'agent']
+          && request.resource.data.keys().hasOnly(['packageId', 'scope', 'cursor', 'chunkIndex', 'changes'])
+          && request.resource.data.packageId == packageId
+          && request.resource.data.scope == scope
+          && request.resource.data.cursor is int
+          && request.resource.data.chunkIndex is int
+          && request.resource.data.changes is list
+          && request.resource.data.changes.size() <= 100
+          && packagePublishedByHead(scope, packageId, request.resource.data.cursor);
+        allow update, delete: if false;
+      }
+    }
+
     // CollectionGroup rules required for admin migration queries:
     // pruneRedundantOrganizationDefaults uses collectionGroup('rates')
     // removeLegacyRateFeedSnapshots uses collectionGroup('changes')

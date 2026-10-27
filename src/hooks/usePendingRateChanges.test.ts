@@ -1,25 +1,72 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PendingRateOperation } from '../types/rateWriteQueue';
-
-const { getPendingRateOperations, updatePendingRateOperation, discardPendingRateOperation, syncRateOperation, resolveRateOperationConflict, subscribeToLocalRateChanges } = vi.hoisted(() => ({
-  getPendingRateOperations: vi.fn(), updatePendingRateOperation: vi.fn(), discardPendingRateOperation: vi.fn(),
-  syncRateOperation: vi.fn(), resolveRateOperationConflict: vi.fn(), subscribeToLocalRateChanges: vi.fn(() => vi.fn()),
-}));
-vi.mock('../services/rateWriteQueue', () => ({ getPendingRateOperations, updatePendingRateOperation, discardPendingRateOperation }));
-vi.mock('../services/rateWriteSyncService', () => ({ syncRateOperation, resolveRateOperationConflict }));
-vi.mock('../services/localRateDatabase', () => ({ subscribeToLocalRateChanges }));
-vi.mock('../services/firestoreOfflineMode', () => ({ isQuotaOffline: vi.fn(() => false), getQuotaRetryAt: vi.fn(() => 0) }));
 import { usePendingRateChanges } from './usePendingRateChanges';
 
-const operation: PendingRateOperation = { operationId: 'op', uid: 'admin', adminEmail: 'a@x', category: 'rates', notify: true, status: 'pending', attemptCount: 0, createdAt: '2026-01-01', updatedAt: '2026-01-01', mutations: [] };
+const {
+  getPendingRateOperations,
+  updatePendingRateOperation,
+  finishPendingRateOperation,
+  discardPendingRateOperation,
+  subscribeToLocalRateChanges,
+  publishRateChangePackage,
+  isRatePackagePublished,
+} = vi.hoisted(() => ({
+  getPendingRateOperations: vi.fn(),
+  updatePendingRateOperation: vi.fn(),
+  finishPendingRateOperation: vi.fn(),
+  discardPendingRateOperation: vi.fn(),
+  subscribeToLocalRateChanges: vi.fn(() => vi.fn()),
+  publishRateChangePackage: vi.fn(),
+  isRatePackagePublished: vi.fn(),
+}));
+
+vi.mock('../services/rateWriteQueue', () => ({
+  getPendingRateOperations,
+  updatePendingRateOperation,
+  finishPendingRateOperation,
+  discardPendingRateOperation,
+}));
+
+vi.mock('../services/localRateDatabase', () => ({
+  subscribeToLocalRateChanges,
+}));
+
+vi.mock('../services/ratePackageService', () => ({
+  publishRateChangePackage,
+  isRatePackagePublished,
+  partitionRatePackageOperations: (operations: PendingRateOperation[]) => ({
+    batches: [operations],
+    oversized: [],
+  }),
+}));
+
+const operation: PendingRateOperation = {
+  operationId: 'op-1',
+  uid: 'admin',
+  adminEmail: 'a@x',
+  category: 'rates',
+  notify: true,
+  status: 'pending',
+  attemptCount: 0,
+  createdAt: '2026-01-01',
+  updatedAt: '2026-01-01',
+  mutations: [],
+};
+
 describe('usePendingRateChanges', () => {
-  beforeEach(() => { vi.clearAllMocks(); getPendingRateOperations.mockResolvedValue([operation]); syncRateOperation.mockResolvedValue('synced'); });
-  it('loads and flushes pending operations for the Admin account', async () => {
-    const { result } = renderHook(() => usePendingRateChanges('admin', true));
-    await waitFor(() => expect(syncRateOperation).toHaveBeenCalledWith(operation));
-    expect(result.current.operations).toEqual([operation]);
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getPendingRateOperations.mockResolvedValue([operation]);
+    publishRateChangePackage.mockResolvedValue(undefined);
+    isRatePackagePublished.mockResolvedValue(false);
   });
+
+  it('loads pending rate operations for Admin account', async () => {
+    const { result } = renderHook(() => usePendingRateChanges('admin', true));
+    await waitFor(() => expect(result.current.operations).toEqual([operation]));
+  });
+
   it('keeps queue access disabled for other roles', async () => {
     const { result } = renderHook(() => usePendingRateChanges('staff', false));
     await act(async () => {});
@@ -27,36 +74,63 @@ describe('usePendingRateChanges', () => {
     expect(result.current.operations).toEqual([]);
   });
 
-  it('reports a saved outcome only after the sync operation succeeds', async () => {
+  it('publishes selected changes and triggers onSyncOutcome when uploaded', async () => {
     const onSyncOutcome = vi.fn();
-    renderHook(() => usePendingRateChanges('admin', true, onSyncOutcome));
-    await waitFor(() => expect(onSyncOutcome).toHaveBeenCalledWith({ operationId: 'op', status: 'saved' }));
-  });
+    const { result } = renderHook(() => usePendingRateChanges('admin', true, onSyncOutcome));
 
-  it('reports failed syncs so the UI can show the rollback toast', async () => {
-    const onSyncOutcome = vi.fn();
-    syncRateOperation.mockRejectedValueOnce(Object.assign(new Error('Network unavailable'), { canonicalCommitted: false }));
-    renderHook(() => usePendingRateChanges('admin', true, onSyncOutcome));
-    await waitFor(() => expect(onSyncOutcome).toHaveBeenCalledWith({ operationId: 'op', status: 'failed', error: 'Network unavailable' }));
-  });
+    await waitFor(() => expect(result.current.operations).toEqual([operation]));
 
-  it('rebases a conflicted edit onto the latest cloud values when retrying', async () => {
-    const conflictedOperation: PendingRateOperation = { ...operation, status: 'conflict', conflicts: [{ mutationIndex: 0, id: 'rate', reason: 'Cloud value changed.' }] };
-    getPendingRateOperations.mockImplementation(async () => [conflictedOperation]);
-    resolveRateOperationConflict.mockImplementation(async (_uid, _operationId, resolution) => {
-      expect(resolution).toBe('apply-local');
-      conflictedOperation.status = 'pending';
+    act(() => {
+      result.current.selectChanges(['op-1']);
     });
+
+    await act(async () => {
+      await result.current.uploadSelected();
+    });
+
+    expect(publishRateChangePackage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uid: 'admin',
+        operations: [operation],
+      })
+    );
+    expect(finishPendingRateOperation).toHaveBeenCalledWith('admin', 'op-1', []);
+    expect(onSyncOutcome).toHaveBeenCalledWith({ operationId: 'op-1', status: 'saved' });
+  });
+
+  it('reports failed uploads via onSyncOutcome', async () => {
+    const onSyncOutcome = vi.fn();
+    publishRateChangePackage.mockRejectedValueOnce(new Error('Network connection failed'));
+
+    const { result } = renderHook(() => usePendingRateChanges('admin', true, onSyncOutcome));
+
+    await waitFor(() => expect(result.current.operations).toEqual([operation]));
+
+    act(() => {
+      result.current.selectChanges(['op-1']);
+    });
+
+    await act(async () => {
+      await result.current.uploadSelected();
+    });
+
+    expect(onSyncOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'op-1',
+        status: 'failed',
+      })
+    );
+  });
+
+  it('discards selected operations when discard is called', async () => {
     const { result } = renderHook(() => usePendingRateChanges('admin', true));
-    await waitFor(() => expect(result.current.operations[0]?.status).toBe('conflict'));
 
-    await act(async () => { await result.current.retry('op'); });
+    await waitFor(() => expect(result.current.operations).toEqual([operation]));
 
-    expect(resolveRateOperationConflict).toHaveBeenCalledWith('admin', 'op', 'apply-local');
-    expect(syncRateOperation).toHaveBeenCalledWith(conflictedOperation);
+    await act(async () => {
+      await result.current.discard(['op-1']);
+    });
+
+    expect(discardPendingRateOperation).toHaveBeenCalledWith('admin', 'op-1');
   });
 });
-
-
-
-
