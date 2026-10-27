@@ -40,19 +40,29 @@ describe('syncRateOperation', () => {
     expect(finishLocalRateOperation).not.toHaveBeenCalled();
     expect(updatePendingRateOperation).toHaveBeenLastCalledWith('admin-1', 'stable-op', expect.objectContaining({ status: 'failed' }));
   });
-  it('preserves the package and reports a conflict when a target field changed in cloud', async () => {
-    mockTransaction({ ...cloud, guidance: 'DO_NOT_USE' });
+  it('overwrites edited cloud fields while preserving unrelated cloud changes', async () => {
+    mockTransaction({ ...cloud, guidance: 'DO_NOT_USE', notes: 'changed in cloud' } as CommissionRate);
     const result = await syncRateOperation(operation);
-    expect(result).toBe('conflict');
-    expect(writeRateOperation).not.toHaveBeenCalled();
-    expect(updatePendingRateOperation).toHaveBeenCalledWith('admin-1', 'stable-op', expect.objectContaining({ status: 'conflict', conflicts: [expect.objectContaining({ id: cloud.id })] }));
+    const merged = { ...cloud, guidance: 'ALLOWED', notes: 'changed in cloud' };
+    expect(result).toBe('synced');
+    expect(writeRateOperation).toHaveBeenCalledWith(expect.objectContaining({ canonicalAlreadyCommitted: true, mutations: [{ previous: { ...cloud, guidance: 'DO_NOT_USE', notes: 'changed in cloud' }, next: merged }] }));
+    expect(updateRateSheetBucketsForMutations).toHaveBeenCalledWith([{ previous: { ...cloud, guidance: 'DO_NOT_USE', notes: 'changed in cloud' }, next: merged }], 'admin@example.com');
+  });
+
+  it('recreates a deleted rate from the saved edit instead of requiring Force Push', async () => {
+    mockTransaction(null);
+    const result = await syncRateOperation(operation);
+    expect(result).toBe('synced');
+    expect(writeRateOperation).toHaveBeenCalledWith(expect.objectContaining({
+      mutations: [{ next: { ...cloud, guidance: 'ALLOWED' } }], canonicalAlreadyCommitted: true,
+    }));
   });
   it('stops a re-key when the target ID already exists', async () => {
     mockTransaction(cloud, { ...cloud, id: 'occupied-id' });
     const rekey: PendingRateOperation = { ...operation, mutations: [{ kind: 'update', id: cloud.id, nextId: 'occupied-id', patch: { intake: 'Jan 2028' }, baseFields: { intake: cloud.intake }, baseSnapshot: cloud }] };
     const result = await syncRateOperation(rekey);
     expect(result).toBe('conflict');
-    expect(updatePendingRateOperation).toHaveBeenCalledWith('admin-1', 'stable-op', expect.objectContaining({ status: 'conflict', conflicts: [expect.objectContaining({ id: 'occupied-id', reason: expect.stringContaining('already exists') })] }));
+    expect(updatePendingRateOperation).toHaveBeenCalledWith('admin-1', 'stable-op', expect.objectContaining({ status: 'conflict', conflicts: [expect.objectContaining({ id: 'occupied-id', reason: expect.stringContaining('already uses') })] }));
     expect(writeRateOperation).not.toHaveBeenCalled();
   });
 });

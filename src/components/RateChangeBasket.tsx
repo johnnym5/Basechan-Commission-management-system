@@ -246,7 +246,7 @@ export const RateChangeBasket: React.FC<Props> = ({
               </button>
             )}
 
-            {hasFailed && onResolveConflict && failedOps.some((op) => op.status === 'conflict') && (
+            {hasFailed && onResolveConflict && failedOps.some((op) => op.status === 'conflict' && !op.conflicts?.some((conflict) => conflict.reason.toLowerCase().includes('already uses the new id'))) && (
               <button
                 type="button"
                 onClick={handleForcePushClick}

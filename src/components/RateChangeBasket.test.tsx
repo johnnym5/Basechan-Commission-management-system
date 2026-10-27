@@ -68,4 +68,11 @@ describe('RateChangeBasket', () => {
     fireEvent.click(forceBtn);
     expect(onResolveConflict).toHaveBeenCalledWith('basket-op', 'apply-local');
   });
+
+  it('does not offer Force Push for a rate ID collision that it cannot resolve', () => {
+    const collision = { ...item, conflicts: [{ mutationIndex: 0, id: 'occupied', reason: 'Another rate already uses the new ID. Resolve this ID collision before saving.' }] };
+    render(<RateChangeBasket operations={[collision]} syncState="idle" onRetry={vi.fn()} onResolveConflict={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /sync failed or pending - click to retry/i }));
+    expect(screen.queryByRole('button', { name: /Force Push/i })).not.toBeInTheDocument();
+  });
 });

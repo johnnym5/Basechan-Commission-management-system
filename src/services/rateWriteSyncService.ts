@@ -7,14 +7,6 @@ import { writeRateOperation, sanitizeFirestoreData, computeRateFingerprint, type
 import { updatePendingRateOperation } from './rateWriteQueue';
 import { isQuotaError, isQuotaOffline } from './firestoreOfflineMode';
 
-const VOLATILE_FIELDS = new Set(['updatedAt', 'lastUpdated']);
-
-function matchesBase(current: CommissionRate, base: Partial<CommissionRate>): boolean {
-  return Object.entries(base).every(([key, value]) => {
-    if (VOLATILE_FIELDS.has(key)) return true;
-    return current[key as keyof CommissionRate] === value;
-  });
-}
 function fingerprint(rate: CommissionRate): string {
   return computeRateFingerprint(rate);
 }
@@ -66,14 +58,15 @@ async function commitCanonicalPackage(operation: PendingRateOperation, packageIn
         else { mutations.push({ next: mutation.next }); canonical.push(mutation.next); }
       } else if (mutation.kind === 'update') {
         const current = currentRate(mutation.id);
-        if (!current) { conflicts.push({ mutationIndex, id: mutation.id, reason: 'This rate was deleted in Firestore.' }); continue; }
-        // For admin edits, only raise a conflict if one of the fields being patched has changed in the cloud compared to the edit's base
-        const relevantBaseFields = Object.fromEntries(
-          Object.keys(mutation.patch).map((k) => [k, mutation.baseFields[k as keyof CommissionRate]])
-        );
-        if (!matchesBase(current, relevantBaseFields)) { conflicts.push({ mutationIndex, id: mutation.id, reason: 'One or more edited fields changed in Firestore.', cloudRate: current }); continue; }
+        if (!current) {
+          if (!mutation.baseSnapshot) throw new Error('This saved edit is missing its original rate snapshot.');
+          const next = { ...mutation.baseSnapshot, ...mutation.patch, id: mutation.nextId };
+          mutations.push({ next });
+          canonical.push(next);
+          continue;
+        }
         const collision = mutation.nextId === mutation.id ? null : currentRate(mutation.nextId);
-        if (collision) { conflicts.push({ mutationIndex, id: mutation.nextId, reason: 'The new rate ID already exists in Firestore.', cloudRate: collision }); continue; }
+        if (collision) { conflicts.push({ mutationIndex, id: mutation.nextId, reason: 'Another rate already uses the new ID. Resolve this ID collision before saving.', cloudRate: collision }); continue; }
         const next = { ...current, ...mutation.patch, id: mutation.nextId };
         mutations.push({ previous: current, next }); canonical.push(next);
       } else {
@@ -119,7 +112,7 @@ export async function syncRateOperation(operation: PendingRateOperation): Promis
       canonical.push(...result.canonical);
     }
     if (conflicts.length) {
-      await updatePendingRateOperation(operation.uid, operation.operationId, { status: 'conflict', conflicts, lastError: 'Review cloud changes before applying this package.' });
+      await updatePendingRateOperation(operation.uid, operation.operationId, { status: 'conflict', conflicts, lastError: conflicts[0].reason });
       return 'conflict';
     }
     await writeRateOperation({
