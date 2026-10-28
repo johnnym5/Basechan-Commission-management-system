@@ -134,11 +134,74 @@ export const RateChangeBasket: React.FC<Props> = ({
         {errorMessage && <div role="alert" className="mx-3 mt-3 flex gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-rose-200"><AlertTriangle className="h-4 w-4 shrink-0" /><span>{errorMessage}</span></div>}
 
         {operations.length > 0 ? <>
-          <div className="flex items-center justify-between border-b border-[#222F43] px-4 py-2 text-[11px]">
-            <button type="button" onClick={() => onSelectAll?.(!allSelected)} className="font-bold text-blue-300 hover:text-blue-200">{allSelected ? 'Clear selection' : 'Select all'}</button>
-            <span className="text-slate-400">{selectedCount} selected</span>
+          {/* Sticky Top Action Toolbar */}
+          <div className="border-b border-[#222F43] bg-[#0E1526] px-3.5 py-2.5">
+            {confirmAction ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] text-slate-200">
+                  {confirmAction === 'upload'
+                    ? `Publish ${selectedCount} selected change${selectedCount === 1 ? '' : 's'} to all authorized users?`
+                    : `Discard ${selectedCount} selected local change${selectedCount === 1 ? '' : 's'}? This restores original values.`}
+                </p>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmAction(null)}
+                    className="rounded-lg border border-slate-600 px-3 py-1.5 font-bold text-slate-300 hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirm}
+                    disabled={!selectedCount}
+                    className={`rounded-lg px-3 py-1.5 font-extrabold text-white disabled:opacity-40 transition cursor-pointer ${
+                      confirmAction === 'upload' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-rose-600 hover:bg-rose-500'
+                    }`}
+                  >
+                    Confirm {confirmAction === 'upload' ? 'upload' : 'discard'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSelectAll?.(!allSelected)}
+                    className="font-bold text-blue-300 hover:text-blue-200 transition cursor-pointer"
+                  >
+                    {allSelected ? 'Clear selection' : 'Select all'}
+                  </button>
+                  <span className="text-slate-400">({selectedCount} selected)</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!selectedCount || isPublishing}
+                    onClick={() => setConfirmAction('discard')}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 font-bold text-rose-200 disabled:opacity-40 hover:bg-rose-500/20 cursor-pointer transition"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Discard
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selectedCount || isPublishing}
+                    onClick={() => setConfirmAction('upload')}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 font-extrabold text-white disabled:opacity-40 hover:bg-blue-500 cursor-pointer transition"
+                  >
+                    <UploadCloud className="h-3.5 w-3.5" />
+                    Upload
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-          <ul className="max-h-[min(42vh,360px)] space-y-2 overflow-y-auto p-3">
+
+          {/* Scrollable Rate Items List */}
+          <ul className="max-h-[min(38vh,300px)] space-y-2 overflow-y-auto p-3">
             {operations.map((operation) => {
               const mutation = operation.mutations[0];
               if (!mutation) return null;
@@ -156,16 +219,6 @@ export const RateChangeBasket: React.FC<Props> = ({
               </li>;
             })}
           </ul>
-          {confirmAction ? <div className="border-t border-[#222F43] p-3">
-            <p className="mb-3 text-slate-200">{confirmAction === 'upload' ? `Publish ${selectedCount} selected change${selectedCount === 1 ? '' : 's'} to all authorized users?` : `Discard ${selectedCount} selected local change${selectedCount === 1 ? '' : 's'}? This restores the values from the remaining local changes.`}</p>
-            <div className="flex justify-end gap-2"><button type="button" onClick={() => setConfirmAction(null)} className="rounded-lg border border-slate-600 px-3 py-2 font-bold text-slate-300">Cancel</button><button type="button" onClick={confirm} disabled={!selectedCount} className={`rounded-lg px-3 py-2 font-extrabold text-white disabled:opacity-40 ${confirmAction === 'upload' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-rose-600 hover:bg-rose-500'}`}>Confirm {confirmAction === 'upload' ? 'upload' : 'discard'}</button></div>
-          </div> : <footer className="flex items-center justify-between gap-2 border-t border-[#222F43] p-3">
-            <span className="text-[10px] text-slate-400">Changes stay local until you upload.</span>
-            <div className="flex gap-2">
-              <button type="button" disabled={!selectedCount || isPublishing} onClick={() => setConfirmAction('discard')} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-2 font-bold text-rose-200 disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />Discard</button>
-              <button type="button" disabled={!selectedCount || isPublishing} onClick={() => setConfirmAction('upload')} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 font-extrabold text-white disabled:opacity-40"><UploadCloud className="h-3.5 w-3.5" />Upload</button>
-            </div>
-          </footer>}
         </> : <div className="flex items-center gap-2 p-5 text-slate-300"><PackageCheck className="h-5 w-5 text-emerald-400" />All changes are published.</div>}
       </section>}
     </div>
