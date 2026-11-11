@@ -8,6 +8,8 @@ import { buildDashboardRates } from '../services/dashboardData';
 import { MasterTable } from './MasterTable';
 import { DashboardShell } from './DashboardShell';
 import { PersonalWorkspaceWidget } from './PersonalWorkspaceWidget';
+import { useSystemConfig } from '../hooks/useSystemConfig';
+import { useAuth } from '../context/AuthContext';
 import {
   Building2,
   Layers,
@@ -55,6 +57,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   favoriteCount,
   onOpenChat,
 }) => {
+  const { user } = useAuth();
+  const { activeIntakes, updateActiveIntakes } = useSystemConfig();
+  const handleAddNewIntake = async (newIntake: string) => {
+    const updated = Array.from(new Set([newIntake, ...activeIntakes]));
+    await updateActiveIntakes(updated, user?.email || 'admin@basechan.com');
+  };
   // Active Filter states passed down to MasterTable
   const [activeSearchQuery, setActiveSearchQuery] = useState<string>('');
   const [activeGuidanceFilter, setActiveGuidanceFilter] = useState<SchoolGuidance | 'ALL'>('ALL');
@@ -206,6 +214,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         onLevelChange={(l) => changeFilters({ levels: l === 'ALL' ? [] : [l as any] })}
         selectedIntake={controlledFilters.intakes[0] || 'ALL'}
         onIntakeChange={(i) => changeFilters({ intakes: i === 'ALL' ? [] : [i] })}
+        onAddNewIntake={handleAddNewIntake}
         selectedStatus={controlledFilters.guidances[0] || 'ALL'}
         onStatusChange={(s) => changeFilters({ guidances: s === 'ALL' ? [] : [s as any] })}
         selectedAggregator={controlledFilters.aggregators[0] || 'ALL'}
@@ -552,6 +561,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onExternalLevelChange={value => changeFilters({ levels: value === 'ALL' ? [] : [value] })}
           externalIntakeFilter={controlledFilters.intakes[0] || 'ALL'}
           onExternalIntakeChange={value => changeFilters({ intakes: value === 'ALL' ? [] : [value] })}
+          onAddNewIntake={handleAddNewIntake}
           externalSortBy={selectedSortBy}
           onExternalSortByChange={setSelectedSortBy}
           externalViewMode={viewMode}

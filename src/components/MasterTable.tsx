@@ -29,6 +29,7 @@ import { BatchEditModal } from './BatchEditModal';
 import { ShareRateCardModal } from './ShareRateCardModal';
 import { UniversityDetailModal, type UniversityDetailData } from './UniversityDetailModal';
 import { AddUniversityModal } from './AddUniversityModal';
+import { AddIntakeModal } from './AddIntakeModal';
 import { useAuth } from '../context/AuthContext';
 import { deleteRates, updateRate, updateRates, createRates, queueRateChanges, type RateWriteMutation } from '../services/adminRateWriteService';
 import { isEligibleAgentPayout } from '../services/rateReadModels';
@@ -55,6 +56,7 @@ import {
   Building2,
   FileSpreadsheet,
   Plus,
+  StickyNote,
 } from 'lucide-react';
 
 interface MasterTableProps {
@@ -71,6 +73,7 @@ interface MasterTableProps {
   onExternalAggregatorChange?: (agg: string) => void;
   externalIntakeFilter?: string;
   onExternalIntakeChange?: (intake: string) => void;
+  onAddNewIntake?: (newIntake: string) => Promise<void> | void;
   externalLevelFilter?: StudyLevel | 'ALL';
   onExternalLevelChange?: (level: StudyLevel | 'ALL') => void;
   externalCountryFilter?: string;
@@ -471,6 +474,23 @@ const GroupRoutesModal: React.FC<{
 
         {/* Scrollable Routes List */}
         <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+          {/* Shared Institution Notes Section (Visible to Admin, Staff, Agent) */}
+          {(() => {
+            const institutionNote = group.rates.find((r) => Boolean(r.notes && r.notes.trim()))?.notes?.trim();
+            if (!institutionNote) return null;
+            return (
+              <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 rounded-2xl flex items-start gap-2.5 text-indigo-900 dark:text-indigo-200 shadow-2xs">
+                <StickyNote className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-extrabold text-[11px] uppercase tracking-wider text-indigo-700 dark:text-indigo-300 block">
+                    Institution Notes & Guidance
+                  </span>
+                  <p className="text-xs leading-relaxed whitespace-pre-wrap">{institutionNote}</p>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Best Route Banner - Only for Admin */}
           {isAdmin && group.bestRoute && (
             <div className="p-3 bg-amber-500/15 border border-amber-400/40 rounded-2xl flex items-center justify-between text-amber-800 dark:text-amber-300">
@@ -540,6 +560,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   onExternalAggregatorChange,
   externalIntakeFilter,
   onExternalIntakeChange,
+  onAddNewIntake,
   externalLevelFilter,
   onExternalLevelChange,
   externalCountryFilter,
@@ -561,7 +582,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const isAdmin = role === 'ADMIN';
   const isAgent = role === 'AGENT';
   const isStaff = role === 'STAFF';
-  const { defaultIntake, activeIntakes, updateDefaultIntake } = useSystemConfig();
+  const { defaultIntake, activeIntakes, updateDefaultIntake, updateActiveIntakes } = useSystemConfig();
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'diffMargin', desc: true },
   ]);
@@ -589,6 +610,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const [sharingRate, setSharingRate] = useState<CommissionRate | null>(null);
   const [selectedUniversityDetailName, setSelectedUniversityDetailName] = useState<string | null>(null);
   const [isAddUniversityOpen, setIsAddUniversityOpen] = useState(false);
+  const [isAddIntakeOpen, setIsAddIntakeOpen] = useState(false);
 
   const [internalGroupByMode] = useState<GroupByMode>('UNIVERSITY');
   const groupByMode = externalGroupByMode || internalGroupByMode;
@@ -1140,12 +1162,14 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
   // Batch action handlers
   const handleSaveUniversityRecord = async (updatedData: UniversityDetailData, makeDefaultIntake?: boolean) => {
+    const uniName = updatedData.university.trim();
+    const originalUniName = selectedUniversityDetailName || uniName;
+    const isRenamed = originalUniName.trim().toLowerCase() !== uniName.toLowerCase();
     const targetIntake = updatedData.baselineIntake || defaultIntake || 'Sept 2026';
-    const uniName = updatedData.university;
     const country = updatedData.country || 'United Kingdom';
-    const isFlat = updatedData.commissionType === 'Fixed Fee';
     const targetDefaultRoute = (updatedData.defaultRoute || 'BASECHAN').toUpperCase();
     const resolvedGuidance = (updatedData.guidance as SchoolGuidance) || 'ALLOWED';
+    const notes = updatedData.notes?.trim() || '';
 
     const parseRateNumber = (value: string) => {
       if (!value || value === '-' || value === '–' || value === '—') return 0;
@@ -1179,42 +1203,47 @@ export const MasterTable: React.FC<MasterTableProps> = ({
 
     const mutations: RateWriteMutation[] = [];
 
-    const findExistingRate = (agg: string, level: StudyLevel) => {
-      const normUni = uniName.trim().toLowerCase();
+    const findExistingRate = (agg: string, level: StudyLevel, routeIntake: string) => {
+      const normUni = originalUniName.trim().toLowerCase();
       const normAgg = agg.trim().toLowerCase();
-      const id = generateCompositeId(uniName, targetIntake, agg, level);
+      const id = generateCompositeId(originalUniName, routeIntake, agg, level);
       return (
         data.find((r) => r.id === id) ||
-        data.find((r) => r.universityName.trim().toLowerCase() === normUni && r.aggregator.trim().toLowerCase() === normAgg && r.studyLevel === level && r.intake === targetIntake) ||
+        data.find((r) => r.universityName.trim().toLowerCase() === normUni && r.aggregator.trim().toLowerCase() === normAgg && r.studyLevel === level && r.intake === routeIntake) ||
         data.find((r) => r.universityName.trim().toLowerCase() === normUni && r.aggregator.trim().toLowerCase() === normAgg && r.studyLevel === level)
       );
     };
 
-    const existingUniId = data.find((r) => r.universityName.trim().toLowerCase() === uniName.trim().toLowerCase() && Boolean(r.universityId && r.universityId.trim()))?.universityId || normalizeUniversitySlug(uniName);
+    const existingUniId = data.find((r) => r.universityName.trim().toLowerCase() === originalUniName.trim().toLowerCase() && Boolean(r.universityId && r.universityId.trim()))?.universityId || normalizeUniversitySlug(uniName);
 
     const matchesDefaultAggregator = (aggregator: string) =>
       aggregator.toUpperCase() === targetDefaultRoute ||
       (targetDefaultRoute === 'BASECHAN' && aggregator.toUpperCase() === 'DIRECT');
 
     // FD Basechan route
+    const fdRouteIntake = updatedData.routeIntakes?.['BASECHAN_FD'] || targetIntake;
+    const fdRouteType = updatedData.routeCommissionTypes?.['BASECHAN_FD'] || updatedData.commissionType;
+    const fdIsFlat = fdRouteType === 'Fixed Fee';
+
     if (fdAgent > 0) {
-      const existing = findExistingRate('BASECHAN', 'FD');
-      const id = existing?.id || generateCompositeId(uniName, targetIntake, 'BASECHAN', 'FD');
+      const existing = findExistingRate('BASECHAN', 'FD', fdRouteIntake);
+      const id = generateCompositeId(uniName, fdRouteIntake, 'BASECHAN', 'FD');
       const nextRate: CommissionRate = {
         id,
         universityId: existingUniId,
         universityName: uniName,
         country,
-        intake: targetIntake,
+        intake: fdRouteIntake,
         aggregator: 'BASECHAN',
         studyLevel: 'FD',
         masterRate: fdAgent,
         agentRate: fdAgent,
         diffMargin: 0,
-        isFlatFee: isFlat,
+        isFlatFee: fdIsFlat,
         netOrGross: 'NET',
         guidance: resolvedGuidance,
         isDefaultRoute: existing?.isDefaultRoute === true || targetDefaultRoute === 'BASECHAN',
+        notes,
         updatedAt: new Date().toISOString(),
       };
       mutations.push({ previous: existing, next: nextRate });
@@ -1224,11 +1253,20 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     aggregatorSpecs.forEach(({ aggregator, ugRaw, pgRaw }) => {
       const isBasechan = aggregator === 'BASECHAN';
 
+      // Per-route independent intake and commission type
+      const ugRouteIntake = updatedData.routeIntakes?.[`${aggregator}_UG`] || targetIntake;
+      const ugRouteType = updatedData.routeCommissionTypes?.[`${aggregator}_UG`] || updatedData.commissionType;
+      const ugIsFlat = ugRouteType === 'Fixed Fee';
+
+      const pgRouteIntake = updatedData.routeIntakes?.[`${aggregator}_PG`] || targetIntake;
+      const pgRouteType = updatedData.routeCommissionTypes?.[`${aggregator}_PG`] || updatedData.commissionType;
+      const pgIsFlat = pgRouteType === 'Fixed Fee';
+
       // UG Level
       const ugIncoming = isBasechan ? ugMasterDirect : parseRateNumber(ugRaw);
       if (ugIncoming > 0 || (isBasechan && ugAgent > 0)) {
-        const existing = findExistingRate(aggregator, 'UG');
-        const id = existing?.id || generateCompositeId(uniName, targetIntake, aggregator, 'UG');
+        const existing = findExistingRate(aggregator, 'UG', ugRouteIntake);
+        const id = generateCompositeId(uniName, ugRouteIntake, aggregator, 'UG');
         const isDefault = existing?.isDefaultRoute === true || matchesDefaultAggregator(aggregator);
         const masterRate = isBasechan ? (ugMasterDirect > 0 ? ugMasterDirect : ugAgent) : ugIncoming;
         const agentRate = ugAgent;
@@ -1239,16 +1277,17 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           universityId: existingUniId,
           universityName: uniName,
           country,
-          intake: targetIntake,
+          intake: ugRouteIntake,
           aggregator,
           studyLevel: 'UG',
           masterRate,
           agentRate,
           diffMargin,
-          isFlatFee: isFlat,
+          isFlatFee: ugIsFlat,
           netOrGross: 'NET',
           guidance: resolvedGuidance,
           isDefaultRoute: isDefault,
+          notes,
           updatedAt: new Date().toISOString(),
         };
         mutations.push({ previous: existing, next: nextRate });
@@ -1257,8 +1296,8 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       // PG Level
       const pgIncoming = isBasechan ? pgMasterDirect : parseRateNumber(pgRaw);
       if (pgIncoming > 0 || (isBasechan && pgAgent > 0)) {
-        const existing = findExistingRate(aggregator, 'PG');
-        const id = existing?.id || generateCompositeId(uniName, targetIntake, aggregator, 'PG');
+        const existing = findExistingRate(aggregator, 'PG', pgRouteIntake);
+        const id = generateCompositeId(uniName, pgRouteIntake, aggregator, 'PG');
         const isDefault = existing?.isDefaultRoute === true || matchesDefaultAggregator(aggregator);
         const masterRate = isBasechan ? (pgMasterDirect > 0 ? pgMasterDirect : pgAgent) : pgIncoming;
         const agentRate = pgAgent;
@@ -1269,21 +1308,37 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           universityId: existingUniId,
           universityName: uniName,
           country,
-          intake: targetIntake,
+          intake: pgRouteIntake,
           aggregator,
           studyLevel: 'PG',
           masterRate,
           agentRate,
           diffMargin,
-          isFlatFee: isFlat,
+          isFlatFee: pgIsFlat,
           netOrGross: 'NET',
           guidance: resolvedGuidance,
           isDefaultRoute: isDefault,
+          notes,
           updatedAt: new Date().toISOString(),
         };
         mutations.push({ previous: existing, next: nextRate });
       }
     });
+
+    // If renamed, mark any old rates from originalUniName that are not superseded for deletion
+    if (isRenamed) {
+      const oldRates = data.filter(
+        (r) => r.universityName.trim().toLowerCase() === originalUniName.trim().toLowerCase()
+      );
+      oldRates.forEach((oldRate) => {
+        // If the mutation previously referenced this oldRate, it will be updated or replaced.
+        // If not referenced in mutations, queue deletion for the old record so orphan rates don't remain.
+        const alreadyInMutations = mutations.some((m) => m.previous?.id === oldRate.id);
+        if (!alreadyInMutations) {
+          mutations.push({ previous: oldRate, next: undefined });
+        }
+      });
+    }
 
     if (!mutations.length) return;
 
@@ -1298,6 +1353,11 @@ export const MasterTable: React.FC<MasterTableProps> = ({
           onBatchActionComplete?.('Rate changes saved; default intake preference could not be updated.');
         }
       }
+
+      if (isRenamed) {
+        setSelectedUniversityDetailName(uniName);
+      }
+
       onBatchActionComplete?.(`Saved ${mutations.length} rate changes for ${uniName} on this device; syncing to Firestore.`);
     } catch (err) {
       console.error('Error saving university record:', err);
@@ -1797,7 +1857,20 @@ export const MasterTable: React.FC<MasterTableProps> = ({
               </select>
             </div>
             <div>
-              <label htmlFor="master-intake-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Intake</label>
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="master-intake-filter" className="block text-[10px] font-bold text-slate-400 uppercase">Intake</label>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddIntakeOpen(true)}
+                    className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
+                    title="Add a new intake period"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add</span>
+                  </button>
+                )}
+              </div>
               <select
                 id="master-intake-filter"
                 value={selectedIntake}
@@ -2187,6 +2260,8 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         onClose={() => setSelectedUniversityDetailName(null)}
         universityName={selectedUniversityDetailName || ''}
         defaultIntake={defaultIntake}
+        availableIntakes={intakes}
+        onAddNewIntake={onAddNewIntake}
         onSetDefaultIntake={async (intakeName) => {
           await updateDefaultIntake(intakeName, user?.email || 'admin@basechan.com');
         }}
@@ -2217,6 +2292,22 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         existingRates={data}
         defaultIntake={defaultIntake}
         onUniversityAdded={handleUniversityAdded}
+      />
+
+      {/* Add Intake Modal */}
+      <AddIntakeModal
+        isOpen={isAddIntakeOpen}
+        onClose={() => setIsAddIntakeOpen(false)}
+        existingIntakes={intakes}
+        onAddIntake={async (newIntake) => {
+          if (onAddNewIntake) {
+            await onAddNewIntake(newIntake);
+          } else {
+            const updated = Array.from(new Set([newIntake, ...activeIntakes]));
+            await updateActiveIntakes(updated, user?.email || 'admin@basechan.com');
+          }
+          setSelectedIntake(newIntake);
+        }}
       />
     </div>
   );

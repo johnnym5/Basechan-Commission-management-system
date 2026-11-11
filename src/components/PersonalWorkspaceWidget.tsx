@@ -28,6 +28,7 @@ export interface PersonalWorkspaceWidgetProps {
   onLevelChange?: (level: string) => void;
   selectedIntake?: string;
   onIntakeChange?: (intake: string) => void;
+  onAddNewIntake?: (newIntake: string) => Promise<void> | void;
   selectedStatus?: string;
   onStatusChange?: (status: string) => void;
   selectedAggregator?: string;
@@ -68,6 +69,7 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
   onLevelChange,
   selectedIntake,
   onIntakeChange,
+  onAddNewIntake,
   selectedStatus,
   onStatusChange,
   selectedAggregator,
@@ -199,6 +201,7 @@ export const PersonalWorkspaceWidget: React.FC<PersonalWorkspaceWidgetProps> = (
     activeCurrency,
     onCurrencyChange,
     onResetFilters,
+    onAddNewIntake,
   };
 
   return (

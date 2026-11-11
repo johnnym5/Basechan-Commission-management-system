@@ -16,10 +16,12 @@ import {
   Star,
   Plus,
   AlertCircle,
+  StickyNote,
 } from 'lucide-react';
 import type { CommissionRate, StudyLevel } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { generateCompositeId, normalizeUniversitySlug } from '../utils/idGenerator';
+import { AddIntakeModal } from './AddIntakeModal';
 
 export interface UniversityDetailData {
   country: string; // Col A
@@ -45,6 +47,9 @@ export interface UniversityDetailData {
   aimsEducationPG: string; // Col U
   defaultRoute?: string;
   guidance?: string;
+  notes?: string;
+  routeIntakes?: Record<string, string>;
+  routeCommissionTypes?: Record<string, string>;
 }
 
 interface UniversityDetailModalProps {
@@ -54,10 +59,12 @@ interface UniversityDetailModalProps {
   ratesForUniversity?: CommissionRate[];
   universityName?: string;
   defaultIntake?: string;
+  availableIntakes?: string[];
   onSetDefaultIntake?: (intakeName: string) => Promise<void> | void;
   onSaveUniversity?: (updatedData: UniversityDetailData, makeDefaultIntake?: boolean) => Promise<void> | void;
   onDeleteUniversity?: (universityName: string, intake?: string) => Promise<void> | void;
   onAddRoute?: (rate: CommissionRate) => Promise<void> | void;
+  onAddNewIntake?: (newIntake: string) => Promise<void> | void;
 }
 
 export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
@@ -67,10 +74,12 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
   ratesForUniversity = [],
   universityName,
   defaultIntake,
+  availableIntakes = [],
   onSetDefaultIntake,
   onSaveUniversity,
   onDeleteUniversity,
   onAddRoute,
+  onAddNewIntake,
 }) => {
   const { role } = useAuth();
   const isAdmin = role === 'ADMIN';
@@ -128,6 +137,17 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
 
     const isFlat = ratesForUniversity.some((r) => r.isFlatFee);
 
+    // Build initial per-route intakes and commission types
+    const routeIntakes: Record<string, string> = {};
+    const routeCommissionTypes: Record<string, string> = {};
+    const initialNotes = (rawData as UniversityDetailData | undefined)?.notes || (ratesForUniversity as CommissionRate[]).find((r) => Boolean(r.notes && r.notes.trim()))?.notes || '';
+
+    ratesForUniversity.forEach((r) => {
+      const key = `${r.aggregator.toUpperCase()}_${r.studyLevel}`;
+      if (r.intake) routeIntakes[key] = r.intake;
+      routeCommissionTypes[key] = r.isFlatFee ? 'Fixed Fee' : 'Percentage';
+    });
+
     return {
       country,
       university: name,
@@ -152,10 +172,31 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
       aimsEducationPG: getRate('AIMS EDUCATION', 'PG', true),
       defaultRoute,
       guidance: ratesForUniversity[0]?.guidance || 'ALLOWED',
+      notes: initialNotes,
+      routeIntakes,
+      routeCommissionTypes,
     };
   }, [rawData, ratesForUniversity, universityName]);
 
   const [editForm, setEditForm] = useState<UniversityDetailData>(resolvedData);
+  const [isAddIntakeOpen, setIsAddIntakeOpen] = useState(false);
+  const [activeRouteKeyForNewIntake, setActiveRouteKeyForNewIntake] = useState<string | null>(null);
+
+  // Combine available intakes
+  const allKnownIntakes = useMemo(() => {
+    const set = new Set<string>(availableIntakes);
+    if (resolvedData.baselineIntake) set.add(resolvedData.baselineIntake);
+    ratesForUniversity.forEach((r) => {
+      if (r.intake) set.add(r.intake);
+    });
+    if (editForm.baselineIntake) set.add(editForm.baselineIntake);
+    if (editForm.routeIntakes) {
+      Object.values(editForm.routeIntakes).forEach((v) => {
+        if (v) set.add(v);
+      });
+    }
+    return Array.from(set).filter(Boolean).sort();
+  }, [availableIntakes, resolvedData.baselineIntake, ratesForUniversity, editForm.baselineIntake, editForm.routeIntakes]);
 
   useEffect(() => {
     setEditForm(resolvedData);
@@ -169,6 +210,76 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
   const handleInputChange = (field: keyof UniversityDetailData, value: string) => {
     setSaveError(null);
     setEditForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleRouteIntakeChange = (routeKey: string, intakeValue: string) => {
+    setSaveError(null);
+    setEditForm((prev) => ({
+      ...prev,
+      routeIntakes: {
+        ...(prev.routeIntakes || {}),
+        [routeKey]: intakeValue,
+      },
+    }));
+  };
+
+  const handleRouteCommissionTypeChange = (routeKey: string, typeValue: string) => {
+    setSaveError(null);
+    setEditForm((prev) => ({
+      ...prev,
+      routeCommissionTypes: {
+        ...(prev.routeCommissionTypes || {}),
+        [routeKey]: typeValue,
+      },
+    }));
+  };
+
+  const handleBulkApplyIntake = (intakeValue: string) => {
+    if (!intakeValue) return;
+    setEditForm((prev) => {
+      const nextRouteIntakes: Record<string, string> = { ...(prev.routeIntakes || {}) };
+      const allAggregators = ['BASECHAN', 'EDVOY', 'SI-UK', 'UAP', 'CRIZAC', 'KC OVERSEAS', 'AIMS EDUCATION'];
+      allAggregators.forEach((agg) => {
+        nextRouteIntakes[`${agg}_UG`] = intakeValue;
+        nextRouteIntakes[`${agg}_PG`] = intakeValue;
+      });
+      nextRouteIntakes['BASECHAN_FD'] = intakeValue;
+      return {
+        ...prev,
+        baselineIntake: intakeValue,
+        routeIntakes: nextRouteIntakes,
+      };
+    });
+  };
+
+  const handleBulkApplyCommissionType = (typeValue: string) => {
+    if (!typeValue) return;
+    setEditForm((prev) => {
+      const nextRouteTypes: Record<string, string> = { ...(prev.routeCommissionTypes || {}) };
+      const allAggregators = ['BASECHAN', 'EDVOY', 'SI-UK', 'UAP', 'CRIZAC', 'KC OVERSEAS', 'AIMS EDUCATION'];
+      allAggregators.forEach((agg) => {
+        nextRouteTypes[`${agg}_UG`] = typeValue;
+        nextRouteTypes[`${agg}_PG`] = typeValue;
+      });
+      nextRouteTypes['BASECHAN_FD'] = typeValue;
+      return {
+        ...prev,
+        commissionType: typeValue,
+        routeCommissionTypes: nextRouteTypes,
+      };
+    });
+  };
+
+  const handleCreateNewIntake = async (newIntake: string) => {
+    if (onAddNewIntake) {
+      await onAddNewIntake(newIntake);
+    }
+    if (activeRouteKeyForNewIntake) {
+      handleRouteIntakeChange(activeRouteKeyForNewIntake, newIntake);
+      setActiveRouteKeyForNewIntake(null);
+    } else {
+      handleBulkApplyIntake(newIntake);
+    }
   };
 
   const handleSave = async () => {
@@ -358,12 +469,27 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
               </span>
             </div>
 
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 leading-tight">
-              {resolvedData.university}
-            </h2>
+            {isEditing ? (
+              <div className="pt-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  Institution Name
+                </label>
+                <input
+                  type="text"
+                  value={editForm.university}
+                  onChange={(e) => handleInputChange('university', e.target.value)}
+                  className="w-full max-w-md px-3 py-1.5 rounded-xl border border-blue-400 bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-extrabold text-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="University Name"
+                />
+              </div>
+            ) : (
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 leading-tight">
+                {resolvedData.university}
+              </h2>
+            )}
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {isEditing
-                ? 'Editing Specifications Form — Live changes reflect in top summary cards above'
+                ? 'Editing Specifications Form — Live changes reflect across all routes and top summary cards'
                 : 'Master Commission Record & Competitor Aggregator Benchmark Matrix'}
             </p>
           </div>
@@ -438,6 +564,30 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
               {saveError}
             </div>
           )}
+
+          {/* Shared Notes Section: Visible to All Roles (Admin, Staff, Agent) */}
+          <div className="p-4 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 rounded-2xl space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-extrabold text-xs text-indigo-800 dark:text-indigo-300 flex items-center gap-2">
+                <StickyNote className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Institution Directives & Notes (Shared with Admin, Staff, Agents)</span>
+              </span>
+            </div>
+            {isEditing ? (
+              <textarea
+                value={editForm.notes || ''}
+                onChange={(e) => handleInputChange('notes', e.target.value)}
+                placeholder="Add special instructions, commission policies, or intake directives for this university..."
+                rows={3}
+                className="w-full p-2.5 rounded-xl border border-indigo-300 dark:border-indigo-800 bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+            ) : (
+              <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+                {resolvedData.notes?.trim() ? resolvedData.notes : 'No specific directives or notes added for this institution.'}
+              </p>
+            )}
+          </div>
+
           {/* SECTION 1: Top Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Sub-Agent Rates */}
@@ -598,234 +748,228 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-[11px] font-mono">
-                {/* Country */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">Country:</span>
-                  <input
-                    type="text"
-                    value={editForm.country}
-                    onChange={(e) => handleInputChange('country', e.target.value)}
-                    className="w-28 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
+              {/* Single vs Bulk Route Controls Toolbar */}
+              <div className="p-3.5 bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43] rounded-2xl space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-[#222F43] pb-2">
+                  <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Bulk Update Controls (Affect All Routes)</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    Apply intake or commission type globally to all routes, or configure each route individually below.
+                  </span>
                 </div>
 
-                {/* University */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">University:</span>
-                  <span className="font-bold truncate max-w-[150px]">{editForm.university}</span>
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  {/* Bulk Intake */}
+                  <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-slate-800">
+                    <span className="font-bold text-slate-600 dark:text-slate-300">Set All Intakes:</span>
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={editForm.baselineIntake}
+                        onChange={(e) => handleBulkApplyIntake(e.target.value)}
+                        className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-bold text-xs"
+                      >
+                        {allKnownIntakes.map((intake) => (
+                          <option key={intake} value={intake}>
+                            {intake}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveRouteKeyForNewIntake(null);
+                          setIsAddIntakeOpen(true);
+                        }}
+                        className="p-1 px-1.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold rounded-lg text-[10px] flex items-center gap-0.5 cursor-pointer"
+                        title="Add New Intake"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Add</span>
+                      </button>
+                    </div>
+                  </div>
 
-                {/* Agent Rate (FD) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">Agent Rate (FD):</span>
-                  <input
-                    type="text"
-                    value={editForm.agentRateFD}
-                    onChange={(e) => handleInputChange('agentRateFD', e.target.value)}
-                    className="w-28 text-right font-mono font-bold text-xs p-1 rounded border border-emerald-500/40 bg-white dark:bg-[#0E1526] text-emerald-600 dark:text-emerald-400"
-                  />
+                  {/* Bulk Commission Type */}
+                  <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-slate-800">
+                    <span className="font-bold text-slate-600 dark:text-slate-300">Set All Commission Types:</span>
+                    <select
+                      value={editForm.commissionType}
+                      onChange={(e) => handleBulkApplyCommissionType(e.target.value)}
+                      className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-bold text-xs"
+                    >
+                      <option value="Percentage">Percentage (%)</option>
+                      <option value="Fixed Fee">Fixed Fee (£)</option>
+                    </select>
+                  </div>
                 </div>
+              </div>
 
-                {/* Agent Rate (UG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">Agent Rate (UG):</span>
-                  <input
-                    type="text"
-                    value={editForm.agentRateUG}
-                    onChange={(e) => handleInputChange('agentRateUG', e.target.value)}
-                    className="w-28 text-right font-mono font-bold text-xs p-1 rounded border border-emerald-500/40 bg-white dark:bg-[#0E1526] text-emerald-600 dark:text-emerald-400"
-                  />
+              {/* Sub-Agent Master Payouts Section */}
+              <div className="p-3.5 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-500/20 rounded-2xl space-y-2">
+                <span className="font-extrabold text-xs text-emerald-800 dark:text-emerald-300 uppercase tracking-wider block">
+                  Sub-Agent Payout Rates (Independent of Aggregators)
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs font-mono">
+                  <div className="p-2 bg-white dark:bg-[#0E1526] rounded-xl flex items-center justify-between border border-emerald-500/20">
+                    <span className="text-slate-400 font-sans font-semibold">Agent (FD):</span>
+                    <input
+                      type="text"
+                      value={editForm.agentRateFD}
+                      onChange={(e) => handleInputChange('agentRateFD', e.target.value)}
+                      className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-emerald-500/40 bg-white dark:bg-[#0E1526] text-emerald-600 dark:text-emerald-400"
+                    />
+                  </div>
+                  <div className="p-2 bg-white dark:bg-[#0E1526] rounded-xl flex items-center justify-between border border-emerald-500/20">
+                    <span className="text-slate-400 font-sans font-semibold">Agent (UG):</span>
+                    <input
+                      type="text"
+                      value={editForm.agentRateUG}
+                      onChange={(e) => handleInputChange('agentRateUG', e.target.value)}
+                      className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-emerald-500/40 bg-white dark:bg-[#0E1526] text-emerald-600 dark:text-emerald-400"
+                    />
+                  </div>
+                  <div className="p-2 bg-white dark:bg-[#0E1526] rounded-xl flex items-center justify-between border border-emerald-500/20">
+                    <span className="text-slate-400 font-sans font-semibold">Agent (PG):</span>
+                    <input
+                      type="text"
+                      value={editForm.agentRatePG}
+                      onChange={(e) => handleInputChange('agentRatePG', e.target.value)}
+                      className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-emerald-500/40 bg-white dark:bg-[#0E1526] text-emerald-600 dark:text-emerald-400"
+                    />
+                  </div>
                 </div>
+              </div>
 
-                {/* Agent Rate (PG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">Agent Rate (PG):</span>
-                  <input
-                    type="text"
-                    value={editForm.agentRatePG}
-                    onChange={(e) => handleInputChange('agentRatePG', e.target.value)}
-                    className="w-28 text-right font-mono font-bold text-xs p-1 rounded border border-emerald-500/40 bg-white dark:bg-[#0E1526] text-emerald-600 dark:text-emerald-400"
-                  />
-                </div>
+              {/* Per-Route Independent Specification Table (Option A) */}
+              <div className="space-y-2 pt-1">
+                <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200 uppercase tracking-wider block">
+                  Per-Route Independent Settings (Intake, Commission Type & Rates)
+                </span>
+                <div className="border border-slate-200 dark:border-[#222F43] rounded-2xl overflow-hidden divide-y divide-slate-200 dark:divide-[#222F43]">
+                  {[
+                    { key: 'BASECHAN', name: 'BASECHAN (Direct Master)', ug: editForm.masterRateUG, pg: editForm.masterRatePG, isDirect: true },
+                    { key: 'EDVOY', name: 'EDVOY', ug: editForm.edvoyUG, pg: editForm.edvoyPG },
+                    { key: 'SI-UK', name: 'SI-UK', ug: editForm.siUkUG, pg: editForm.siUkPG },
+                    { key: 'UAP', name: 'UAP', ug: editForm.uapUG, pg: editForm.uapPG },
+                    { key: 'CRIZAC', name: 'CRIZAC', ug: editForm.crizacUG, pg: editForm.crizacPG },
+                    { key: 'KC OVERSEAS', name: 'KC OVERSEAS', ug: editForm.kcOverseasUG, pg: editForm.kcOverseasPG },
+                    { key: 'AIMS EDUCATION', name: 'AIMS EDUCATION', ug: editForm.aimsEducationUG, pg: editForm.aimsEducationPG },
+                  ].map((route) => {
+                    const routeIntake = editForm.routeIntakes?.[`${route.key}_UG`] || editForm.baselineIntake;
+                    const routeType = editForm.routeCommissionTypes?.[`${route.key}_UG`] || editForm.commissionType;
 
-                {/* Commission Type */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">Commission Type:</span>
-                  <select
-                    value={editForm.commissionType}
-                    onChange={(e) => handleInputChange('commissionType', e.target.value)}
-                    className="w-28 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="Percentage">Percentage</option>
-                    <option value="Fixed Fee">Fixed Fee</option>
-                    <option value="Mixed (Fee/%)">Mixed (Fee/%)</option>
-                  </select>
-                </div>
+                    const handleUgRateChange = (val: string) => {
+                      if (route.key === 'BASECHAN') handleInputChange('masterRateUG', val);
+                      else if (route.key === 'EDVOY') handleInputChange('edvoyUG', val);
+                      else if (route.key === 'SI-UK') handleInputChange('siUkUG', val);
+                      else if (route.key === 'UAP') handleInputChange('uapUG', val);
+                      else if (route.key === 'CRIZAC') handleInputChange('crizacUG', val);
+                      else if (route.key === 'KC OVERSEAS') handleInputChange('kcOverseasUG', val);
+                      else if (route.key === 'AIMS EDUCATION') handleInputChange('aimsEducationUG', val);
+                    };
 
-                {/* Baseline Intake */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">Baseline Intake:</span>
-                  <input
-                    type="text"
-                    value={editForm.baselineIntake}
-                    onChange={(e) => handleInputChange('baselineIntake', e.target.value)}
-                    className="w-28 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
+                    const handlePgRateChange = (val: string) => {
+                      if (route.key === 'BASECHAN') handleInputChange('masterRatePG', val);
+                      else if (route.key === 'EDVOY') handleInputChange('edvoyPG', val);
+                      else if (route.key === 'SI-UK') handleInputChange('siUkPG', val);
+                      else if (route.key === 'UAP') handleInputChange('uapPG', val);
+                      else if (route.key === 'CRIZAC') handleInputChange('crizacPG', val);
+                      else if (route.key === 'KC OVERSEAS') handleInputChange('kcOverseasPG', val);
+                      else if (route.key === 'AIMS EDUCATION') handleInputChange('aimsEducationPG', val);
+                    };
 
-                {/* Master Original (UG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">Master Original (UG):</span>
-                  <input
-                    type="text"
-                    value={editForm.masterRateUG}
-                    onChange={(e) => handleInputChange('masterRateUG', e.target.value)}
-                    className="w-28 text-right font-mono font-bold text-xs p-1 rounded border border-indigo-500/40 bg-white dark:bg-[#0E1526] text-indigo-600 dark:text-indigo-400"
-                  />
-                </div>
+                    return (
+                      <div
+                        key={route.key}
+                        className="p-3 bg-white dark:bg-[#0E1526] flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-[140px]">
+                          <span className="font-extrabold text-slate-800 dark:text-slate-200">
+                            {route.name}
+                          </span>
+                          {editForm.defaultRoute === route.key && (
+                            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" />
+                          )}
+                        </div>
 
-                {/* Master Original (PG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">Master Original (PG):</span>
-                  <input
-                    type="text"
-                    value={editForm.masterRatePG}
-                    onChange={(e) => handleInputChange('masterRatePG', e.target.value)}
-                    className="w-28 text-right font-mono font-bold text-xs p-1 rounded border border-indigo-500/40 bg-white dark:bg-[#0E1526] text-indigo-600 dark:text-indigo-400"
-                  />
-                </div>
+                        {/* Route Controls Grid */}
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          {/* Route Intake Dropdown with + Add */}
+                          <div className="flex items-center gap-1 bg-slate-50 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <span className="text-[10px] font-bold text-slate-400 px-1">Intake:</span>
+                            <select
+                              value={routeIntake}
+                              onChange={(e) => {
+                                handleRouteIntakeChange(`${route.key}_UG`, e.target.value);
+                                handleRouteIntakeChange(`${route.key}_PG`, e.target.value);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-white dark:bg-[#0E1526] border border-slate-300 dark:border-slate-700 font-bold text-xs"
+                            >
+                              {allKnownIntakes.map((intake) => (
+                                <option key={intake} value={intake}>
+                                  {intake}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveRouteKeyForNewIntake(`${route.key}_UG`);
+                                setIsAddIntakeOpen(true);
+                              }}
+                              className="p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-950/60 rounded-md transition cursor-pointer"
+                              title={`Add intake for ${route.name}`}
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
 
-                {/* EDVOY (UG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">EDVOY (UG):</span>
-                  <input
-                    type="text"
-                    value={editForm.edvoyUG}
-                    onChange={(e) => handleInputChange('edvoyUG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
+                          {/* Route Commission Type */}
+                          <div className="flex items-center gap-1 bg-slate-50 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <span className="text-[10px] font-bold text-slate-400 px-1">Type:</span>
+                            <select
+                              value={routeType}
+                              onChange={(e) => {
+                                handleRouteCommissionTypeChange(`${route.key}_UG`, e.target.value);
+                                handleRouteCommissionTypeChange(`${route.key}_PG`, e.target.value);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-white dark:bg-[#0E1526] border border-slate-300 dark:border-slate-700 font-bold text-xs"
+                            >
+                              <option value="Percentage">%</option>
+                              <option value="Fixed Fee">Fixed (£)</option>
+                            </select>
+                          </div>
 
-                {/* EDVOY (PG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">EDVOY (PG):</span>
-                  <input
-                    type="text"
-                    value={editForm.edvoyPG}
-                    onChange={(e) => handleInputChange('edvoyPG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
+                          {/* Route UG & PG Rates */}
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] font-bold text-slate-400">UG:</span>
+                              <input
+                                type="text"
+                                value={route.ug}
+                                onChange={(e) => handleUgRateChange(e.target.value)}
+                                className="w-16 px-1.5 py-1 text-center font-mono font-bold text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100"
+                                placeholder="UG Rate"
+                              />
+                            </div>
 
-                {/* SI-UK (UG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">SI-UK (UG):</span>
-                  <input
-                    type="text"
-                    value={editForm.siUkUG}
-                    onChange={(e) => handleInputChange('siUkUG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                {/* SI-UK (PG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">SI-UK (PG):</span>
-                  <input
-                    type="text"
-                    value={editForm.siUkPG}
-                    onChange={(e) => handleInputChange('siUkPG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                {/* UAP (UG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">UAP (UG):</span>
-                  <input
-                    type="text"
-                    value={editForm.uapUG}
-                    onChange={(e) => handleInputChange('uapUG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                {/* UAP (PG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">UAP (PG):</span>
-                  <input
-                    type="text"
-                    value={editForm.uapPG}
-                    onChange={(e) => handleInputChange('uapPG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                {/* CRIZAC (UG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">CRIZAC (UG):</span>
-                  <input
-                    type="text"
-                    value={editForm.crizacUG}
-                    onChange={(e) => handleInputChange('crizacUG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                {/* CRIZAC (PG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">CRIZAC (PG):</span>
-                  <input
-                    type="text"
-                    value={editForm.crizacPG}
-                    onChange={(e) => handleInputChange('crizacPG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                {/* KC OVERSEAS (UG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">KC OVERSEAS (UG):</span>
-                  <input
-                    type="text"
-                    value={editForm.kcOverseasUG}
-                    onChange={(e) => handleInputChange('kcOverseasUG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                {/* KC OVERSEAS (PG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">KC OVERSEAS (PG):</span>
-                  <input
-                    type="text"
-                    value={editForm.kcOverseasPG}
-                    onChange={(e) => handleInputChange('kcOverseasPG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                {/* AIMS EDUCATION (UG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">AIMS EDUCATION (UG):</span>
-                  <input
-                    type="text"
-                    value={editForm.aimsEducationUG}
-                    onChange={(e) => handleInputChange('aimsEducationUG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                {/* AIMS EDUCATION (PG) */}
-                <div className="p-2 bg-slate-50 dark:bg-[#18181B] rounded-xl flex items-center justify-between">
-                  <span className="text-slate-400 font-sans font-semibold">AIMS EDUCATION (PG):</span>
-                  <input
-                    type="text"
-                    value={editForm.aimsEducationPG}
-                    onChange={(e) => handleInputChange('aimsEducationPG', e.target.value)}
-                    className="w-24 text-right font-mono font-bold text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] text-slate-900 dark:text-slate-100"
-                  />
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] font-bold text-slate-400">PG:</span>
+                              <input
+                                type="text"
+                                value={route.pg}
+                                onChange={(e) => handlePgRateChange(e.target.value)}
+                                className="w-16 px-1.5 py-1 text-center font-mono font-bold text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100"
+                                placeholder="PG Rate"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -930,6 +1074,17 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Add Intake Modal */}
+      <AddIntakeModal
+        isOpen={isAddIntakeOpen}
+        onClose={() => {
+          setIsAddIntakeOpen(false);
+          setActiveRouteKeyForNewIntake(null);
+        }}
+        onAddIntake={handleCreateNewIntake}
+        existingIntakes={allKnownIntakes}
+      />
     </div>,
     document.body
   );

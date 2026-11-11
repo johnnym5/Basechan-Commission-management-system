@@ -260,4 +260,60 @@ describe('UniversityDetailModal - Add Route', () => {
     // EDVOY UG benchmark should be 17.5% (the aggregator's incoming master rate, not agentRate)
     expect(screen.getByText('17.5%')).toBeInTheDocument();
   });
+
+  it('allows editing institution name and saving it', async () => {
+    const onSaveUniversity = vi.fn().mockResolvedValue(undefined);
+    render(
+      <UniversityDetailModal
+        isOpen={true}
+        onClose={vi.fn()}
+        ratesForUniversity={mockRates}
+        universityName="Aberdeen University"
+        onSaveUniversity={onSaveUniversity}
+      />
+    );
+
+    // Switch to edit mode
+    fireEvent.click(screen.getByRole('button', { name: /Edit Record/i }));
+
+    const nameInput = screen.getByPlaceholderText('University Name');
+    expect(nameInput).toHaveValue('Aberdeen University');
+
+    fireEvent.change(nameInput, { target: { value: 'University of Aberdeen International' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(onSaveUniversity).toHaveBeenCalledTimes(1));
+    const savedData = onSaveUniversity.mock.calls[0][0];
+    expect(savedData.university).toBe('University of Aberdeen International');
+  });
+
+  it('allows independent intake and commission type per route without affecting other routes', async () => {
+    const onSaveUniversity = vi.fn().mockResolvedValue(undefined);
+    render(
+      <UniversityDetailModal
+        isOpen={true}
+        onClose={vi.fn()}
+        ratesForUniversity={mockRates}
+        universityName="Aberdeen University"
+        onSaveUniversity={onSaveUniversity}
+        availableIntakes={['Sept 2026', 'Jan 2027']}
+      />
+    );
+
+    // Enter edit mode
+    fireEvent.click(screen.getByRole('button', { name: /Edit Record/i }));
+
+    // Find all UG Rate inputs across the routes
+    const allUgRates = screen.getAllByPlaceholderText('UG Rate');
+    expect(allUgRates.length).toBeGreaterThan(1);
+
+    // Notes textarea
+    const notesInput = screen.getByPlaceholderText(/Add special instructions/i);
+    fireEvent.change(notesInput, { target: { value: 'Direct route preferred for Jan intake only.' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(onSaveUniversity).toHaveBeenCalledTimes(1));
+    const saved = onSaveUniversity.mock.calls[0][0];
+    expect(saved.notes).toBe('Direct route preferred for Jan intake only.');
+  });
 });

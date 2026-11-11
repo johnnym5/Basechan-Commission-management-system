@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Search, X, Sparkles, Check, History, ChevronDown, Send, SlidersHorizontal, LayoutGrid, TableProperties, Star, Layers3, RotateCcw } from 'lucide-react';
+import { Search, X, Sparkles, Check, History, ChevronDown, Send, SlidersHorizontal, LayoutGrid, TableProperties, Star, Layers3, RotateCcw, Plus } from 'lucide-react';
 import type { CommissionRate } from '../types';
 import type { SearchToken } from '../types/search';
 import { parseNaturalLanguage } from '../utils/nlpParser';
@@ -8,6 +8,7 @@ import { resolveUniversityCountry } from '../utils/groupingUtils';
 import { StyledSelect } from './StyledSelect';
 import type { SelectOption } from './StyledSelect';
 import { useAuth } from '../context/AuthContext';
+import { AddIntakeModal } from './AddIntakeModal';
 
 export interface SmartSearchBarProps {
   rates: CommissionRate[];
@@ -29,6 +30,7 @@ export interface SmartSearchBarProps {
   onLevelChange?: (level: string) => void;
   selectedIntake?: string;
   onIntakeChange?: (intake: string) => void;
+  onAddNewIntake?: (newIntake: string) => Promise<void> | void;
   selectedStatus?: string;
   onStatusChange?: (status: string) => void;
   selectedAggregator?: string;
@@ -77,6 +79,7 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
   onLevelChange,
   selectedIntake = 'ALL',
   onIntakeChange,
+  onAddNewIntake,
   selectedStatus = 'ALL',
   onStatusChange,
   selectedAggregator = 'ALL',
@@ -99,6 +102,8 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
 }) => {
   const { role } = useAuth();
   const isAgent = role === 'AGENT';
+  const isAdmin = role === 'ADMIN';
+  const [isAddIntakeOpen, setIsAddIntakeOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [localAdvanceOpen, setLocalAdvanceOpen] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -555,7 +560,20 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
               </div>
 
               <div>
-                <label htmlFor="advance-intake-filter" className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Intake</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="advance-intake-filter" className="block text-[10px] font-bold text-slate-400 uppercase">Intake</label>
+                  {isAdmin && onAddNewIntake && (
+                    <button
+                      type="button"
+                      onClick={() => setIsAddIntakeOpen(true)}
+                      className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
+                      title="Add a new intake period"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Add Intake</span>
+                    </button>
+                  )}
+                </div>
                 <StyledSelect
                   id="advance-intake-filter"
                   aria-label="Intake"
@@ -860,6 +878,18 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
           </div>
         )}
       </div>
+
+      {isAdmin && onAddNewIntake && (
+        <AddIntakeModal
+          isOpen={isAddIntakeOpen}
+          onClose={() => setIsAddIntakeOpen(false)}
+          existingIntakes={allIntakes}
+          onAddIntake={async (newIntake) => {
+            await onAddNewIntake(newIntake);
+            handleAcceptSuggestion({ id: `intake-${newIntake}`, type: 'intake', label: newIntake, value: newIntake });
+          }}
+        />
+      )}
     </div>
   );
 };
