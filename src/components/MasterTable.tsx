@@ -604,15 +604,24 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const isAgent = role === 'AGENT';
   const isStaff = role === 'STAFF';
   const { defaultIntake, activeIntakes, updateDefaultIntake, updateActiveIntakes } = useSystemConfig();
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: 'diffMargin', desc: true },
-  ]);
+  const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [isBatchEditOpen, setIsBatchEditOpen] = useState(false);
 
   // View Mode: 'grid' or 'table'
   const [internalViewMode] = useState<'grid' | 'table'>('grid');
   const viewMode = externalViewMode === 'cards' ? 'grid' : (externalViewMode || internalViewMode);
+
+  // Reactive mobile detection — avoids stale window.innerWidth in JSX
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(max-width: 767px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    setIsMobile(mq.matches);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   // QOL STATES & CARD PAGINATION
   const [watchlist, setWatchlist] = useState<string[]>(() => getWatchlist());
@@ -1958,7 +1967,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
       )}
 
       {/* GRID CARDS VIEW (WITH PAGINATION) */}
-      {(viewMode === 'grid' || window.innerWidth < 768) && (
+      {(viewMode === 'grid' || isMobile) && (
         <div className="space-y-4">
           {/* GROUP BY UNIVERSITY */}
           {effectiveGroupByMode === 'UNIVERSITY' ? (

@@ -310,6 +310,14 @@ export const AgentPortalView: React.FC<AgentPortalViewProps> = ({ rates, chatMod
         </div>
       </div>
 
+      {/* Agent Disclaimer */}
+      <div className="flex items-start gap-3 p-3 sm:p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300">
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+        <p className="text-xs font-semibold leading-relaxed">
+          <span className="font-bold">Disclaimer:</span> Commission rates displayed here are indicative only. Please confirm current rates with your Admin before quoting or committing to students.
+        </p>
+      </div>
+
       {/* CLICKABLE METRICS ROW */}
       <div className="grid grid-cols-3 gap-1.5 sm:gap-4">
         <div

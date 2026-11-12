@@ -333,6 +333,14 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ rates, chatMod
         </div>
       </div>
 
+      {/* Staff Disclaimer */}
+      <div className="flex items-start gap-3 p-3 sm:p-4 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300">
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+        <p className="text-xs font-semibold leading-relaxed">
+          <span className="font-bold">Disclaimer:</span> Application routes shown here are indicative only. Please confirm route availability and commission details with Admin before advising or committing students.
+        </p>
+      </div>
+
       {/* CLICKABLE METRICS ROW */}
       <div className={`grid grid-cols-3 gap-1.5 sm:gap-4 ${chatMode ? 'sm:gap-4' : 'sm:grid-cols-3'}`}>
         <div
