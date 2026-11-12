@@ -2387,6 +2387,8 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         onClose={() => setIsAddUniversityOpen(false)}
         existingRates={data}
         defaultIntake={defaultIntake}
+        availableIntakes={intakes}
+        onAddNewIntake={onAddNewIntake}
         onUniversityAdded={handleUniversityAdded}
       />
 

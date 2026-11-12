@@ -121,4 +121,50 @@ describe('AddUniversityModal', () => {
 
     expect(screen.getByText(/A university with this name already exists in this intake/i)).toBeInTheDocument();
   });
+
+  it('supports independent intake and commission type per route when adding a university', async () => {
+    const onUniversityAdded = vi.fn();
+    render(
+      <AddUniversityModal
+        isOpen={true}
+        onClose={vi.fn()}
+        existingRates={[]}
+        defaultIntake="Sept 2026"
+        availableIntakes={['Sept 2026', 'Jan 2027']}
+        onUniversityAdded={onUniversityAdded}
+      />
+    );
+
+    // University name
+    fireEvent.change(screen.getByLabelText(/University Name/i), { target: { value: 'Coventry University' } });
+
+    // Set Basechan UG rate to 10
+    fireEvent.change(screen.getByLabelText('Master Direct (UG)'), { target: { value: '10' } });
+
+    // Configure SI-UK route with independent intake "Jan 2027" and "Fixed Fee" commission type
+    const siUkIntakeSelect = screen.getByLabelText('SI-UK Intake');
+    fireEvent.change(siUkIntakeSelect, { target: { value: 'Jan 2027' } });
+
+    const siUkCommTypeSelect = screen.getByLabelText('SI-UK Commission Type');
+    fireEvent.change(siUkCommTypeSelect, { target: { value: 'Fixed Fee' } });
+
+    const siUkUgRateInput = screen.getByLabelText('SI-UK (UG)');
+    fireEvent.change(siUkUgRateInput, { target: { value: '2500' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Save University/i }));
+
+    expect(onUniversityAdded).toHaveBeenCalledTimes(1);
+    const addedRates: CommissionRate[] = onUniversityAdded.mock.calls[0][0];
+
+    const basechanUg = addedRates.find((r) => r.aggregator === 'BASECHAN' && r.studyLevel === 'UG');
+    expect(basechanUg).toBeDefined();
+    expect(basechanUg?.intake).toBe('Sept 2026');
+    expect(basechanUg?.isFlatFee).toBe(false);
+
+    const siUkUg = addedRates.find((r) => r.aggregator === 'SI-UK' && r.studyLevel === 'UG');
+    expect(siUkUg).toBeDefined();
+    expect(siUkUg?.intake).toBe('Jan 2027');
+    expect(siUkUg?.isFlatFee).toBe(true);
+    expect(siUkUg?.masterRate).toBe(2500);
+  });
 });
