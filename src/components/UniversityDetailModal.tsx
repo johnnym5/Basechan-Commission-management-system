@@ -90,6 +90,7 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
 }) => {
   const { role } = useAuth();
   const isAdmin = role === 'ADMIN';
+  void onUpdateSingleRoute;
 
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [makeDefaultIntake, setMakeDefaultIntake] = useState<boolean>(false);
@@ -105,10 +106,18 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
   const [addRouteError, setAddRouteError] = useState<string | null>(null);
   const [addRouteSuccess, setAddRouteSuccess] = useState<string | null>(null);
 
-  // Per-route inline editing state
-  const [editingRouteKey, setEditingRouteKey] = useState<string | null>(null);
-  const [routeEditRateVal, setRouteEditRateVal] = useState<string>('');
   const [routeSavingKey, setRouteSavingKey] = useState<string | null>(null);
+
+  // Quick Edit Modal state
+  const [quickEditModalRoute, setQuickEditModalRoute] = useState<string | null>(null);
+  const [quickEditMasterUG, setQuickEditMasterUG] = useState('');
+  const [quickEditMasterPG, setQuickEditMasterPG] = useState('');
+  const [quickEditTypeUG, setQuickEditTypeUG] = useState<'Percentage' | 'Fixed Fee'>('Percentage');
+  const [quickEditTypePG, setQuickEditTypePG] = useState<'Percentage' | 'Fixed Fee'>('Percentage');
+  const [quickEditAgentFD, setQuickEditAgentFD] = useState('');
+  const [quickEditAgentUG, setQuickEditAgentUG] = useState('');
+  const [quickEditAgentPG, setQuickEditAgentPG] = useState('');
+  const [quickEditSaving, setQuickEditSaving] = useState(false);
 
   // Build resolved data record from rawData or ratesForUniversity
   const resolvedData: UniversityDetailData = useMemo(() => {
@@ -438,40 +447,92 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
     }
   };
 
-  const handleInlineSaveRate = async (aggName: string, level: 'UG' | 'PG', newVal: string) => {
-    const rateMatch = ratesForUniversity.find(
-      (r) => (r.aggregator || '').toUpperCase() === aggName.toUpperCase() && r.studyLevel === level
-    );
-    const num = parseFloat(newVal.replace(/[^0-9.]/g, '')) || 0;
-    const key = `${aggName}_${level}`;
-    setRouteSavingKey(key);
-    try {
-      if (rateMatch && onUpdateSingleRoute) {
-        const diffMargin = Number((num - (rateMatch.agentRate || 0)).toFixed(2));
-        await onUpdateSingleRoute(rateMatch, {
-          masterRate: num,
-          diffMargin,
-          updatedAt: new Date().toISOString(),
-        });
-      }
-      // Update local editForm
-      const mapping: Record<string, keyof UniversityDetailData> = {
-        'EDVOY_UG': 'edvoyUG', 'EDVOY_PG': 'edvoyPG',
-        'SI-UK_UG': 'siUkUG', 'SI-UK_PG': 'siUkPG',
-        'UAP_UG': 'uapUG', 'UAP_PG': 'uapPG',
-        'CRIZAC_UG': 'crizacUG', 'CRIZAC_PG': 'crizacPG',
-        'KC OVERSEAS_UG': 'kcOverseasUG', 'KC OVERSEAS_PG': 'kcOverseasPG',
-        'AIMS EDUCATION_UG': 'aimsEducationUG', 'AIMS EDUCATION_PG': 'aimsEducationPG',
+  const openQuickEditModal = (aggName: string) => {
+    setQuickEditModalRoute(aggName);
+    if (aggName === 'BASECHAN') {
+      setQuickEditMasterUG(editForm.masterRateUG.replace(/[^0-9.]/g, ''));
+      setQuickEditMasterPG(editForm.masterRatePG.replace(/[^0-9.]/g, ''));
+      setQuickEditAgentFD(editForm.agentRateFD.replace(/[^0-9.]/g, ''));
+      setQuickEditAgentUG(editForm.agentRateUG.replace(/[^0-9.]/g, ''));
+      setQuickEditAgentPG(editForm.agentRatePG.replace(/[^0-9.]/g, ''));
+      const typeUG = (editForm.routeCommissionTypes?.['BASECHAN_UG'] as 'Percentage' | 'Fixed Fee') || (editForm.commissionType as 'Percentage' | 'Fixed Fee') || 'Percentage';
+      const typePG = (editForm.routeCommissionTypes?.['BASECHAN_PG'] as 'Percentage' | 'Fixed Fee') || (editForm.commissionType as 'Percentage' | 'Fixed Fee') || 'Percentage';
+      setQuickEditTypeUG(typeUG);
+      setQuickEditTypePG(typePG);
+    } else {
+      const mapping: Record<string, { ug: string; pg: string }> = {
+        'EDVOY': { ug: editForm.edvoyUG, pg: editForm.edvoyPG },
+        'SI-UK': { ug: editForm.siUkUG, pg: editForm.siUkPG },
+        'UAP': { ug: editForm.uapUG, pg: editForm.uapPG },
+        'CRIZAC': { ug: editForm.crizacUG, pg: editForm.crizacPG },
+        'KC OVERSEAS': { ug: editForm.kcOverseasUG, pg: editForm.kcOverseasPG },
+        'AIMS EDUCATION': { ug: editForm.aimsEducationUG, pg: editForm.aimsEducationPG },
       };
-      const field = mapping[key];
-      if (field) {
-        handleInputChange(field, String(num));
+      const vals = mapping[aggName] || { ug: '', pg: '' };
+      setQuickEditMasterUG(vals.ug.replace(/[^0-9.]/g, ''));
+      setQuickEditMasterPG(vals.pg.replace(/[^0-9.]/g, ''));
+      const typeUG = (editForm.routeCommissionTypes?.[`${aggName}_UG`] as 'Percentage' | 'Fixed Fee') || (editForm.commissionType as 'Percentage' | 'Fixed Fee') || 'Percentage';
+      const typePG = (editForm.routeCommissionTypes?.[`${aggName}_PG`] as 'Percentage' | 'Fixed Fee') || (editForm.commissionType as 'Percentage' | 'Fixed Fee') || 'Percentage';
+      setQuickEditTypeUG(typeUG);
+      setQuickEditTypePG(typePG);
+    }
+  };
+
+  const handleSaveQuickEdit = async () => {
+    if (!quickEditModalRoute) return;
+    setQuickEditSaving(true);
+    const aggName = quickEditModalRoute;
+    try {
+      if (aggName === 'BASECHAN') {
+        const nextData: UniversityDetailData = {
+          ...editForm,
+          masterRateUG: quickEditMasterUG ? (quickEditTypeUG === 'Fixed Fee' ? `£${quickEditMasterUG}` : `${quickEditMasterUG}%`) : '-',
+          masterRatePG: quickEditMasterPG ? (quickEditTypePG === 'Fixed Fee' ? `£${quickEditMasterPG}` : `${quickEditMasterPG}%`) : '-',
+          agentRateFD: quickEditAgentFD ? (quickEditTypeUG === 'Fixed Fee' ? `£${quickEditAgentFD}` : `${quickEditAgentFD}%`) : '-',
+          agentRateUG: quickEditAgentUG ? (quickEditTypeUG === 'Fixed Fee' ? `£${quickEditAgentUG}` : `${quickEditAgentUG}%`) : '-',
+          agentRatePG: quickEditAgentPG ? (quickEditTypePG === 'Fixed Fee' ? `£${quickEditAgentPG}` : `${quickEditAgentPG}%`) : '-',
+          routeCommissionTypes: {
+            ...(editForm.routeCommissionTypes || {}),
+            'BASECHAN_UG': quickEditTypeUG,
+            'BASECHAN_PG': quickEditTypePG,
+            'BASECHAN_FD': quickEditTypeUG,
+          },
+        };
+        setEditForm(nextData);
+        if (onSaveUniversity) {
+          await onSaveUniversity(nextData);
+        }
+      } else {
+        const ugFormatted = quickEditMasterUG ? (quickEditTypeUG === 'Fixed Fee' ? `£${quickEditMasterUG}` : `${quickEditMasterUG}%`) : '-';
+        const pgFormatted = quickEditMasterPG ? (quickEditTypePG === 'Fixed Fee' ? `£${quickEditMasterPG}` : `${quickEditMasterPG}%`) : '-';
+        const mapping: Record<string, { ugField: keyof UniversityDetailData; pgField: keyof UniversityDetailData }> = {
+          'EDVOY': { ugField: 'edvoyUG', pgField: 'edvoyPG' },
+          'SI-UK': { ugField: 'siUkUG', pgField: 'siUkPG' },
+          'UAP': { ugField: 'uapUG', pgField: 'uapPG' },
+          'CRIZAC': { ugField: 'crizacUG', pgField: 'crizacPG' },
+          'KC OVERSEAS': { ugField: 'kcOverseasUG', pgField: 'kcOverseasPG' },
+          'AIMS EDUCATION': { ugField: 'aimsEducationUG', pgField: 'aimsEducationPG' },
+        };
+        const fields = mapping[aggName];
+        const nextData: UniversityDetailData = {
+          ...editForm,
+          ...(fields ? { [fields.ugField]: ugFormatted, [fields.pgField]: pgFormatted } : {}),
+          routeCommissionTypes: {
+            ...(editForm.routeCommissionTypes || {}),
+            [`${aggName}_UG`]: quickEditTypeUG,
+            [`${aggName}_PG`]: quickEditTypePG,
+          },
+        };
+        setEditForm(nextData);
+        if (onSaveUniversity) {
+          await onSaveUniversity(nextData);
+        }
       }
-      setEditingRouteKey(null);
+      setQuickEditModalRoute(null);
     } catch (err) {
-      console.error('Save rate error:', err);
+      console.error('Error saving quick edit:', err);
     } finally {
-      setRouteSavingKey(null);
+      setQuickEditSaving(false);
     }
   };
 
@@ -688,12 +749,23 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
           {/* SECTION 1: Top Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Sub-Agent Rates */}
-            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl space-y-3">
+            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl space-y-3 relative">
               <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2">
                 <h3 className="font-extrabold text-sm text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
                   <Banknote className="w-4 h-4" />
                   Basechan Sub-Agent Rates (Payouts)
                 </h3>
+                {isAdmin && !isEditing && (
+                  <button
+                    type="button"
+                    onClick={() => openQuickEditModal('BASECHAN')}
+                    className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 px-2 py-0.5 rounded-lg hover:bg-emerald-500/20 transition cursor-pointer"
+                    title="Edit Basechan rates & Agent payouts"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    <span>Edit</span>
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-3 gap-2 text-center">
@@ -721,12 +793,23 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
             </div>
 
             {/* Master Original Contract Rates */}
-            <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl space-y-3">
+            <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl space-y-3 relative">
               <div className="flex items-center justify-between border-b border-indigo-500/20 pb-2">
                 <h3 className="font-extrabold text-sm text-indigo-800 dark:text-indigo-300 flex items-center gap-2">
                   <Building2 className="w-4 h-4" />
                   Master Direct Institutional Contract
                 </h3>
+                {isAdmin && !isEditing && (
+                  <button
+                    type="button"
+                    onClick={() => openQuickEditModal('BASECHAN')}
+                    className="flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 px-2 py-0.5 rounded-lg hover:bg-indigo-500/20 transition cursor-pointer"
+                    title="Edit Master Direct rates"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    <span>Edit</span>
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-center">
@@ -747,163 +830,158 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
             </div>
           </div>
 
-          {/* SECTION 2: Competitor Aggregator Benchmark Matrix */}
+          {/* SECTION 2: Competitor Aggregator Benchmark Routes - List Form */}
           <div className="p-4 bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#222F43] rounded-2xl space-y-3">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-[#222F43] pb-2">
               <h3 className="font-extrabold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
                 <Award className="w-4 h-4 text-amber-500" />
-                Third-Party Aggregator Rates Comparison
+                Aggregator Routes & Commission Benchmarks
               </h3>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-              {aggregatorsList.map((agg) => {
-                const ugRate = ratesForUniversity.find((r) => (r.aggregator || '').toUpperCase() === agg.name.toUpperCase() && r.studyLevel === 'UG');
-                const pgRate = ratesForUniversity.find((r) => (r.aggregator || '').toUpperCase() === agg.name.toUpperCase() && r.studyLevel === 'PG');
-                const anyRate = ugRate || pgRate;
-
-                return (
-                  <div
-                    key={agg.name}
-                    className={`p-3 border rounded-xl text-center space-y-1.5 flex flex-col justify-between ${
-                      editForm.defaultRoute === agg.name
-                        ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-400 ring-2 ring-blue-500/20'
-                        : 'bg-white dark:bg-[#0E1526] border-slate-200 dark:border-[#222F43]'
-                    }`}
-                  >
-                    <div>
-                      <span className="font-extrabold text-xs text-slate-900 dark:text-slate-100 block truncate flex items-center justify-center gap-1">
-                        {agg.name}
-                        {editForm.defaultRoute === agg.name && (
-                          <Star className="w-3 h-3 fill-amber-400 text-amber-400 shrink-0" />
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-[#222F43] text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    <th className="py-2 px-3">Route / Portal</th>
+                    <th className="py-2 px-3">UG Rate</th>
+                    <th className="py-2 px-3">PG Rate</th>
+                    <th className="py-2 px-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-[#222F43] text-xs">
+                  {/* Basechan Direct Row */}
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-[#0E1526]/50 transition">
+                    <td className="py-2.5 px-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-slate-900 dark:text-slate-100">BASECHAN (Direct)</span>
+                        {editForm.defaultRoute === 'BASECHAN' && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-500 flex items-center gap-0.5">
+                            <Star className="w-2.5 h-2.5 fill-amber-500" />
+                            Default
+                          </span>
                         )}
-                      </span>
-                      <div className="pt-1 border-t border-slate-100 dark:border-[#1E293B] space-y-1.5">
-                        {/* UG Line */}
-                        <div className="flex items-center justify-between text-[10px] gap-1">
-                          <span className="text-slate-400 font-bold shrink-0">UG:</span>
-                          {editingRouteKey === `${agg.name}_UG` ? (
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="text"
-                                autoFocus
-                                value={routeEditRateVal}
-                                onChange={(e) => setRouteEditRateVal(e.target.value)}
-                                className="w-12 px-1 py-0.5 text-[10px] font-mono font-bold rounded bg-slate-50 dark:bg-slate-900 border border-blue-500 text-center"
-                              />
-                              <button
-                                onClick={() => handleInlineSaveRate(agg.name, 'UG', routeEditRateVal)}
-                                className="p-0.5 text-emerald-600 hover:text-emerald-500 cursor-pointer"
-                                title="Save"
-                              >
-                                <Check className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={() => setEditingRouteKey(null)}
-                                className="p-0.5 text-slate-400 hover:text-slate-300 cursor-pointer"
-                                title="Cancel"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1">
-                              <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{agg.ug}</span>
-                              {isAdmin && !isEditing && (
-                                <button
-                                  onClick={() => {
-                                    setEditingRouteKey(`${agg.name}_UG`);
-                                    setRouteEditRateVal(agg.ug.replace(/[^0-9.]/g, ''));
-                                  }}
-                                  className="text-slate-400 hover:text-blue-500 cursor-pointer p-0.5 transition"
-                                  title="Edit rate directly"
-                                >
-                                  <Pencil className="w-2.5 h-2.5" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* PG Line */}
-                        <div className="flex items-center justify-between text-[10px] gap-1">
-                          <span className="text-slate-400 font-bold shrink-0">PG:</span>
-                          {editingRouteKey === `${agg.name}_PG` ? (
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="text"
-                                autoFocus
-                                value={routeEditRateVal}
-                                onChange={(e) => setRouteEditRateVal(e.target.value)}
-                                className="w-12 px-1 py-0.5 text-[10px] font-mono font-bold rounded bg-slate-50 dark:bg-slate-900 border border-blue-500 text-center"
-                              />
-                              <button
-                                onClick={() => handleInlineSaveRate(agg.name, 'PG', routeEditRateVal)}
-                                className="p-0.5 text-emerald-600 hover:text-emerald-500 cursor-pointer"
-                                title="Save"
-                              >
-                                <Check className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={() => setEditingRouteKey(null)}
-                                className="p-0.5 text-slate-400 hover:text-slate-300 cursor-pointer"
-                                title="Cancel"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1">
-                              <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{agg.pg}</span>
-                              {isAdmin && !isEditing && (
-                                <button
-                                  onClick={() => {
-                                    setEditingRouteKey(`${agg.name}_PG`);
-                                    setRouteEditRateVal(agg.pg.replace(/[^0-9.]/g, ''));
-                                  }}
-                                  className="text-slate-400 hover:text-blue-500 cursor-pointer p-0.5 transition"
-                                  title="Edit rate directly"
-                                >
-                                  <Pencil className="w-2.5 h-2.5" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
                       </div>
-                    </div>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                        {editForm.masterRateUG}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                        {editForm.masterRatePG}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => openQuickEditModal('BASECHAN')}
+                            className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg transition cursor-pointer"
+                            title="Edit Basechan and Agent rates"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {onShareRate && ratesForUniversity.find((r) => (!r.aggregator || r.aggregator.toUpperCase() === 'BASECHAN' || r.aggregator.toUpperCase() === 'DIRECT')) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const r = ratesForUniversity.find((item) => (!item.aggregator || item.aggregator.toUpperCase() === 'BASECHAN' || item.aggregator.toUpperCase() === 'DIRECT'));
+                              if (r) onShareRate(r);
+                            }}
+                            className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/50 rounded-lg transition cursor-pointer"
+                            title="Share Basechan rate card"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
 
-                    {/* Bottom Action Buttons: Clear/Reset & Share */}
-                    <div className="pt-1.5 border-t border-slate-100 dark:border-[#1E293B] flex items-center justify-center gap-2">
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            // Reset both UG and PG or ask
-                            handleInlineResetRate(agg.name, 'UG');
-                            handleInlineResetRate(agg.name, 'PG');
-                          }}
-                          disabled={routeSavingKey?.startsWith(agg.name)}
-                          className="p-1 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                          title={`Reset ${agg.name} rates to 0`}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      )}
-                      {onShareRate && anyRate && (
-                        <button
-                          type="button"
-                          onClick={() => onShareRate(anyRate)}
-                          className="p-1 text-slate-400 hover:text-amber-500 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer"
-                          title={`Share ${agg.name} rate card`}
-                        >
-                          <Share2 className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                  {/* Third-Party Aggregator Rows */}
+                  {aggregatorsList.map((agg) => {
+                    const ugRate = ratesForUniversity.find((r) => (r.aggregator || '').toUpperCase() === agg.name.toUpperCase() && r.studyLevel === 'UG');
+                    const pgRate = ratesForUniversity.find((r) => (r.aggregator || '').toUpperCase() === agg.name.toUpperCase() && r.studyLevel === 'PG');
+                    const anyRate = ugRate || pgRate;
+                    const typeUG = editForm.routeCommissionTypes?.[`${agg.name}_UG`] || editForm.commissionType;
+                    const typePG = editForm.routeCommissionTypes?.[`${agg.name}_PG`] || editForm.commissionType;
+
+                    return (
+                      <tr key={agg.name} className="hover:bg-slate-50/50 dark:hover:bg-[#0E1526]/50 transition">
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-slate-800 dark:text-slate-200">{agg.name}</span>
+                            {editForm.defaultRoute === agg.name && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-500 flex items-center gap-0.5">
+                                <Star className="w-2.5 h-2.5 fill-amber-500" />
+                                Default
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{agg.ug}</span>
+                            <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-slate-500">
+                              {typeUG === 'Fixed Fee' ? '£ Fixed' : '%'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{agg.pg}</span>
+                            <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-slate-500">
+                              {typePG === 'Fixed Fee' ? '£ Fixed' : '%'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => openQuickEditModal(agg.name)}
+                                className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg transition cursor-pointer"
+                                title={`Edit ${agg.name} rates`}
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleInlineResetRate(agg.name, 'UG');
+                                  handleInlineResetRate(agg.name, 'PG');
+                                }}
+                                disabled={routeSavingKey?.startsWith(agg.name)}
+                                className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg transition cursor-pointer"
+                                title={`Reset ${agg.name} rates to 0`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {onShareRate && anyRate && (
+                              <button
+                                type="button"
+                                onClick={() => onShareRate(anyRate)}
+                                className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/50 rounded-lg transition cursor-pointer"
+                                title={`Share ${agg.name} rate card`}
+                              >
+                                <Share2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -1313,6 +1391,143 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
         onAddIntake={handleCreateNewIntake}
         existingIntakes={allKnownIntakes}
       />
+
+      {/* Quick Edit Route Modal */}
+      {quickEditModalRoute && (
+        <div
+          className="fixed inset-0 z-[10000] bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-backdrop-fade"
+          onClick={() => setQuickEditModalRoute(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white dark:bg-[#0E1526] border border-slate-200 dark:border-[#222F43] rounded-2xl p-5 shadow-2xl space-y-4 text-xs"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-[#222F43] pb-3">
+              <div className="flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-blue-500" />
+                <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
+                  Edit {quickEditModalRoute === 'BASECHAN' ? 'Basechan & Agent Rates' : `${quickEditModalRoute} Rates`}
+                </h3>
+              </div>
+              <button
+                onClick={() => setQuickEditModalRoute(null)}
+                className="p-1 text-slate-400 hover:text-slate-200 rounded-lg transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              {/* If Basechan, show Agent Rates section */}
+              {quickEditModalRoute === 'BASECHAN' && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-2.5">
+                  <span className="font-bold text-[11px] text-emerald-800 dark:text-emerald-300 block">
+                    Basechan Sub-Agent Payout Rates:
+                  </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Agent FD</label>
+                      <input
+                        type="text"
+                        value={quickEditAgentFD}
+                        onChange={(e) => setQuickEditAgentFD(e.target.value)}
+                        placeholder="FD Rate"
+                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#18181B] font-mono text-center font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Agent UG</label>
+                      <input
+                        type="text"
+                        value={quickEditAgentUG}
+                        onChange={(e) => setQuickEditAgentUG(e.target.value)}
+                        placeholder="UG Rate"
+                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#18181B] font-mono text-center font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Agent PG</label>
+                      <input
+                        type="text"
+                        value={quickEditAgentPG}
+                        onChange={(e) => setQuickEditAgentPG(e.target.value)}
+                        placeholder="PG Rate"
+                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#18181B] font-mono text-center font-bold"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Master / Route Rates */}
+              <div className="space-y-3">
+                {/* UG Level */}
+                <div className="p-3 bg-slate-50 dark:bg-[#18181B] rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-indigo-600 dark:text-indigo-400">UG Rate</span>
+                    <select
+                      value={quickEditTypeUG}
+                      onChange={(e) => setQuickEditTypeUG(e.target.value as 'Percentage' | 'Fixed Fee')}
+                      className="px-2 py-1 rounded bg-white dark:bg-[#0E1526] border border-slate-300 dark:border-slate-700 font-bold text-[11px]"
+                    >
+                      <option value="Percentage">Percentage (%)</option>
+                      <option value="Fixed Fee">Fixed Fee (£)</option>
+                    </select>
+                  </div>
+                  <input
+                    type="text"
+                    value={quickEditMasterUG}
+                    onChange={(e) => setQuickEditMasterUG(e.target.value)}
+                    placeholder={quickEditTypeUG === 'Fixed Fee' ? 'e.g. 2500' : 'e.g. 15'}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] font-mono text-sm font-bold"
+                  />
+                </div>
+
+                {/* PG Level */}
+                <div className="p-3 bg-slate-50 dark:bg-[#18181B] rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-violet-600 dark:text-violet-400">PG Rate</span>
+                    <select
+                      value={quickEditTypePG}
+                      onChange={(e) => setQuickEditTypePG(e.target.value as 'Percentage' | 'Fixed Fee')}
+                      className="px-2 py-1 rounded bg-white dark:bg-[#0E1526] border border-slate-300 dark:border-slate-700 font-bold text-[11px]"
+                    >
+                      <option value="Percentage">Percentage (%)</option>
+                      <option value="Fixed Fee">Fixed Fee (£)</option>
+                    </select>
+                  </div>
+                  <input
+                    type="text"
+                    value={quickEditMasterPG}
+                    onChange={(e) => setQuickEditMasterPG(e.target.value)}
+                    placeholder={quickEditTypePG === 'Fixed Fee' ? 'e.g. 3000' : 'e.g. 20'}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] font-mono text-sm font-bold"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-[#222F43]">
+              <button
+                type="button"
+                onClick={() => setQuickEditModalRoute(null)}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={quickEditSaving}
+                onClick={handleSaveQuickEdit}
+                className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs active:scale-95"
+              >
+                {quickEditSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>Save Route</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>,
     document.body
   );

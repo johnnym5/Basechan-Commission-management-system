@@ -164,8 +164,8 @@ describe('UniversityDetailModal - Add Route', () => {
       />
     );
 
-    expect(screen.getByText('20%')).toBeInTheDocument();
-    expect(screen.getByText('15%')).toBeInTheDocument();
+    expect(screen.getAllByText('20%').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('15%').length).toBeGreaterThanOrEqual(1);
   });
 
   it('picks active master rate even if a 0-value rate record comes first in ratesForUniversity array', () => {
@@ -209,7 +209,7 @@ describe('UniversityDetailModal - Add Route', () => {
       />
     );
 
-    expect(screen.getByText('15%')).toBeInTheDocument();
+    expect(screen.getAllByText('15%').length).toBeGreaterThanOrEqual(1);
   });
 
   it('correctly maps third-party aggregator rates to their incoming masterRate and sub-agent payouts to agentRate', () => {
