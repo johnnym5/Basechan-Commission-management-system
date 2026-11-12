@@ -261,7 +261,7 @@ describe('UniversityDetailModal - Add Route', () => {
     expect(screen.getByText('17.5%')).toBeInTheDocument();
   });
 
-  it('allows editing institution name and saving it', async () => {
+  it('allows editing institution name and country and saving them', async () => {
     const onSaveUniversity = vi.fn().mockResolvedValue(undefined);
     render(
       <UniversityDetailModal
@@ -279,12 +279,17 @@ describe('UniversityDetailModal - Add Route', () => {
     const nameInput = screen.getByPlaceholderText('University Name');
     expect(nameInput).toHaveValue('Aberdeen University');
 
+    const countryInput = screen.getByLabelText('Country');
+    expect(countryInput).toHaveValue('UK');
+
     fireEvent.change(nameInput, { target: { value: 'University of Aberdeen International' } });
+    fireEvent.change(countryInput, { target: { value: 'Scotland' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(onSaveUniversity).toHaveBeenCalledTimes(1));
     const savedData = onSaveUniversity.mock.calls[0][0];
     expect(savedData.university).toBe('University of Aberdeen International');
+    expect(savedData.country).toBe('Scotland');
   });
 
   it('allows independent intake and commission type per route without affecting other routes', async () => {

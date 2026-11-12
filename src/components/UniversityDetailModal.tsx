@@ -616,10 +616,28 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
         <div className="p-5 sm:p-6 border-b border-slate-200 dark:border-[#222F43] bg-slate-50/90 dark:bg-[#18181B]/90 flex items-start justify-between shrink-0">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
-                <Globe className="w-3 h-3" />
-                {editForm.country}
-              </span>
+              {/* Country Badge / Editable Input in Edit Mode */}
+              {isEditing ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                    <Globe className="w-3 h-3" />
+                    Country:
+                  </span>
+                  <input
+                    type="text"
+                    value={editForm.country}
+                    onChange={(e) => handleInputChange('country', e.target.value)}
+                    className="px-2.5 py-0.5 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-[#18181B] text-slate-900 dark:text-slate-100 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    placeholder="Country (e.g. UK, Canada)"
+                    aria-label="Country"
+                  />
+                </div>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                  <Globe className="w-3 h-3" />
+                  {editForm.country}
+                </span>
+              )}
 
               {/* Intake Badge & Set Default Control */}
               <div className="flex items-center gap-1">
