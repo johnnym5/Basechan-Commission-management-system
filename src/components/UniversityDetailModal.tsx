@@ -110,6 +110,7 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
 
   // Quick Edit Modal state
   const [quickEditModalRoute, setQuickEditModalRoute] = useState<string | null>(null);
+  const [quickEditIntake, setQuickEditIntake] = useState('');
   const [quickEditMasterUG, setQuickEditMasterUG] = useState('');
   const [quickEditMasterPG, setQuickEditMasterPG] = useState('');
   const [quickEditTypeUG, setQuickEditTypeUG] = useState<'Percentage' | 'Fixed Fee'>('Percentage');
@@ -449,6 +450,9 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
 
   const openQuickEditModal = (aggName: string) => {
     setQuickEditModalRoute(aggName);
+    const existingIntake = editForm.routeIntakes?.[`${aggName}_UG`] || editForm.baselineIntake || 'Sept 2026';
+    setQuickEditIntake(existingIntake);
+
     if (aggName === 'BASECHAN') {
       setQuickEditMasterUG(editForm.masterRateUG.replace(/[^0-9.]/g, ''));
       setQuickEditMasterPG(editForm.masterRatePG.replace(/[^0-9.]/g, ''));
@@ -491,6 +495,12 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
           agentRateFD: quickEditAgentFD ? (quickEditTypeUG === 'Fixed Fee' ? `£${quickEditAgentFD}` : `${quickEditAgentFD}%`) : '-',
           agentRateUG: quickEditAgentUG ? (quickEditTypeUG === 'Fixed Fee' ? `£${quickEditAgentUG}` : `${quickEditAgentUG}%`) : '-',
           agentRatePG: quickEditAgentPG ? (quickEditTypePG === 'Fixed Fee' ? `£${quickEditAgentPG}` : `${quickEditAgentPG}%`) : '-',
+          routeIntakes: {
+            ...(editForm.routeIntakes || {}),
+            'BASECHAN_UG': quickEditIntake,
+            'BASECHAN_PG': quickEditIntake,
+            'BASECHAN_FD': quickEditIntake,
+          },
           routeCommissionTypes: {
             ...(editForm.routeCommissionTypes || {}),
             'BASECHAN_UG': quickEditTypeUG,
@@ -517,6 +527,11 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
         const nextData: UniversityDetailData = {
           ...editForm,
           ...(fields ? { [fields.ugField]: ugFormatted, [fields.pgField]: pgFormatted } : {}),
+          routeIntakes: {
+            ...(editForm.routeIntakes || {}),
+            [`${aggName}_UG`]: quickEditIntake,
+            [`${aggName}_PG`]: quickEditIntake,
+          },
           routeCommissionTypes: {
             ...(editForm.routeCommissionTypes || {}),
             [`${aggName}_UG`]: quickEditTypeUG,
@@ -844,6 +859,7 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-[#222F43] text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                     <th className="py-2 px-3">Route / Portal</th>
+                    <th className="py-2 px-3">Intake</th>
                     <th className="py-2 px-3">UG Rate</th>
                     <th className="py-2 px-3">PG Rate</th>
                     <th className="py-2 px-3 text-right">Actions</th>
@@ -862,6 +878,11 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
                           </span>
                         )}
                       </div>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className="font-mono text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                        {editForm.routeIntakes?.['BASECHAN_UG'] || editForm.baselineIntake}
+                      </span>
                     </td>
                     <td className="py-2.5 px-3">
                       <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
@@ -909,6 +930,7 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
                     const anyRate = ugRate || pgRate;
                     const typeUG = editForm.routeCommissionTypes?.[`${agg.name}_UG`] || editForm.commissionType;
                     const typePG = editForm.routeCommissionTypes?.[`${agg.name}_PG`] || editForm.commissionType;
+                    const routeIntake = editForm.routeIntakes?.[`${agg.name}_UG`] || editForm.baselineIntake;
 
                     return (
                       <tr key={agg.name} className="hover:bg-slate-50/50 dark:hover:bg-[#0E1526]/50 transition">
@@ -922,6 +944,11 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
                               </span>
                             )}
                           </div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="font-mono text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                            {routeIntake}
+                          </span>
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="flex items-center gap-1.5">
@@ -1418,6 +1445,39 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
             </div>
 
             <div className="space-y-3.5">
+              {/* Route Intake Dropdown */}
+              <div className="p-3 bg-slate-50 dark:bg-[#18181B] rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">
+                  Route Intake
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={quickEditIntake}
+                    onChange={(e) => setQuickEditIntake(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0E1526] font-bold text-xs"
+                  >
+                    {allKnownIntakes.map((intake) => (
+                      <option key={intake} value={intake}>
+                        {intake}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (quickEditModalRoute) {
+                        setActiveRouteKeyForNewIntake(`${quickEditModalRoute}_UG`);
+                        setIsAddIntakeOpen(true);
+                      }
+                    }}
+                    className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-950/60 rounded-lg transition shrink-0 cursor-pointer"
+                    title="Add new intake option"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
               {/* If Basechan, show Agent Rates section */}
               {quickEditModalRoute === 'BASECHAN' && (
                 <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-2.5">
