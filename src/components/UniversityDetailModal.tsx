@@ -17,6 +17,7 @@ import {
   Plus,
   AlertCircle,
   StickyNote,
+  Share2,
 } from 'lucide-react';
 import type { CommissionRate, StudyLevel } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -65,6 +66,9 @@ interface UniversityDetailModalProps {
   onDeleteUniversity?: (universityName: string, intake?: string) => Promise<void> | void;
   onAddRoute?: (rate: CommissionRate) => Promise<void> | void;
   onAddNewIntake?: (newIntake: string) => Promise<void> | void;
+  onShareRate?: (rate: CommissionRate) => void;
+  onUpdateSingleRoute?: (rate: CommissionRate, updates: Partial<CommissionRate>) => Promise<void>;
+  onResetRouteRates?: (rate: CommissionRate) => Promise<void>;
 }
 
 export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
@@ -80,6 +84,9 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
   onDeleteUniversity,
   onAddRoute,
   onAddNewIntake,
+  onShareRate,
+  onUpdateSingleRoute,
+  onResetRouteRates,
 }) => {
   const { role } = useAuth();
   const isAdmin = role === 'ADMIN';
@@ -97,6 +104,11 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
   const [addingRoute, setAddingRoute] = useState(false);
   const [addRouteError, setAddRouteError] = useState<string | null>(null);
   const [addRouteSuccess, setAddRouteSuccess] = useState<string | null>(null);
+
+  // Per-route inline editing state
+  const [editingRouteKey, setEditingRouteKey] = useState<string | null>(null);
+  const [routeEditRateVal, setRouteEditRateVal] = useState<string>('');
+  const [routeSavingKey, setRouteSavingKey] = useState<string | null>(null);
 
   // Build resolved data record from rawData or ratesForUniversity
   const resolvedData: UniversityDetailData = useMemo(() => {
@@ -389,6 +401,80 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
     }
   };
 
+  const handleInlineResetRate = async (aggName: string, level: 'UG' | 'PG') => {
+    const rateMatch = ratesForUniversity.find(
+      (r) => (r.aggregator || '').toUpperCase() === aggName.toUpperCase() && r.studyLevel === level
+    );
+    if (rateMatch && onResetRouteRates) {
+      if (!window.confirm(`Reset ${aggName} (${level}) rates to 0?`)) return;
+      const key = `${aggName}_${level}`;
+      setRouteSavingKey(key);
+      try {
+        await onResetRouteRates(rateMatch);
+        // Also update local editForm state
+        const formField = `${aggName.toLowerCase().replace(/[\s-]/g, '')}${level}` as keyof UniversityDetailData;
+        if (formField in editForm) {
+          handleInputChange(formField, '0');
+        }
+      } catch (err) {
+        console.error('Reset error:', err);
+      } finally {
+        setRouteSavingKey(null);
+      }
+    } else {
+      // Just zero out in local editForm
+      const mapping: Record<string, keyof UniversityDetailData> = {
+        'EDVOY_UG': 'edvoyUG', 'EDVOY_PG': 'edvoyPG',
+        'SI-UK_UG': 'siUkUG', 'SI-UK_PG': 'siUkPG',
+        'UAP_UG': 'uapUG', 'UAP_PG': 'uapPG',
+        'CRIZAC_UG': 'crizacUG', 'CRIZAC_PG': 'crizacPG',
+        'KC OVERSEAS_UG': 'kcOverseasUG', 'KC OVERSEAS_PG': 'kcOverseasPG',
+        'AIMS EDUCATION_UG': 'aimsEducationUG', 'AIMS EDUCATION_PG': 'aimsEducationPG',
+      };
+      const field = mapping[`${aggName}_${level}`];
+      if (field) {
+        handleInputChange(field, '0');
+      }
+    }
+  };
+
+  const handleInlineSaveRate = async (aggName: string, level: 'UG' | 'PG', newVal: string) => {
+    const rateMatch = ratesForUniversity.find(
+      (r) => (r.aggregator || '').toUpperCase() === aggName.toUpperCase() && r.studyLevel === level
+    );
+    const num = parseFloat(newVal.replace(/[^0-9.]/g, '')) || 0;
+    const key = `${aggName}_${level}`;
+    setRouteSavingKey(key);
+    try {
+      if (rateMatch && onUpdateSingleRoute) {
+        const diffMargin = Number((num - (rateMatch.agentRate || 0)).toFixed(2));
+        await onUpdateSingleRoute(rateMatch, {
+          masterRate: num,
+          diffMargin,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      // Update local editForm
+      const mapping: Record<string, keyof UniversityDetailData> = {
+        'EDVOY_UG': 'edvoyUG', 'EDVOY_PG': 'edvoyPG',
+        'SI-UK_UG': 'siUkUG', 'SI-UK_PG': 'siUkPG',
+        'UAP_UG': 'uapUG', 'UAP_PG': 'uapPG',
+        'CRIZAC_UG': 'crizacUG', 'CRIZAC_PG': 'crizacPG',
+        'KC OVERSEAS_UG': 'kcOverseasUG', 'KC OVERSEAS_PG': 'kcOverseasPG',
+        'AIMS EDUCATION_UG': 'aimsEducationUG', 'AIMS EDUCATION_PG': 'aimsEducationPG',
+      };
+      const field = mapping[key];
+      if (field) {
+        handleInputChange(field, String(num));
+      }
+      setEditingRouteKey(null);
+    } catch (err) {
+      console.error('Save rate error:', err);
+    } finally {
+      setRouteSavingKey(null);
+    }
+  };
+
   const isIntakeSystemDefault = defaultIntake && editForm.baselineIntake === defaultIntake;
 
   const aggregatorsList = [
@@ -495,6 +581,17 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {onShareRate && ratesForUniversity.length > 0 && (
+              <button
+                type="button"
+                onClick={() => onShareRate(ratesForUniversity[0])}
+                className="p-2 text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-950/60 rounded-xl transition cursor-pointer"
+                title="Share rate card"
+              >
+                <Share2 className="w-4.5 h-4.5" />
+              </button>
+            )}
+
             {isAdmin && !isEditing && (
               <>
                 <button
@@ -660,34 +757,153 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-              {aggregatorsList.map((agg) => (
-                <div
-                  key={agg.name}
-                  className={`p-3 border rounded-xl text-center space-y-1.5 ${
-                    editForm.defaultRoute === agg.name
-                      ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-400 ring-2 ring-blue-500/20'
-                      : 'bg-white dark:bg-[#0E1526] border-slate-200 dark:border-[#222F43]'
-                  }`}
-                >
-                  <span className="font-extrabold text-xs text-slate-900 dark:text-slate-100 block truncate flex items-center justify-center gap-1">
-                    {agg.name}
-                    {editForm.defaultRoute === agg.name && (
-                      <Star className="w-3 h-3 fill-amber-400 text-amber-400 shrink-0" />
-                    )}
-                  </span>
-                  <div className="pt-1 border-t border-slate-100 dark:border-[#1E293B] space-y-1">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-slate-400 font-bold">UG:</span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{agg.ug}</span>
+              {aggregatorsList.map((agg) => {
+                const ugRate = ratesForUniversity.find((r) => (r.aggregator || '').toUpperCase() === agg.name.toUpperCase() && r.studyLevel === 'UG');
+                const pgRate = ratesForUniversity.find((r) => (r.aggregator || '').toUpperCase() === agg.name.toUpperCase() && r.studyLevel === 'PG');
+                const anyRate = ugRate || pgRate;
+
+                return (
+                  <div
+                    key={agg.name}
+                    className={`p-3 border rounded-xl text-center space-y-1.5 flex flex-col justify-between ${
+                      editForm.defaultRoute === agg.name
+                        ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-400 ring-2 ring-blue-500/20'
+                        : 'bg-white dark:bg-[#0E1526] border-slate-200 dark:border-[#222F43]'
+                    }`}
+                  >
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-900 dark:text-slate-100 block truncate flex items-center justify-center gap-1">
+                        {agg.name}
+                        {editForm.defaultRoute === agg.name && (
+                          <Star className="w-3 h-3 fill-amber-400 text-amber-400 shrink-0" />
+                        )}
+                      </span>
+                      <div className="pt-1 border-t border-slate-100 dark:border-[#1E293B] space-y-1.5">
+                        {/* UG Line */}
+                        <div className="flex items-center justify-between text-[10px] gap-1">
+                          <span className="text-slate-400 font-bold shrink-0">UG:</span>
+                          {editingRouteKey === `${agg.name}_UG` ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={routeEditRateVal}
+                                onChange={(e) => setRouteEditRateVal(e.target.value)}
+                                className="w-12 px-1 py-0.5 text-[10px] font-mono font-bold rounded bg-slate-50 dark:bg-slate-900 border border-blue-500 text-center"
+                              />
+                              <button
+                                onClick={() => handleInlineSaveRate(agg.name, 'UG', routeEditRateVal)}
+                                className="p-0.5 text-emerald-600 hover:text-emerald-500 cursor-pointer"
+                                title="Save"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => setEditingRouteKey(null)}
+                                className="p-0.5 text-slate-400 hover:text-slate-300 cursor-pointer"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{agg.ug}</span>
+                              {isAdmin && !isEditing && (
+                                <button
+                                  onClick={() => {
+                                    setEditingRouteKey(`${agg.name}_UG`);
+                                    setRouteEditRateVal(agg.ug.replace(/[^0-9.]/g, ''));
+                                  }}
+                                  className="text-slate-400 hover:text-blue-500 cursor-pointer p-0.5 transition"
+                                  title="Edit rate directly"
+                                >
+                                  <Pencil className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* PG Line */}
+                        <div className="flex items-center justify-between text-[10px] gap-1">
+                          <span className="text-slate-400 font-bold shrink-0">PG:</span>
+                          {editingRouteKey === `${agg.name}_PG` ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={routeEditRateVal}
+                                onChange={(e) => setRouteEditRateVal(e.target.value)}
+                                className="w-12 px-1 py-0.5 text-[10px] font-mono font-bold rounded bg-slate-50 dark:bg-slate-900 border border-blue-500 text-center"
+                              />
+                              <button
+                                onClick={() => handleInlineSaveRate(agg.name, 'PG', routeEditRateVal)}
+                                className="p-0.5 text-emerald-600 hover:text-emerald-500 cursor-pointer"
+                                title="Save"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => setEditingRouteKey(null)}
+                                className="p-0.5 text-slate-400 hover:text-slate-300 cursor-pointer"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{agg.pg}</span>
+                              {isAdmin && !isEditing && (
+                                <button
+                                  onClick={() => {
+                                    setEditingRouteKey(`${agg.name}_PG`);
+                                    setRouteEditRateVal(agg.pg.replace(/[^0-9.]/g, ''));
+                                  }}
+                                  className="text-slate-400 hover:text-blue-500 cursor-pointer p-0.5 transition"
+                                  title="Edit rate directly"
+                                >
+                                  <Pencil className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-slate-400 font-bold">PG:</span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{agg.pg}</span>
+                    {/* Bottom Action Buttons: Clear/Reset & Share */}
+                    <div className="pt-1.5 border-t border-slate-100 dark:border-[#1E293B] flex items-center justify-center gap-2">
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Reset both UG and PG or ask
+                            handleInlineResetRate(agg.name, 'UG');
+                            handleInlineResetRate(agg.name, 'PG');
+                          }}
+                          disabled={routeSavingKey?.startsWith(agg.name)}
+                          className="p-1 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                          title={`Reset ${agg.name} rates to 0`}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                      {onShareRate && anyRate && (
+                        <button
+                          type="button"
+                          onClick={() => onShareRate(anyRate)}
+                          className="p-1 text-slate-400 hover:text-amber-500 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer"
+                          title={`Share ${agg.name} rate card`}
+                        >
+                          <Share2 className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -858,7 +1074,8 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
                     { key: 'AIMS EDUCATION', name: 'AIMS EDUCATION', ug: editForm.aimsEducationUG, pg: editForm.aimsEducationPG },
                   ].map((route) => {
                     const routeIntake = editForm.routeIntakes?.[`${route.key}_UG`] || editForm.baselineIntake;
-                    const routeType = editForm.routeCommissionTypes?.[`${route.key}_UG`] || editForm.commissionType;
+                    const routeTypeUG = editForm.routeCommissionTypes?.[`${route.key}_UG`] || editForm.commissionType;
+                    const routeTypePG = editForm.routeCommissionTypes?.[`${route.key}_PG`] || editForm.commissionType;
 
                     const handleUgRateChange = (val: string) => {
                       if (route.key === 'BASECHAN') handleInputChange('masterRateUG', val);
@@ -926,20 +1143,31 @@ export const UniversityDetailModal: React.FC<UniversityDetailModalProps> = ({
                             </button>
                           </div>
 
-                          {/* Route Commission Type */}
-                          <div className="flex items-center gap-1 bg-slate-50 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                          {/* Route Commission Type — UG and PG independently */}
+                          <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-[#18181B] p-1 rounded-xl border border-slate-200 dark:border-slate-800 flex-wrap">
                             <span className="text-[10px] font-bold text-slate-400 px-1">Type:</span>
-                            <select
-                              value={routeType}
-                              onChange={(e) => {
-                                handleRouteCommissionTypeChange(`${route.key}_UG`, e.target.value);
-                                handleRouteCommissionTypeChange(`${route.key}_PG`, e.target.value);
-                              }}
-                              className="px-2 py-0.5 rounded-lg bg-white dark:bg-[#0E1526] border border-slate-300 dark:border-slate-700 font-bold text-xs"
-                            >
-                              <option value="Percentage">%</option>
-                              <option value="Fixed Fee">Fixed (£)</option>
-                            </select>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] font-bold text-indigo-400 uppercase">UG</span>
+                              <select
+                                value={routeTypeUG}
+                                onChange={(e) => handleRouteCommissionTypeChange(`${route.key}_UG`, e.target.value)}
+                                className="px-1.5 py-0.5 rounded-lg bg-white dark:bg-[#0E1526] border border-slate-300 dark:border-slate-700 font-bold text-xs"
+                              >
+                                <option value="Percentage">%</option>
+                                <option value="Fixed Fee">Fixed (£)</option>
+                              </select>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] font-bold text-violet-400 uppercase">PG</span>
+                              <select
+                                value={routeTypePG}
+                                onChange={(e) => handleRouteCommissionTypeChange(`${route.key}_PG`, e.target.value)}
+                                className="px-1.5 py-0.5 rounded-lg bg-white dark:bg-[#0E1526] border border-slate-300 dark:border-slate-700 font-bold text-xs"
+                              >
+                                <option value="Percentage">%</option>
+                                <option value="Fixed Fee">Fixed (£)</option>
+                              </select>
+                            </div>
                           </div>
 
                           {/* Route UG & PG Rates */}

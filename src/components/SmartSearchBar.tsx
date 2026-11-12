@@ -656,6 +656,8 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                         onGroupByModeChange('COUNTRY');
                       } else if (val === 'ALPHABETICAL') {
                         onGroupByModeChange('NONE');
+                      } else if (val === 'RECENTLY_MODIFIED') {
+                        onGroupByModeChange('NONE');
                       }
                     }
                   }}
@@ -665,6 +667,7 @@ export const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                     { value: 'UNIVERSITY', label: 'Sort by University' },
                     { value: 'HIGHEST_MARGIN', label: 'Highest Yield / Payout' },
                     { value: 'MOST_ROUTES', label: 'Most Available Routes' },
+                    { value: 'RECENTLY_MODIFIED', label: 'Recently Modified' },
                   ]}
                 />
               </div>

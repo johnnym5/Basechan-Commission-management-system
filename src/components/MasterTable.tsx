@@ -57,6 +57,7 @@ import {
   FileSpreadsheet,
   Plus,
   StickyNote,
+  Clock,
 } from 'lucide-react';
 
 interface MasterTableProps {
@@ -223,6 +224,19 @@ const SchoolStatusCell: React.FC<{ rate: CommissionRate }> = ({ rate }) => {
       )}
     </div>
   );
+};
+
+// Relative time formatter for "Recently Modified" sort view
+const formatRelativeTime = (isoString?: string): string => {
+  if (!isoString) return 'Unknown';
+  const diff = Date.now() - new Date(isoString).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min${mins === 1 ? '' : 's'} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr${hrs === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
 };
 
 // Aggregator Route Cell Badge
@@ -497,8 +511,15 @@ const GroupRoutesModal: React.FC<{
               <span className="font-extrabold text-xs">
                 Recommended Top Yield Route:
               </span>
-              <span className="font-mono font-black text-sm text-amber-600 dark:text-amber-400">
-                {formatCurrencyValue(group.bestRoute.diffMargin, currency, group.bestRoute.isFlatFee)} via {group.bestRoute.aggregator}
+              <span className="font-mono font-black text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                {formatCurrencyValue(group.bestRoute.diffMargin, currency, group.bestRoute.isFlatFee)}
+                {!group.bestRoute.isFlatFee && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-violet-500/20 text-violet-600 dark:text-violet-400 border border-violet-400/30 ml-0.5">%</span>
+                )}
+                {group.bestRoute.isFlatFee && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-400/30 ml-0.5">FLAT FEE</span>
+                )}
+                {' '}via {group.bestRoute.aggregator}
               </span>
             </div>
           )}
@@ -641,6 +662,7 @@ export const MasterTable: React.FC<MasterTableProps> = ({
   const effectiveGroupByMode: GroupByMode = useMemo(() => {
     if (selectedSortBy === 'UNIVERSITY') return 'UNIVERSITY';
     if (selectedSortBy === 'COUNTRY') return 'COUNTRY';
+    if (selectedSortBy === 'RECENTLY_MODIFIED') return 'NONE';
     return groupByMode;
   }, [selectedSortBy, groupByMode]);
 
@@ -860,6 +882,13 @@ export const MasterTable: React.FC<MasterTableProps> = ({
     }
     if (selectedSortBy === 'HIGHEST_MARGIN') {
       return list.sort((a, b) => (b?.diffMargin || 0) - (a?.diffMargin || 0));
+    }
+    if (selectedSortBy === 'RECENTLY_MODIFIED') {
+      return list.sort((a, b) => {
+        const aTime = a?.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const bTime = b?.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return bTime - aTime;
+      });
     }
     return list;
   }, [filteredData, selectedSortBy]);
@@ -1950,7 +1979,13 @@ export const MasterTable: React.FC<MasterTableProps> = ({
                     return (
                       <div
                         key={group.groupKey}
-                        onClick={() => setActiveGroupRate(group)}
+                        onClick={() => {
+                          if (isAdmin) {
+                            setSelectedUniversityDetailName(group.displayName);
+                          } else {
+                            setActiveGroupRate(group);
+                          }
+                        }}
                         className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 cursor-pointer relative flex flex-col justify-between gap-2.5 select-none ${
                           isGroupSelected
                             ? 'bg-blue-50/60 dark:bg-blue-950/30 border-blue-400 ring-2 ring-blue-500/20 shadow-md'
@@ -2095,7 +2130,37 @@ export const MasterTable: React.FC<MasterTableProps> = ({
             ) : (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5 sm:gap-4">
-                  {paginatedFlatData.map((rate) => renderRateCard(rate))}
+                  {paginatedFlatData.map((rate) =>
+                    selectedSortBy === 'RECENTLY_MODIFIED' ? (
+                      <div
+                        key={rate.id}
+                        onClick={() => setSelectedUniversityDetailName(rate.universityName)}
+                        className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-[#222F43] bg-white dark:bg-[#0E1526] hover:border-blue-400 dark:hover:border-blue-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col gap-2 select-none"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            {rate.studyLevel}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            {rate.aggregator || 'Direct'}
+                          </span>
+                        </div>
+                        <h3 className="font-extrabold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-snug break-words">
+                          {rate.universityName}
+                        </h3>
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-[#222F43]">
+                          <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono">
+                            <Clock className="w-3 h-3 shrink-0" />
+                            <span>{formatRelativeTime(rate.updatedAt)}</span>
+                          </div>
+                          <span className="font-mono font-black text-xs text-emerald-600 dark:text-amber-400">
+                            {formatCurrencyValue(rate.diffMargin, activeCurrency, rate.isFlatFee)}
+                            {rate.isFlatFee ? '' : '%'}
+                          </span>
+                        </div>
+                      </div>
+                    ) : renderRateCard(rate)
+                  )}
                 </div>
 
                 {/* Flat Card Pagination Bar */}
@@ -2271,6 +2336,37 @@ export const MasterTable: React.FC<MasterTableProps> = ({
         )}
         onSaveUniversity={handleSaveUniversityRecord}
         onDeleteUniversity={handleDeleteUniversityRecord}
+        onShareRate={setSharingRate}
+        onUpdateSingleRoute={async (rate, updates) => {
+          try {
+            setBatchActionLoading(true);
+            await updateRates([rate], (prev) => ({ ...prev, ...updates }), user?.email || 'admin@basechan.com', 'rates');
+            onBatchActionComplete?.(`Updated rate for ${rate.aggregator} (${rate.studyLevel}) at ${rate.universityName}.`);
+          } catch (err) {
+            console.error('Error updating single route:', err);
+            throw err;
+          } finally {
+            setBatchActionLoading(false);
+          }
+        }}
+        onResetRouteRates={async (rate) => {
+          try {
+            setBatchActionLoading(true);
+            await updateRates([rate], (prev) => ({
+              ...prev,
+              masterRate: 0,
+              agentRate: 0,
+              diffMargin: 0,
+              updatedAt: new Date().toISOString(),
+            }), user?.email || 'admin@basechan.com', 'rates');
+            onBatchActionComplete?.(`Reset rates for ${rate.aggregator} (${rate.studyLevel}) at ${rate.universityName}.`);
+          } catch (err) {
+            console.error('Error resetting route rates:', err);
+            throw err;
+          } finally {
+            setBatchActionLoading(false);
+          }
+        }}
         onAddRoute={async (newRate) => {
           try {
             setBatchActionLoading(true);

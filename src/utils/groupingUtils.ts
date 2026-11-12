@@ -3,7 +3,7 @@ import { resolveUniversityCountry as baseResolveCountry } from './countryResolve
 import { findBestComparableRate } from './commissionFormatter';
 
 export type GroupByMode = 'NONE' | 'UNIVERSITY' | 'COUNTRY' | 'AGGREGATOR';
-export type GroupSortMode = 'MOST_ROUTES' | 'HIGHEST_MARGIN' | 'ALPHABETICAL';
+export type GroupSortMode = 'MOST_ROUTES' | 'HIGHEST_MARGIN' | 'ALPHABETICAL' | 'RECENTLY_MODIFIED';
 
 export interface GroupedUniversity {
   groupKey: string;
@@ -206,6 +206,11 @@ export const sortGroupedUniversities = (
         return (b.maxMargin || 0) - (a.maxMargin || 0);
       }
       return (b.totalRoutes || 0) - (a.totalRoutes || 0);
+    }
+    if (sortMode === 'RECENTLY_MODIFIED') {
+      const aTime = Math.max(...a.rates.map((r) => (r.updatedAt ? new Date(r.updatedAt).getTime() : 0)));
+      const bTime = Math.max(...b.rates.map((r) => (r.updatedAt ? new Date(r.updatedAt).getTime() : 0)));
+      return bTime - aTime;
     }
     // ALPHABETICAL
     return String(a.displayName || '').localeCompare(String(b.displayName || ''));

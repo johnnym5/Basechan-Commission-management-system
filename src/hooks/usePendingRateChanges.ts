@@ -3,6 +3,7 @@ import type { PendingRateOperation } from '../types/rateWriteQueue';
 import { discardPendingRateOperation, finishPendingRateOperation, getPendingRateOperations, updatePendingRateOperation } from '../services/rateWriteQueue';
 import { subscribeToLocalRateChanges } from '../services/localRateDatabase';
 import { isRatePackagePublished, partitionRatePackageOperations, publishRateChangePackage } from '../services/ratePackageService';
+import { publishRelevantUpdates } from '../services/userUpdates';
 
 type SyncState = 'idle' | 'publishing' | 'offline' | 'failed';
 export type RatePackageUploadStage = 'idle' | 'verifying' | 'packaging' | 'sending' | 'delivered' | 'failed';
@@ -106,6 +107,24 @@ export function usePendingRateChanges(uid: string | undefined, enabled: boolean,
           onSyncOutcome?.({ operationId: operation.operationId, status: 'saved' });
         }
         deliveredBatches += 1;
+        // Fire-and-forget: notify bell icon of rate changes
+        const affectedRates = packageOperations.flatMap((op) =>
+          op.mutations.flatMap((m) =>
+            m.kind === 'create' ? [m.next]
+            : m.kind === 'update' ? (m.baseSnapshot ? [{ ...m.baseSnapshot, ...m.patch }] : [])
+            : m.kind === 'delete' && m.baseRate ? [m.baseRate]
+            : []
+          )
+        );
+        if (affectedRates.length > 0) {
+          publishRelevantUpdates({
+            type: 'rates',
+            title: 'Commission rates updated',
+            summary: `${affectedRates.length} rate${affectedRates.length !== 1 ? 's' : ''} published.`,
+            rates: affectedRates,
+            includeStaff: true,
+          }).catch((err: unknown) => console.warn('[notification] publishRelevantUpdates failed:', err));
+        }
         setSelectedIds((current) => current.filter((id) => !memberIds.includes(id)));
         setUploadProgress({ stage: 'sending', currentBatch: batchNumber, totalBatches, deliveredBatches, failedBatches });
         await refresh();
