@@ -8,6 +8,62 @@ export interface ExportWorkbookOptions {
   customFilename?: string;
 }
 
+const normalizeCountryForExport = (country?: string) => {
+  const clean = (country || 'UK').trim().replace(/\s+/g, ' ');
+  const key = clean.toLocaleLowerCase().replace(/[.,]/g, '');
+  if (['uk', 'u k', 'united kingdom', 'united kindom', 'great britain', 'britain'].includes(key)) return 'UK';
+  if (['usa', 'us', 'united states', 'united states of america'].includes(key)) return 'USA';
+  return clean || 'UK';
+};
+
+const buildRoleExportRow = (
+  r: CommissionRate,
+  role: UserRole,
+  currency: string,
+  country: string,
+) => {
+  const isFlat = r.isFlatFee;
+  const fmtVal = (num: number) => isFlat ? `${currency} ${num.toLocaleString()}` : `${num}%`;
+
+  if (role === 'ADMIN') {
+    return {
+      'University Name': r.universityName,
+      Country: country,
+      Intake: r.intake,
+      'Study Level': r.studyLevel,
+      'Application Portal': r.aggregator || 'Direct',
+      'Status Guidance': r.guidance || 'ALLOWED',
+      'Master Rate': fmtVal(r.masterRate),
+      'Sub-Agent Payout': fmtVal(r.agentRate),
+      'Net Profit Margin': fmtVal(r.diffMargin),
+      Type: isFlat ? 'Fixed Fee' : 'Percentage',
+      Notes: r.notes || '',
+    };
+  }
+
+  if (role === 'STAFF') {
+    // Staff need routing context only. Financial fields stay Admin-only.
+    return {
+      'University Name': r.universityName,
+      Country: country,
+      Intake: r.intake,
+      'Study Level': r.studyLevel,
+      'Application Portal': r.aggregator || 'Direct',
+      'Status Guidance': r.guidance || 'ALLOWED',
+    };
+  }
+
+  // Agents receive only their own payout and non-sensitive route context.
+  return {
+    'University Name': r.universityName,
+    Country: country,
+    Intake: r.intake,
+    'Study Level': r.studyLevel,
+    'Your Guaranteed Commission': fmtVal(r.agentRate),
+    Type: isFlat ? 'Fixed Fee' : 'Percentage',
+  };
+};
+
 export const exportMultiSheetRoleWorkbook = ({
   rates,
   role,
@@ -16,10 +72,10 @@ export const exportMultiSheetRoleWorkbook = ({
 }: ExportWorkbookOptions) => {
   if (!rates || rates.length === 0) return;
 
-  // 1. Group rates by Country (e.g. 'UK', 'Canada', 'USA', 'Australia', etc.)
+  // Normalize country aliases before grouping so equivalent labels share one tab.
   const countryMap = new Map<string, CommissionRate[]>();
   rates.forEach((r) => {
-    const countryName = (r.country || 'UK').trim();
+    const countryName = normalizeCountryForExport(r.country);
     if (!countryMap.has(countryName)) {
       countryMap.set(countryName, []);
     }
@@ -33,48 +89,12 @@ export const exportMultiSheetRoleWorkbook = ({
   countryMap.forEach((countryRates, countryName) => {
     const sheetTabName = countryName.replace(/[:\\/?*\[\]]/g, '').slice(0, 30) || 'Rates';
 
-    const rowData = countryRates.map((r) => {
-      const isFlat = r.isFlatFee;
-      const fmtVal = (num: number) =>
-        isFlat ? `${currency} ${num.toLocaleString()}` : `${num}%`;
-
-      if (role === 'ADMIN') {
-        return {
-          'University Name': r.universityName,
-          'Country': r.country || 'UK',
-          'Intake': r.intake,
-          'Study Level': r.studyLevel,
-          'Application Portal': r.aggregator || 'Direct',
-          'Status Guidance': r.guidance || 'ALLOWED',
-          'Master Rate': fmtVal(r.masterRate),
-          'Sub-Agent Payout': fmtVal(r.agentRate),
-          'Net Profit Margin': fmtVal(r.diffMargin),
-          'Type': isFlat ? 'Fixed Fee' : 'Percentage',
-          'Notes': r.notes || '',
-        };
-      }
-
-      if (role === 'STAFF') {
-        return {
-          'University Name': r.universityName,
-          'Country': r.country || 'UK',
-          'Intake': r.intake,
-          'Study Level': r.studyLevel,
-          'Application Portal': r.aggregator || 'Direct',
-          'Status Guidance': r.guidance || 'ALLOWED',
-        };
-      }
-
-      // AGENT Role (Columns strictly sanitized for sub-agents)
-      return {
-        'University Name': r.universityName,
-        'Country': r.country || 'UK',
-        'Intake': r.intake,
-        'Study Level': r.studyLevel,
-        'Your Guaranteed Commission': fmtVal(r.agentRate),
-        'Type': isFlat ? 'Fixed Fee' : 'Percentage',
-      };
-    });
+    const rowData = countryRates.map((r) => buildRoleExportRow(
+      r,
+      role,
+      currency,
+      normalizeCountryForExport(r.country),
+    ));
 
     const worksheet = XLSX.utils.json_to_sheet(rowData);
 
